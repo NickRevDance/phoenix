@@ -7,3 +7,10 @@ sources:
     tables:
       - name: centric_product
         identifier: d_centricproduct
+
+  - name: byod
+    database: dwhvisualnext  # This points directly to your Databricks Foreign Catalog
+    schema: d365_byod               # Your Azure SQL database schema name
+    tables:
+      - name: inventory_combinations
+        identifier: rev_inventdimcombinationstaging
