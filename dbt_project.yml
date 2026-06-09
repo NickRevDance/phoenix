@@ -40,3 +40,19 @@ models:
     # Applies to all files under models/example/
     example:
       +materialized: table
+
+    # 1. Global setting: Dynamically pick up the catalog from the active profile
+    +catalog: "{{ target.catalog }}"
+    
+    # 2. Folder-level overrides to map to your Medallion schemas
+    bronze:
+      +schema: bronze
+      +materialized: table      # Staging/Bronze is typically built as lightweight views
+      
+    silver:
+      +schema: silver
+      +materialized: table     # Silver is materialized as physical Delta tables
+      
+    gold:
+      +schema: gold
+      +materialized: table     # Gold is materialized as high-performance 
