@@ -2,7 +2,7 @@
 # Name your project! Project names should contain only lowercase characters
 # and underscores. A good package name should reflect your organization's
 # name or the intended use of these models
-name: 'my_new_project'
+name: 'phoenix'
 version: '1.0.0'
 config-version: 2
 
@@ -19,7 +19,6 @@ seed-paths: ["seeds"]
 macro-paths: ["macros"]
 snapshot-paths: ["snapshots"]
 
-target-path: "target"  # directory which will store compiled SQL files
 clean-targets:         # directories to be removed by `dbt clean`
   - "target"
   - "dbt_packages"
@@ -36,14 +35,14 @@ clean-targets:         # directories to be removed by `dbt clean`
 # using the `{{ config(...) }}` macro.
 
 models:
-  my_new_project:
+  phoenix:
     # Applies to all files under models/example/
-    example:
-      +materialized: table
+    +catalog: "{{ 'phoenix_dev_catalog' if target.name == 'dev' else 'phoenix_prod_catalog' }}"
+  
+    staging:
+      +schema: staging  # Prevents dbt from appending custom schema prefixes to sources
+      +materialized: view
 
-    # 1. Global setting: Dynamically pick up the catalog from the active profile
-    +catalog: "{{ target.catalog }}"
-    
     # 2. Folder-level overrides to map to your Medallion schemas
     bronze:
       +schema: bronze
@@ -56,3 +55,5 @@ models:
     gold:
       +schema: gold
       +materialized: table     # Gold is materialized as high-performance 
+flags:
+  manage_state: false 
