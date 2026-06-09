@@ -1,9 +1,0 @@
-version: 2
-
-sources:
-  - name: dwhvisualnext
-    database: dwhvisualnext  # This points directly to your Databricks Foreign Catalog
-    schema: analytics               # Your Azure SQL database schema name
-    tables:
-      - name: centric_product
-        identifier: d_centricproduct

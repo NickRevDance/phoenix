@@ -37,7 +37,7 @@ clean-targets:         # directories to be removed by `dbt clean`
 models:
   phoenix:
     # Applies to all files under models/example/
-    +catalog: "{{ target.catalog if target.catalog is not none and target.catalog != '' else 'phoenix_dev_catalog' }}"
+    +catalog: "{{ 'phoenix_dev_catalog' if target.name == 'dev' else 'phoenix_prod_catalog' }}"
   
     # 2. Folder-level overrides to map to your Medallion schemas
     bronze:
