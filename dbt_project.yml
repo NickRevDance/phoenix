@@ -39,6 +39,10 @@ models:
     # Applies to all files under models/example/
     +catalog: "{{ 'phoenix_dev_catalog' if target.name == 'dev' else 'phoenix_prod_catalog' }}"
   
+    staging:
+      +schema: staging  # Prevents dbt from appending custom schema prefixes to sources
+      +materialized: view
+
     # 2. Folder-level overrides to map to your Medallion schemas
     bronze:
       +schema: bronze
