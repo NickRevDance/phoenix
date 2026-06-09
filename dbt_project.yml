@@ -19,7 +19,6 @@ seed-paths: ["seeds"]
 macro-paths: ["macros"]
 snapshot-paths: ["snapshots"]
 
-target-path: "target"  # directory which will store compiled SQL files
 clean-targets:         # directories to be removed by `dbt clean`
   - "target"
   - "dbt_packages"
@@ -39,10 +38,7 @@ models:
   phoenix:
     # Applies to all files under models/example/
     +catalog: "{{ target.catalog if target.catalog is not none and target.catalog != '' else 'phoenix_dev_catalog' }}"
-    
-    example:
-      +materialized: table
-    
+  
     # 2. Folder-level overrides to map to your Medallion schemas
     bronze:
       +schema: bronze
