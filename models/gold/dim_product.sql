@@ -1,7 +1,13 @@
 {{ config(materialized = 'table') }}
 
 SELECT
-     CPM.UPC
+    {{dbt_utils.generate_surrogate_key(['BAR.InventDimID', 'BAR.ItemID']) }} AS product_dim_id
+    ,BAR.barcode_id
+    ,BAR.ItemBarcode
+    ,BAR.InventDimID
+    ,BAR.ItemID
+    ,PV.DisplayProductNumber as pv_DisplayProductNumber
+    ,CPM.UPC
     ,CPM.BarcodeSetupID AS UPCSetupID
     ,CPM.SKU
     ,CPM.`Style#` AS StyleNumber

@@ -27,5 +27,23 @@ sources:
       - name: product_variant
         identifier: Rev_EcoResDistinctProductVariantStaging
 
+      - name: inventory_on_hand
+        identifier: InventWarehouseInventoryStatusOnHandV2Staging
+
       - name: hts_assignment
         identifier: REVCodesAssignmentStaging
+
+      - name: warehouse_location
+        identifier: Rev_WMSLocationStaging
+
+      - name: inventory_trans
+        identifier: Rev_InventTransStaging
+
+      - name: inventory_sum
+        identifier: Rev_InventSumStaging
+
+      - name: inventory_dim
+        identifier: Rev_InventDimStaging
+
+      - name: inventory_table
+        identifier: Rev_InventTable_Staging
