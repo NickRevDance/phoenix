@@ -6,5 +6,6 @@ SELECT
 FROM
     {{ref("silver_byod_inventory_sum")}} s
     left join {{ref("dim_product")}} p
-        on s.ItemID = p.ItemID
-        and s.InventDimID = p.InventDimID
+		on s.ITEMID = p.StyleNumber
+		and s.INVENTSIZEID = p.Size
+		and s.INVENTCOLORID = p.D365ColorCode

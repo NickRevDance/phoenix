@@ -12,10 +12,10 @@ SELECT
     ,CPM.SKU
     ,CPM.`Style#` AS StyleNumber
     ,CPM.StyleName
-    ,CPM.Size AS Size
+    ,CPM.Size
     ,CPM.SizeRange
     ,CPM.SalesSizeChart
-    ,CPM.Colorway AS Colorway
+    ,CPM.Colorway
     ,CPM.ColorFamily
     ,CPM.ActiveColorways
     ,CPM.D365ColorCode

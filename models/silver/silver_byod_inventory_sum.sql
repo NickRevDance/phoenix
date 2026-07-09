@@ -3,13 +3,15 @@
 SELECT
     ItemID
     , InventDimID
+    , INVENTSIZEID
+    , INVENTCOLORID
+    , INVENTLOCATIONID
+    , inventsiteid
+    , SYNCSTARTDATETIME
     , AVAILPHYSICAL
     , AVAILORDERED
     , closed
     , closedqty
     , RESERVPHYSICAL
-    , INVENTLOCATIONID
-    , inventsiteid
-    , SYNCSTARTDATETIME
 FROM
     {{ ref('bronze_byod_inventory_sum') }}
