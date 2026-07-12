@@ -9,8 +9,41 @@ sources:
         identifier: d_centricproduct
 
   - name: byod
-    database: dwhvisualnext  # This points directly to your Databricks Foreign Catalog
-    schema: d365_byod               # Your Azure SQL database schema name
+    database: dwhvisualnext
+    schema: d365_byod
     tables:
+      - name: item_barcode
+        identifier: Rev_InventItembarcodeStaging
+
       - name: inventory_combinations
-        identifier: rev_inventdimcombinationstaging
+        identifier: Rev_InventDimCombinationStaging
+
+      - name: inventory_item
+        identifier: Rev_InventTableStaging
+
+      - name: inventory_module
+        identifier: Rev_InventTableMODUleStaging
+
+      - name: product_variant
+        identifier: Rev_EcoResDistinctProductVariantStaging
+
+      - name: inventory_on_hand
+        identifier: InventWarehouseInventoryStatusOnHandV2Staging
+
+      - name: hts_assignment
+        identifier: REVCodesAssignmentStaging
+
+      - name: warehouse_location
+        identifier: Rev_WMSLocationStaging
+
+      - name: inventory_trans
+        identifier: Rev_InventTransStaging
+
+      - name: inventory_sum
+        identifier: Rev_InventSumStaging
+
+      - name: inventory_dim
+        identifier: Rev_InventDimStaging
+
+      - name: inventory_table
+        identifier: Rev_InventTable_Staging
