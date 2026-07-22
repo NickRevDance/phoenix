@@ -2,8 +2,8 @@ version: 2
 
 sources:
   - name: dwhvisualnext
-    database: dwhvisualnext  # This points directly to your Databricks Foreign Catalog
-    schema: analytics               # Your Azure SQL database schema name
+    database: dwhvisualnext
+    schema: analytics
     tables:
       - name: centric_product
         identifier: d_centricproduct
@@ -47,3 +47,15 @@ sources:
 
       - name: inventory_table
         identifier: Rev_InventTable_Staging
+      
+      - name: inventory_location
+        identifier: Rev_WHSInventFixedLocationStaging
+    
+  - name: SFDC
+    database: "{{ 'phoenix_prod_catalog' if target.name == 'prod' else 'phoenix_dev_catalog' }}"
+    schema: bronze
+    tables:
+      - name: sfdc_account
+        identifier: sfdc_account
+      - name: sfdc_case
+        identifier: sfdc_case
