@@ -13,5 +13,11 @@ SELECT
     , closed
     , closedqty
     , RESERVPHYSICAL
+    , md5(
+        concat_ws(
+            '|'
+            , InventDimID
+        )
+    ) as change_hash
 FROM
     {{ ref('bronze_byod_inventory_sum') }}

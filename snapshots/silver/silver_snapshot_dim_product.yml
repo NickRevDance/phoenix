@@ -1,0 +1,20 @@
+version: 2
+
+snapshots:
+  - name: silver_snapshot_dim_product
+    relation: ref('silver_stage_dim_product')
+
+    description: >
+      Type 2 historical snapshot of the consolidated silver product entity.
+      A new version is created whenever a tracked product, hierarchy,
+      merchandising, demographic, lifecycle, sourcing, or estimated-cost
+      attribute changes.
+
+    config:
+      schema: silver_history
+      unique_key: product_key
+      strategy: check
+      hard_deletes: ignore
+
+      check_cols:
+        - product_change_hash
