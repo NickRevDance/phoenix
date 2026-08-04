@@ -46,10 +46,16 @@ sources:
         identifier: Rev_InventDimStaging
 
       - name: inventory_table
-        identifier: Rev_InventTable_Staging
+        identifier: Rev_InventTableStaging
       
       - name: inventory_location
-        identifier: Rev_WHSInventFixedLocationStaging
+        identifier: Rev_InventLocationStaging
+
+      - name: inventory_site
+        identifier: Rev_InventSiteStaging
+
+      - name: inventory_trans_origin
+        identifier: Rev_InventTransOriginStaging
     
   - name: SFDC
     database: "{{ 'phoenix_prod_catalog' if target.name == 'prod' else 'phoenix_dev_catalog' }}"
@@ -59,3 +65,10 @@ sources:
         identifier: sfdc_account
       - name: sfdc_case
         identifier: sfdc_case
+
+  - name: dwhvisualnext_dimensions
+    database: dwhvisualnext
+    schema: dw
+    tables:
+      - name: date
+        identifier: d_date

@@ -2,7 +2,7 @@
 
 SELECT
 -- Core Identifiers
-    md5(concat_ws('|','BAR.InventDimID', 'BAR.ItemID')) AS product_key
+    md5(concat_ws('|',ifnull(CPM.UPC,'0'))) AS product_key
     ,BAR.ItemID as product_id
     ,CPM.UPC
     ,CPM.BarcodeSetupID AS upc_setup_id

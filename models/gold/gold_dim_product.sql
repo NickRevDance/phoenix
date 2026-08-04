@@ -1,5 +1,7 @@
 {{ config(materialized = 'table') }}
 
+{{ config(materialized = 'table') }}
+
 SELECT
     snap_p.*
 FROM
