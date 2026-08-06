@@ -3,4 +3,4 @@
 SELECT
     *
 FROM
-    {{source("byod", d365_dir_party)}}
+    {{source("byod", "d365_dir_party")}}
