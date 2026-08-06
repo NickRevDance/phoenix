@@ -56,6 +56,16 @@ sources:
 
       - name: inventory_trans_origin
         identifier: Rev_InventTransOriginStaging
+
+      - name: inventory_table_module
+        identifier: Rev_InventTableModuleStaging
+
+      - name: d365_vendor
+        identifier: Rev_VendTableStaging
+        
+      - name: d365_dir_party
+        identifier: Rev_dirpartytablestaging
+
     
   - name: SFDC
     database: "{{ 'phoenix_prod_catalog' if target.name == 'prod' else 'phoenix_dev_catalog' }}"
