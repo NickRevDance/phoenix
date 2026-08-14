@@ -136,6 +136,7 @@ SELECT
     ,CPM.CPSCStyleCompliant
     ,CPM.CPSCStyleCompliantDate
     ,CPM.CPSCStyleExpiration
+
 -- SCD2 change hash 
     -- this key is used to identify the fields used in SCD2. If more fields need to be tracked they should be added to this list
     , md5

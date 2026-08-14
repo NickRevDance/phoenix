@@ -18,3 +18,8 @@ snapshots:
 
       check_cols:
         - product_change_hash
+
+      snapshot_meta_column_names:
+        dbt_valid_from: effective_start_datetime
+        dbt_valid_to: effective_end_datetime
+        dbt_scd_id: row_hash
