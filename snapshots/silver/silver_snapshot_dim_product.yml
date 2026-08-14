@@ -23,3 +23,4 @@ snapshots:
         dbt_valid_from: effective_start_datetime
         dbt_valid_to: effective_end_datetime
         dbt_scd_id: row_hash
+        dbt_updated_at: etl_update_datetime
