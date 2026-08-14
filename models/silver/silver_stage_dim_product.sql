@@ -24,15 +24,15 @@ SELECT
 -- Size
     ,CPM.Size as size
     ,CPM.SizeRange as size_range
-    ,CPM.SalesSizeChart as size_range_chart
+    ,CPM.SalesSizeChart as sales_size_chart
 -- Hierarchy
     ,CPM.ProductGroup as product_group
-    ,CPM.ProductSubGroup as product_subgroup
+    ,CPM.ProductSubGroup as product_sub_group
     ,CPM.ProductSet as product_set
     ,CPM.ProductSubset as product_subset
     ,CPM.ProductSummary as product_summary
     , '' as summary_class --Reporting summary class (e.g., Revolution Costume, Art Stone Costumes). Critical for Finance/Ops slicing. Currently derived in view — should be stored.
-    ,MODU.ModuleType as mudule_type
+    ,MODU.ModuleType as module_type
     ,PV.ProductClass as product_class
     ,CPM.Classifier3 as classifier_3
     , '' as code_color_style_name -- Composite: code_color + style_name for display. From view.
@@ -50,7 +50,7 @@ SELECT
     ,CPM.OriginalSeason as original_season
     , '' as original_season_fy -- Original season as fiscal year (e.g., FY27). From view.
     ,CPM.SprintOperations AS sprint
-    ,CPM.ProductSprint as prooduct_sprint
+    ,CPM.ProductSprint as product_sprint
     ,CPM.DebutDate as debut_date
     ,CPM.DebutYear as debut_year
     ,IDC.REVRETIREMENTDATE AS retirement_date
@@ -74,7 +74,7 @@ SELECT
     ,CPM.FreightRate AS plm_estimated_freight_rate
     ,CPM.DutyPercentage as duty_percentage
     ,CPM.DutyCalculated as duty_calculated
-    ,CPM.TariffPercent as tariff_percentage
+    ,CPM.TariffPercent as tariff_percent
     ,CPM.TariffCalculated as tariff_calculated
     ,'USD' AS currency_code
 -- Physical attributes
@@ -111,6 +111,8 @@ SELECT
     ,CPM.CaseID as case_id
     ,CPM.Factor
     ,CPM.StyleLevelLeadtimeToXFactory as style_level_leadtime_to_x_factory
+-- Identifier
+    , '{{ this.identifier }}' AS record_source_table
 --Legacy
     ,BAR.ItemBarcode
     ,PV.DisplayProductNumber as pv_DisplayProductNumber
@@ -136,6 +138,7 @@ SELECT
     ,CPM.CPSCStyleCompliant
     ,CPM.CPSCStyleCompliantDate
     ,CPM.CPSCStyleExpiration
+
 -- SCD2 change hash 
     -- this key is used to identify the fields used in SCD2. If more fields need to be tracked they should be added to this list
     , md5
@@ -147,7 +150,7 @@ SELECT
             , colorway
             , color_family
             , product_group
-            , product_subgroup
+            , product_sub_group
             , product_set
             , product_subset
             , product_summary
@@ -171,7 +174,7 @@ SELECT
             , plm_estimated_freight_rate
             , duty_percentage
             , duty_calculated
-            , tariff_percentage
+            , tariff_percent
             , tariff_calculated
             )
         )
