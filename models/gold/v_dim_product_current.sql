@@ -5,13 +5,11 @@ SELECT
         (
             product_change_hash
             , row_hash
-            , dbt_updated_at
             , effective_start_datetime
             , effective_end_datetime
             , version_number
             , is_current_row
             , record_source_table
-            , etl_insert_datetime
             , etl_update_datetime
         )
 FROM
