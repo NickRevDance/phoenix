@@ -26,11 +26,7 @@ SELECT
         ,CPSCStyleCompliant
         ,CPSCStyleCompliantDate
         ,CPSCStyleExpiration
-        ,is_current
-        , version_start_date
-        , version_end_date
         , dbt_updated_at
-        , etl_insert_datetime
     )
     , row_number() over (
         partition by product_key
