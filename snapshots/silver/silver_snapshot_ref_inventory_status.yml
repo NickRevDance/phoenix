@@ -1,0 +1,29 @@
+version: 2
+
+snapshots:
+  - name: silver_snapshot_ref_inventory_status
+    relation: ref('silver_stage_ref_inventory_status')
+
+    description: >
+      Type 2 historical snapshot of REF_INVENTORY_STATUS. A new version is
+      created whenever a tracked classification attribute (ownership_type,
+      availability_class, program_name, partner_customer_id,
+      is_sellable_flag, include_in_std_metrics_flag) changes for a given
+      inventory_status_code -- e.g. a partner program's D365 status gets
+      reclassified, or a new inventory_status_code is added upstream in
+      silver_stage_ref_inventory_status and picked up on the next run.
+
+    config:
+      schema: silver_history
+      unique_key: inventory_status_key
+      strategy: check
+      hard_deletes: ignore
+
+      check_cols:
+        - status_change_hash
+
+      snapshot_meta_column_names:
+        dbt_valid_from: version_start_date
+        dbt_valid_to: version_end_date
+        dbt_scd_id: row_hash
+        dbt_updated_at: etl_update_datetime
