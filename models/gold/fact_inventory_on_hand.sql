@@ -4,6 +4,15 @@
     incremental_strategy = 'merge'
 ) }}
 
+-- NEEDS CONFIRMATION: incremental/merge so this fact accumulates real daily history
+-- (spec grain includes snapshot_date_key) instead of being overwritten every run.
+-- Ongoing rows are always native InventSum/InventDim, stamped current_date().
+-- History before the native pipeline existed (2024-06-30 through yesterday) is
+-- backfilled from the legacy analytics.f_KPI_InventoryValue report, one time only,
+-- via is_incremental() below -- it only runs on the first build or a --full-refresh,
+-- never on normal incremental runs. A --full-refresh will re-scan and re-merge all
+-- ~6.2M backfill rows again; that's correct but not free, budget for it.
+
 with on_hand_raw as (
 
     select
@@ -168,6 +177,53 @@ joined as (
 
 ),
 
+{% if not is_incremental() %}
+backfill_raw as (
+
+    select
+
+          UPC
+        , WarehouseId
+        , nullif(InventoryStatus, '') as inventory_status_code
+        , InventoryQuantity
+        , InventoryAmount
+        , UnitCost
+        , SnapshotDate
+
+    from {{ ref('silver_kpi_inventory_value') }}
+    where SnapshotDate >= '2024-06-30'
+
+),
+
+backfill_joined as (
+
+    select
+
+          b.*
+        , pr.product_key
+        , pr.style_number
+        , pr.sku
+        , wh.warehouse_key
+        , wh.d365_site_id
+        , coalesce(st.availability_class, 'UNKNOWN') as availability_status_primary
+        , pc.cost_currency_code
+        , dd.DateId as snapshot_date_key
+
+    from backfill_raw b
+    left join product pr
+        on b.UPC = pr.upc
+    left join warehouse wh
+        on b.WarehouseId = wh.warehouse_id
+    left join inventory_status st
+        on b.inventory_status_code = st.inventory_status_code
+    left join product_cost pc
+        on pr.product_key = pc.product_key
+    left join snapshot_date_dim dd
+        on dd.Date = b.SnapshotDate
+
+),
+{% endif %}
+
 final as (
 
     select
@@ -237,6 +293,78 @@ final as (
           )                                      as row_hash
 
     from joined j
+
+    {% if not is_incremental() %}
+    union all
+
+    select
+
+    -- Core ID
+          xxhash64(b.SnapshotDate, b.UPC, b.WarehouseId, coalesce(b.inventory_status_code, '')) as inventory_snapshot_key
+        , b.snapshot_date_key
+        , b.SnapshotDate                        as snapshot_date
+        , b.product_key
+        , b.style_number                        as product_id
+        , b.UPC                                 as upc
+        , b.sku
+        , b.warehouse_key
+        , b.WarehouseId                         as warehouse_id
+        , b.inventory_status_code
+        , 'D365'                                as source_system
+
+    -- Quantities
+        , b.InventoryQuantity                   as on_hand_qty
+        , null available_qty                    -- Source once available: no reserved/available breakdown on f_KPI_InventoryValue
+        , null reserved_qty                     -- Source once available: no reserved/available breakdown on f_KPI_InventoryValue
+        , null allocated_qty                    -- Source once available: no column on f_KPI_InventoryValue
+        , null damaged_qty                      -- Source once available: no column on f_KPI_InventoryValue
+        , null hold_qty                         -- Blocked/hold state carried via inventory_status_code
+        , null in_transit_inbound_qty           -- Phase 2 per spec
+        , null in_transit_transfer_qty          -- Phase 2 per spec
+        , null on_order_qty                     -- Phase 2 per spec
+        , null reorder_point_qty                -- Phase 2 per spec
+        , null safety_stock_qty                 -- Phase 2 per spec -- source has SafetyStock but withheld to match Phase 1 scope of the native rows
+        , null backorder_qty                    -- Source once available: no column on f_KPI_InventoryValue
+        , null qty_uom                          -- Source once available: no UOM column on f_KPI_InventoryValue
+
+    -- Costs
+        , b.UnitCost                             as standard_cost_unit  -- legacy report's own historical unit cost, not fact_product_cost's current-only cost
+        , b.InventoryAmount                      as standard_cost_amount -- legacy report's own precomputed on-hand value, not recomputed, avoids rounding drift against its source
+        , null landed_cost_unit                 -- Phase 2 per spec
+        , null landed_cost_amount               -- Phase 2 per spec
+        , null cost_variance_amount             -- Phase 2 per spec
+        , null retail_value_amount              -- Phase 2 per spec
+        , null available_cost_amount            -- Source once available: depends on available_qty above
+        , null damaged_cost_amount              -- Source once available: depends on damaged_qty above
+        , b.cost_currency_code
+
+    -- Status
+        , null lifecycle_status_code            -- NEEDS CONFIRMATION, same as native rows
+        , b.availability_status_primary
+        , b.d365_site_id                        as inventory_site_id
+
+    -- Aging
+        , null first_receipt_date               -- Source once available: same plan as native rows
+        , null last_receipt_date                -- Source once available: same plan as native rows
+        , null days_on_hand_age                 -- Source once available: same plan as native rows
+        , null age_bucket                       -- Source once available: same plan as native rows
+        , null last_sale_date                   -- Phase 2 per spec
+
+    -- Audit
+        , 'silver_kpi_inventory_value'          as record_source_table
+        , current_timestamp()                   as etl_insert_datetime
+        , current_timestamp()                   as etl_update_datetime
+        , sha2(
+            concat_ws('||',
+                coalesce(cast(b.InventoryQuantity as string), ''),
+                '',
+                '',
+                coalesce(b.inventory_status_code, '')
+            ), 256
+          )                                      as row_hash
+
+    from backfill_joined b
+    {% endif %}
 
 )
 

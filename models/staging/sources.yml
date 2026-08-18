@@ -8,6 +8,9 @@ sources:
       - name: centric_product
         identifier: d_centricproduct
 
+      - name: kpi_inventory_value
+        identifier: f_KPI_InventoryValue
+
   - name: byod
     database: dwhvisualnext
     schema: d365_byod
