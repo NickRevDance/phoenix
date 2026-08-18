@@ -13,6 +13,7 @@ SELECT
     , closed
     , closedqty
     , RESERVPHYSICAL
+    , PHYSICALINVENT
     , md5(
         concat_ws(
             '|'
