@@ -13,4 +13,4 @@ FROM
         and version_number = 1
     left join {{ref("dim_warehouse")}} w
         on s.INVENTLOCATIONID = w.warehouse_id
-        and s.inventsiteid = w.site_id
+        and s.inventsiteid = w.d365_site_id
