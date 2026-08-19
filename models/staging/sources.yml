@@ -86,15 +86,6 @@ sources:
       - name: date
         identifier: d_date
 
-  - name: SFDC
-    database: "{{ 'phoenix_prod_catalog' if target.name == 'prod' else 'phoenix_dev_catalog' }}"
-    schema: "{{ 'prod_bronze' if target.name == 'prod' else 'bronze' }}"
-    tables:
-      - name: sfdc_account
-        identifier: sfdc_account
-      - name: sfdc_case
-        identifier: sfdc_case
-
   - name: refs
     database: "{{ 'phoenix_prod_catalog' if target.name == 'prod' else 'phoenix_dev_catalog' }}"
     schema: "{{ 'prod_bronze' if target.name == 'prod' else 'bronze' }}"
