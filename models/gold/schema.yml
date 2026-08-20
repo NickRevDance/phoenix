@@ -1,0 +1,40 @@
+version: 2
+
+models:
+  - name: dim_date
+    description: >
+      Gold Layer conformed date dimension per DIM_DATE Specification v2.0.
+      One row per calendar date, 2005-01-01 through 2036-12-31 (11,688 rows).
+      Calendar, fiscal (July 1 start), and NRF 4-5-4 retail calendars in one
+      table. Dynamic flags are recomputed on every run and are excluded from
+      the Type 0 guarantee.
+    columns:
+      - name: date_key
+        description: Surrogate integer key (YYYYMMDD). Primary key and FK target for all fact tables.
+        tests: [unique, not_null]
+      - name: date
+        description: Calendar date. Natural / alternate key. Power BI date table key.
+        tests: [unique, not_null]
+      - name: retail_year
+        description: NRF 4-5-4 retail year from the authoritative seed.
+        tests: [not_null]
+      - name: retail_week
+        tests: [not_null]
+      - name: retail_period
+        tests: [not_null]
+      - name: fiscal_year
+        tests: [not_null]
+      - name: is_working_day
+        tests: [not_null]
+
+  - name: stg_holiday_calendar
+    description: >
+      One row per calendar date pivoted from the long-form holiday_calendar
+      seed. calendar_type is resolved into explicit columns here and does not
+      survive the pivot (spec Section 8).
+    columns:
+      - name: date
+        tests: [unique, not_null]
+      - name: is_company_working_day
+        description: Drives DIM_DATE.is_working_day. Only Company seed rows affect it.
+        tests: [not_null]
