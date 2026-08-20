@@ -138,7 +138,7 @@ snapshot_date_dim as (
 
     select
 
-          DateId
+          date_key
         , Date
 
     from {{ ref('dim_date') }}
@@ -158,7 +158,7 @@ joined as (
         , coalesce(st.availability_class, 'UNKNOWN') as availability_status_primary
         , pc.standard_cost_unit
         , pc.cost_currency_code
-        , dd.DateId as snapshot_date_key
+        , dd.date_key as snapshot_date_key
 
     from on_hand_agg oh
     left join product pr
@@ -207,7 +207,7 @@ backfill_joined as (
         , wh.d365_site_id
         , coalesce(st.availability_class, 'UNKNOWN') as availability_status_primary
         , pc.cost_currency_code
-        , dd.DateId as snapshot_date_key
+        , dd.date_key as snapshot_date_key
 
     from backfill_raw b
     left join product pr
