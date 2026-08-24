@@ -92,7 +92,7 @@ joined as (
         , o.INVENTTRANSID
         , wh.warehouse_key
         , pr.product_key
-        , dt.DateId as movement_date_key
+        , dt.date_key as movement_date_key
         , d.INVENTSIZEID
         , d.INVENTCOLORID
         , d.INVENTSTATUSID
