@@ -26,7 +26,7 @@ status_scope as (
     select inventory_status_code
     from {{ ref('ref_inventory_status') }}
     where is_current_row = 1
-      and include_in_std_metrics_flag = 1
+      and include_in_std_metrics_flag
 
 ),
 
