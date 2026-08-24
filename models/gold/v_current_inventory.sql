@@ -1,7 +1,7 @@
 {{ config(materialized = 'view') }}
 
 -- Company-owned inventory only (join to ref_inventory_status on
--- include_in_std_metrics_flag = 1); partner-owned stock is served by
+-- include_in_std_metrics_flag = TRUE); partner-owned stock is served by
 -- v_partner_inventory. Latest snapshot_date per the certified default scope
 -- rule (spec v2.1 Section 5).
 
@@ -31,7 +31,7 @@ status_scope as (
         , partner_customer_id
     from {{ ref('ref_inventory_status') }}
     where is_current_row = 1
-      and include_in_std_metrics_flag = 1
+      and include_in_std_metrics_flag
 
 ),
 

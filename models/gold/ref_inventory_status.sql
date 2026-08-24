@@ -1,7 +1,8 @@
 {{ config(materialized = 'table') }}
 
 SELECT
-    snap_s.* EXCEPT (status_change_hash, notes)
+    snap_s.* EXCEPT (status_change_hash, notes, include_in_std_metrics_flag)
+    , case when include_in_std_metrics_flag = 1 then TRUE else FALSE end as include_in_std_metrics_flag
     , row_number() over (
         partition by inventory_status_key
         order by version_start_date desc
