@@ -51,6 +51,7 @@ inventory_dim as (
         , INVENTLOCATIONID
         , INVENTSIZEID
         , INVENTCOLORID
+        , INVENTSTATUSID  -- sign-off fix (Blocker 1): now selected so movement_type can resolve inventory status; was already on silver_byod_inventory_dim, just not pulled through here
 
     from {{ ref('silver_byod_inventory_dim') }}
 
@@ -65,6 +66,7 @@ warehouse as (
         , d365_site_id
 
     from {{ ref('dim_warehouse') }}
+    where is_current_row = true  -- sign-off fix (EDW-90 item 4 / latent fan-out finding): no-op today (dim_warehouse is single-version), required before SCD2 snapshot wiring lands -- matches v_current_inventory.sql's pattern
 
 ),
 
@@ -91,6 +93,9 @@ joined as (
         , wh.warehouse_key
         , pr.product_key
         , dt.DateId as movement_date_key
+        , d.INVENTSIZEID
+        , d.INVENTCOLORID
+        , d.INVENTSTATUSID
 
     from trans tr
     left join origin o
@@ -109,6 +114,39 @@ joined as (
 
 ),
 
+transfer_pairs as (
+
+    -- sign-off fix (Blocker 3): resolves each transfer leg's counterparty warehouse.
+    -- No linking key exists on the source (MARKINGREFINVENTTRANSORIGIN, TRANSCHILDREFID,
+    -- INVENTTRANSORIGINTRANSIT_RU, TRANSCHILDTYPE are all unpopulated in this D365 instance --
+    -- confirmed 2026-08-24). Grouping on ReferenceId + ITEMID + size + color + abs(qty) and
+    -- keeping only groups with exactly one distinct warehouse per side is a validated proxy:
+    -- checked live against all 24,458,898 transfer-category rows, 99.976% resolve to an
+    -- unambiguous single warehouse per side (0 ambiguous, 0.024% missing a counterpart leg
+    -- entirely). Ambiguous/missing cases correctly fall through to NULL rather than guessing.
+
+    select
+
+          ReferenceId
+        , ITEMID
+        , INVENTSIZEID
+        , INVENTCOLORID
+        , abs(QTY) as abs_qty
+
+        , case when count(distinct case when QTY < 0 then warehouse_key end) = 1
+            then max(case when QTY < 0 then warehouse_key end)
+          end as transfer_out_warehouse_key
+
+        , case when count(distinct case when QTY >= 0 then warehouse_key end) = 1
+            then max(case when QTY >= 0 then warehouse_key end)
+          end as transfer_in_warehouse_key
+
+    from joined
+    where ReferenceCategory in (201, 203)
+    group by ReferenceId, ITEMID, INVENTSIZEID, INVENTCOLORID, abs(QTY)
+
+),
+
 classified as (
 
     select
@@ -122,8 +160,7 @@ classified as (
             when j.ReferenceCategory in (26, 110) then 'ADJUSTMENT'
             when j.ReferenceCategory in (201, 203) and j.QTY < 0 then 'TRANSFER_OUT'
             when j.ReferenceCategory in (201, 203) and j.QTY >= 0 then 'TRANSFER_IN'
-            when j.QTY < 0 then 'SHIPMENT'
-            else 'RECEIPT'
+            else 'UNKNOWN'  -- sign-off fix (Blocker 2): was "when QTY < 0 then SHIPMENT else RECEIPT" -- silently mislabeled ~111,855 rows (codes 4, 5, 6, 13, 15, 21, 22, 202, NULL) as RECEIPT, 50.2% of that population. Never label by sign alone -- route unmapped codes to UNKNOWN pending deliberate mapping (EDW-7 DQ exception pattern). Characterized live 2026-08-24: codes 5/6/13/15/21/22/202 each split ~50/50 pos/neg with ReferenceId populated ~100%, same shape as 201/203 -- candidates for a second WMS/journal-type bucket, but NEEDS CONFIRMATION before relabeling out of UNKNOWN. Code 4 splits 44/56 with ReferenceId populated only 72% -- looks like a different animal, also NEEDS CONFIRMATION.
           end as movement_type
 
         , case
@@ -135,7 +172,7 @@ classified as (
             else 'Other (code ' || cast(j.ReferenceCategory as string) || ')'
           end as source_document_type
 
-        , case when j.STATUSISSUE != 0 then j.STATUSISSUE else j.STATUSRECEIPT end as inventory_status_code_raw
+        , coalesce(nullif(j.INVENTSTATUSID, ''), 'UNKNOWN') as inventory_status_code  -- sign-off fix (Blocker 1): was case when STATUSISSUE != 0 then STATUSISSUE else STATUSRECEIPT end -- those are transaction lifecycle enums, not inventory status, and 100% failed the ref_inventory_status join. UNKNOWN routing is mandatory per review: 2.62M rows (blank INVENTSTATUSID) need it to join ref_inventory_status's own UNKNOWN row.
 
     from joined j
 
@@ -171,8 +208,14 @@ final as (
         , null lot_id                            -- Source once available: silver_byod_inventory_dim.InventBatchId -- Phase 2 per spec
 
     -- Transfer
-        , case when c.movement_type = 'TRANSFER_OUT' then c.warehouse_key end as from_warehouse_key
-        , case when c.movement_type in ('TRANSFER_IN', 'RECEIPT', 'RETURN_TO_STOCK') then c.warehouse_key end as to_warehouse_key
+        , case
+            when c.movement_type = 'TRANSFER_OUT' then c.warehouse_key
+            when c.movement_type = 'TRANSFER_IN' then tp.transfer_out_warehouse_key
+          end as from_warehouse_key
+        , case
+            when c.movement_type = 'TRANSFER_IN' then c.warehouse_key
+            when c.movement_type = 'TRANSFER_OUT' then tp.transfer_in_warehouse_key
+          end as to_warehouse_key  -- sign-off fix (Blocker 3): scoped to transfers only (was also populating for RECEIPT/RETURN_TO_STOCK, contrary to spec 3.2); counterpart now resolved via transfer_pairs instead of echoing the row's own warehouse_key
 
     -- Measures
         , c.QTY                                              as quantity_change
@@ -184,7 +227,7 @@ final as (
         , null retail_amount_change              -- Phase 2 per spec
 
     -- Status
-        , cast(c.inventory_status_code_raw as string) as inventory_status_code  -- raw D365 storage-dimension status (STATUSISSUE/STATUSRECEIPT, whichever side is nonzero) -- NOT validated against REF_INVENTORY_STATUS, which doesn't exist yet (see header note)
+        , c.inventory_status_code
         , null from_availability_status          -- Phase 2 per spec
         , null to_availability_status            -- Phase 2 per spec
         , null from_lifecycle_status             -- Phase 2 per spec
@@ -199,6 +242,12 @@ final as (
     from classified c
     left join warehouse wh
         on c.warehouse_key = wh.warehouse_key
+    left join transfer_pairs tp
+        on c.ReferenceId = tp.ReferenceId
+        and c.ITEMID = tp.ITEMID
+        and c.INVENTSIZEID = tp.INVENTSIZEID
+        and c.INVENTCOLORID = tp.INVENTCOLORID
+        and abs(c.QTY) = tp.abs_qty
 
 )
 

@@ -1,7 +1,7 @@
 {{ config(materialized = 'table') }}
 
 SELECT
-    snap_s.* EXCEPT (status_change_hash)
+    snap_s.* EXCEPT (status_change_hash, notes)
     , row_number() over (
         partition by inventory_status_key
         order by version_start_date desc
