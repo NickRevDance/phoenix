@@ -17,16 +17,19 @@ with trans as (
         , t.MODIFIEDDATE
         , t.QTY
         , t.COSTAMOUNTPHYSICAL
-        , t.STATUSISSUE
-        , t.STATUSRECEIPT
         , t.PACKINGSLIPID
         , t.ReferenceCategory
         , t.ReferenceId
+        , t.VOUCHER
 
     from {{ ref('silver_byod_inventory_trans') }} t
 
+    where date(t.DATEPHYSICAL) >= '2023-07-01'  -- spec 3.4: certified history starts at D365 go-live; also drops the 1900-01-01 placeholder/unposted rows
+      and t.ReferenceCategory is not null        -- spec 3.4: unposted/unmapped-at-source rows excluded, not routed to UNKNOWN
+      and t.ReferenceCategory not in (26, 110, 201, 203)  -- spec 3.4 excluded populations: Blocking, ITMGIT transit layer, WHSWork/WHSContainer bin-level execution
+
     {% if is_incremental() %}
-    where t.MODIFIEDDATE > (select coalesce(max(etl_source_modified_datetime), timestamp('1900-01-01')) from {{ this }}) - interval 2 days
+    and t.MODIFIEDDATE > (select coalesce(max(etl_source_modified_datetime), timestamp('1900-01-01')) from {{ this }}) - interval 2 days
     {% endif %}
 
 ),
@@ -51,7 +54,7 @@ inventory_dim as (
         , INVENTLOCATIONID
         , INVENTSIZEID
         , INVENTCOLORID
-        , INVENTSTATUSID  -- sign-off fix (Blocker 1): now selected so movement_type can resolve inventory status; was already on silver_byod_inventory_dim, just not pulled through here
+        , INVENTSTATUSID
 
     from {{ ref('silver_byod_inventory_dim') }}
 
@@ -66,7 +69,7 @@ warehouse as (
         , d365_site_id
 
     from {{ ref('dim_warehouse') }}
-    where is_current_row = true  -- sign-off fix (EDW-90 item 4 / latent fan-out finding): no-op today (dim_warehouse is single-version), required before SCD2 snapshot wiring lands -- matches v_current_inventory.sql's pattern
+    where is_current_row = true
 
 ),
 
@@ -93,6 +96,7 @@ joined as (
         , wh.warehouse_key
         , pr.product_key
         , dt.date_key as movement_date_key
+        , d.INVENTLOCATIONID
         , d.INVENTSIZEID
         , d.INVENTCOLORID
         , d.INVENTSTATUSID
@@ -110,40 +114,26 @@ joined as (
         and d.INVENTSIZEID = pr.size
         and d.INVENTCOLORID = pr.d365_color_code
     left join {{ ref('dim_date') }} dt
-        on dt.Date = date(tr.DATEPHYSICAL)
+        on dt.date = date(tr.DATEPHYSICAL)
+
+    where not (tr.ReferenceCategory in (21, 22) and d.INVENTLOCATIONID like '%-T')  -- spec 3.4: transfer-order transit legs into/out of the -T staging location are in-transit position, not movement
 
 ),
 
 transfer_pairs as (
 
-    -- sign-off fix (Blocker 3): resolves each transfer leg's counterparty warehouse.
-    -- No linking key exists on the source (MARKINGREFINVENTTRANSORIGIN, TRANSCHILDREFID,
-    -- INVENTTRANSORIGINTRANSIT_RU, TRANSCHILDTYPE are all unpopulated in this D365 instance --
-    -- confirmed 2026-08-24). Grouping on ReferenceId + ITEMID + size + color + abs(qty) and
-    -- keeping only groups with exactly one distinct warehouse per side is a validated proxy:
-    -- checked live against all 24,458,898 transfer-category rows, 99.976% resolve to an
-    -- unambiguous single warehouse per side (0 ambiguous, 0.024% missing a counterpart leg
-    -- entirely). Ambiguous/missing cases correctly fall through to NULL rather than guessing.
+    -- spec 3.4: counterparty warehouse for real transfer-order legs (21/22) via ReferenceId pairing.
+    -- Validated live 2026-08-27: 39/39 transfer orders resolve to exactly one warehouse per side, quantities tie to zero.
 
     select
 
           ReferenceId
-        , ITEMID
-        , INVENTSIZEID
-        , INVENTCOLORID
-        , abs(QTY) as abs_qty
-
-        , case when count(distinct case when QTY < 0 then warehouse_key end) = 1
-            then max(case when QTY < 0 then warehouse_key end)
-          end as transfer_out_warehouse_key
-
-        , case when count(distinct case when QTY >= 0 then warehouse_key end) = 1
-            then max(case when QTY >= 0 then warehouse_key end)
-          end as transfer_in_warehouse_key
+        , max(case when ReferenceCategory = 21 then warehouse_key end) as transfer_out_warehouse_key
+        , max(case when ReferenceCategory = 22 then warehouse_key end) as transfer_in_warehouse_key
 
     from joined
-    where ReferenceCategory in (201, 203)
-    group by ReferenceId, ITEMID, INVENTSIZEID, INVENTCOLORID, abs(QTY)
+    where ReferenceCategory in (21, 22)
+    group by ReferenceId
 
 ),
 
@@ -154,27 +144,62 @@ classified as (
           j.*
 
         , case
-            when j.ReferenceCategory = 0 and j.QTY < 0 then 'SHIPMENT'
-            when j.ReferenceCategory = 0 and j.QTY >= 0 then 'RETURN_TO_STOCK'
             when j.ReferenceCategory = 3 then 'RECEIPT'
-            when j.ReferenceCategory in (26, 110) then 'ADJUSTMENT'
-            when j.ReferenceCategory in (201, 203) and j.QTY < 0 then 'TRANSFER_OUT'
-            when j.ReferenceCategory in (201, 203) and j.QTY >= 0 then 'TRANSFER_IN'
-            else 'UNKNOWN'  -- sign-off fix (Blocker 2): was "when QTY < 0 then SHIPMENT else RECEIPT" -- silently mislabeled ~111,855 rows (codes 4, 5, 6, 13, 15, 21, 22, 202, NULL) as RECEIPT, 50.2% of that population. Never label by sign alone -- route unmapped codes to UNKNOWN pending deliberate mapping (EDW-7 DQ exception pattern). Characterized live 2026-08-24: codes 5/6/13/15/21/22/202 each split ~50/50 pos/neg with ReferenceId populated ~100%, same shape as 201/203 -- candidates for a second WMS/journal-type bucket, but NEEDS CONFIRMATION before relabeling out of UNKNOWN. Code 4 splits 44/56 with ReferenceId populated only 72% -- looks like a different animal, also NEEDS CONFIRMATION.
+            when j.ReferenceCategory = 0 and j.QTY < 0 then 'SHIPMENT'
+            when j.ReferenceCategory = 0 and j.QTY >= 0 then 'RETURN'
+            when j.ReferenceCategory = 21 then 'TRANSFER_OUT'
+            when j.ReferenceCategory = 22 then 'TRANSFER_IN'
+            when j.ReferenceCategory = 202 then 'STATUS_CHANGE'
+            when j.ReferenceCategory in (4, 5, 6, 13, 15) then 'ADJUSTMENT'
+            else 'UNKNOWN'  -- spec 3.4: no catch-all to a real type; any code outside the mapped set is a DQ exception, not a guess
           end as movement_type
 
         , case
+            when j.ReferenceCategory = 4 then 'MOVEMENT_JOURNAL'
+            when j.ReferenceCategory = 5 then 'PROFIT_LOSS'
+            when j.ReferenceCategory = 13 then 'COUNT_ADJ'
+            when j.ReferenceCategory = 15 then 'QUARANTINE_DISPOSAL'
+            when j.ReferenceCategory = 6 then 'TRANSFER_JOURNAL'
+          end as movement_subtype
+
+        , case
+            when j.ReferenceCategory = 3 then 'Purch'
             when j.ReferenceCategory = 0 then 'Sales'
-            when j.ReferenceCategory = 3 then 'Purchase'
-            when j.ReferenceCategory = 26 then 'Adjustment (legacy/placeholder -- all 1900-01-01 dates, see header note)'
-            when j.ReferenceCategory = 110 then 'Inventory Journal'
-            when j.ReferenceCategory in (201, 203) then 'WMS Work'
+            when j.ReferenceCategory = 21 then 'TransferOrderShip'
+            when j.ReferenceCategory = 22 then 'TransferOrderReceive'
+            when j.ReferenceCategory = 202 then 'WHSQuarantine'
+            when j.ReferenceCategory = 4 then 'InventTransaction'
+            when j.ReferenceCategory = 5 then 'InventLossProfit'
+            when j.ReferenceCategory = 13 then 'InventCounting'
+            when j.ReferenceCategory = 15 then 'QuarantineOrder'
+            when j.ReferenceCategory = 6 then 'InventTransfer'
             else 'Other (code ' || cast(j.ReferenceCategory as string) || ')'
           end as source_document_type
 
-        , coalesce(nullif(j.INVENTSTATUSID, ''), 'UNKNOWN') as inventory_status_code  -- sign-off fix (Blocker 1): was case when STATUSISSUE != 0 then STATUSISSUE else STATUSRECEIPT end -- those are transaction lifecycle enums, not inventory status, and 100% failed the ref_inventory_status join. UNKNOWN routing is mandatory per review: 2.62M rows (blank INVENTSTATUSID) need it to join ref_inventory_status's own UNKNOWN row.
+        , coalesce(nullif(j.INVENTSTATUSID, ''), 'UNKNOWN') as inventory_status_code  -- must be INVENTSTATUSID, not STATUSISSUE/STATUSRECEIPT (those are transaction lifecycle states, not inventory status)
 
     from joined j
+
+),
+
+status_change_pairs as (
+
+    -- spec 3.1/3.3: a D365 status change posts as two legs (issue from old status, receipt into new status)
+    -- paired by VOUCHER + ReferenceId + physical date + item. Validated live 2026-08-27: 3,675/3,675 groups
+    -- net to zero with exactly one leg per side, no orphans.
+
+    select
+
+          VOUCHER
+        , ReferenceId
+        , date(DATEPHYSICAL) as phys_date
+        , ITEMID
+        , max(case when QTY < 0 then inventory_status_code end) as from_status_code
+        , max(case when QTY >= 0 then inventory_status_code end) as to_status_code
+
+    from classified
+    where ReferenceCategory = 202
+    group by VOUCHER, ReferenceId, date(DATEPHYSICAL), ITEMID
 
 ),
 
@@ -195,7 +220,7 @@ final as (
 
     -- Movement
         , c.movement_type
-        , null movement_subtype                  -- Source once available: no distinct subtype signal identified beyond ReferenceCategory, which already drives movement_type/movement_reason_code
+        , c.movement_subtype
         , cast(c.ReferenceCategory as string)    as movement_reason_code
         , null movement_reason_desc              -- Source once available: no description lookup for ReferenceCategory identified yet -- Phase 2
 
@@ -215,7 +240,7 @@ final as (
         , case
             when c.movement_type = 'TRANSFER_IN' then c.warehouse_key
             when c.movement_type = 'TRANSFER_OUT' then tp.transfer_in_warehouse_key
-          end as to_warehouse_key  -- sign-off fix (Blocker 3): scoped to transfers only (was also populating for RECEIPT/RETURN_TO_STOCK, contrary to spec 3.2); counterpart now resolved via transfer_pairs instead of echoing the row's own warehouse_key
+          end as to_warehouse_key
 
     -- Measures
         , c.QTY                                              as quantity_change
@@ -228,6 +253,10 @@ final as (
 
     -- Status
         , c.inventory_status_code
+        , case
+            when c.movement_type = 'STATUS_CHANGE' and c.QTY < 0 then sc.to_status_code
+            when c.movement_type = 'STATUS_CHANGE' and c.QTY >= 0 then sc.from_status_code
+          end as counterparty_inventory_status_code
         , null from_availability_status          -- Phase 2 per spec
         , null to_availability_status            -- Phase 2 per spec
         , null from_lifecycle_status             -- Phase 2 per spec
@@ -237,17 +266,27 @@ final as (
         , 'silver_byod_inventory_trans + silver_byod_inventory_trans_origin + silver_byod_inventory_dim' as record_source_table
         , current_timestamp()                    as etl_insert_datetime
         , current_timestamp()                    as etl_update_datetime
-        , c.MODIFIEDDATE                         as etl_source_modified_datetime  -- carried through to drive the incremental filter above (max() against this column on {{ this }})
+        , c.MODIFIEDDATE                         as etl_source_modified_datetime  -- drives the incremental filter above (max() against this column on {{ this }})
+        , sha2(
+            concat_ws('||'
+              , coalesce(cast(c.QTY as string), '')
+              , coalesce(cast(c.COSTAMOUNTPHYSICAL as string), '')
+              , coalesce(c.inventory_status_code, '')
+              , coalesce(cast(c.warehouse_key as string), '')
+              , coalesce(cast(c.product_key as string), '')
+            ), 256
+          )                                      as row_hash
 
     from classified c
     left join warehouse wh
         on c.warehouse_key = wh.warehouse_key
     left join transfer_pairs tp
         on c.ReferenceId = tp.ReferenceId
-        and c.ITEMID = tp.ITEMID
-        and c.INVENTSIZEID = tp.INVENTSIZEID
-        and c.INVENTCOLORID = tp.INVENTCOLORID
-        and abs(c.QTY) = tp.abs_qty
+    left join status_change_pairs sc
+        on c.VOUCHER = sc.VOUCHER
+        and c.ReferenceId = sc.ReferenceId
+        and date(c.DATEPHYSICAL) = sc.phys_date
+        and c.ITEMID = sc.ITEMID
 
 )
 
