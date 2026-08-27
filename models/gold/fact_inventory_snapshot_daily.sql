@@ -36,7 +36,7 @@ inventory_dim as (
     select
 
           InventDimID
-        , nullif(INVENTSTATUSID, '') as inventory_status_code
+        , coalesce(nullif(INVENTSTATUSID, ''), 'UNKNOWN') as inventory_status_code  -- sign-off fix (spec 2.3 rule): was nullif-only, leaving blank statuses as NULL in the grain column instead of routing them to the UNKNOWN member per the EDW-7 unknown-mapping pattern
 
     from {{ ref('silver_byod_inventory_dim') }}
 
@@ -92,6 +92,10 @@ product as (
         , style_number
         , size
         , d365_color_code
+        , erp_status
+        , plm_status
+        , Vintage
+        , debut_date
 
     from {{ ref('dim_product') }}
     where version_number = 1
@@ -160,6 +164,25 @@ joined as (
         , pc.cost_currency_code
         , dd.date_key as snapshot_date_key
 
+        -- lifecycle_status_code (sign-off fix, replaces the NEEDS CONFIRMATION null):
+        -- precedence CLEARANCE -> VINTAGE -> NEW -> CORE -> NULL, confirmed against
+        -- the live distribution 2026-08-27 (52,624 VINTAGE / 33,806 CLEARANCE / 8,165
+        -- NEW / 3,174 CORE / 10,576 NULL on the then-latest snapshot). NULL only when
+        -- the product join itself misses (dim_product's own inputs have 100% coverage
+        -- today, so the "all inputs null" branch is dead code in practice but kept for
+        -- when a future product genuinely has none of them populated).
+        , case
+            when pr.product_key is null then null
+            when pr.erp_status = 'Sell_to_0' then 'CLEARANCE'
+            when pr.plm_status = 'Dropped' and oh.on_hand_qty > 0 then 'CLEARANCE'
+            when pr.Vintage = true then 'VINTAGE'
+            when pr.debut_date is not null
+                and pr.debut_date >= date_add(oh.snapshot_date, -365)
+                and pr.debut_date <= oh.snapshot_date then 'NEW'
+            when pr.erp_status is null and pr.plm_status is null and pr.Vintage is null and pr.debut_date is null then null
+            else 'CORE'
+          end as lifecycle_status_code
+
     from on_hand_agg oh
     left join product pr
         on oh.ItemID = pr.style_number
@@ -184,7 +207,7 @@ backfill_raw as (
 
           UPC
         , WarehouseId
-        , nullif(InventoryStatus, '') as inventory_status_code
+        , coalesce(nullif(InventoryStatus, ''), 'UNKNOWN') as inventory_status_code  -- sign-off fix, same rule as inventory_dim above -- fact-wide, not just the native branch
         , InventoryQuantity
         , InventoryAmount
         , UnitCost
@@ -192,6 +215,7 @@ backfill_raw as (
 
     from {{ ref('silver_kpi_inventory_value') }}
     where SnapshotDate >= '2024-06-30'
+      and SnapshotDate < '2026-08-21'  -- sign-off fix: fixed literal, not a runtime bound. Confirmed live 2026-08-27: native branch's first date is 2026-08-21 (min(snapshot_date) where record_source_table = 'silver_byod_inventory_sum + silver_byod_inventory_dim'). Was previously bounded only by silver_kpi_inventory_value's own `< current_date()` filter, which drifts forward every day -- a --full-refresh run today would already pull 2026-08-21 through yesterday from both branches at once, double-counting those days. Update this literal only if the native pipeline's confirmed start date changes.
 
 ),
 
@@ -208,6 +232,20 @@ backfill_joined as (
         , coalesce(st.availability_class, 'UNKNOWN') as availability_status_primary
         , pc.cost_currency_code
         , dd.date_key as snapshot_date_key
+
+        -- lifecycle_status_code: same rule as the native branch above (fact-wide, not
+        -- native-only) -- "on-hand remaining" reads the backfill row's own quantity.
+        , case
+            when pr.product_key is null then null
+            when pr.erp_status = 'Sell_to_0' then 'CLEARANCE'
+            when pr.plm_status = 'Dropped' and b.InventoryQuantity > 0 then 'CLEARANCE'
+            when pr.Vintage = true then 'VINTAGE'
+            when pr.debut_date is not null
+                and pr.debut_date >= date_add(b.SnapshotDate, -365)
+                and pr.debut_date <= b.SnapshotDate then 'NEW'
+            when pr.erp_status is null and pr.plm_status is null and pr.Vintage is null and pr.debut_date is null then null
+            else 'CORE'
+          end as lifecycle_status_code
 
     from backfill_raw b
     left join product pr
@@ -268,7 +306,7 @@ final as (
         , j.cost_currency_code
 
     -- Status
-        , null lifecycle_status_code            -- NEEDS CONFIRMATION -- no single lifecycle-status source identified (dim_product carries plm_status/erp_status separately)
+        , j.lifecycle_status_code
         , j.availability_status_primary
         , j.inventsiteid                        as inventory_site_id
 
@@ -339,7 +377,7 @@ final as (
         , b.cost_currency_code
 
     -- Status
-        , null lifecycle_status_code            -- NEEDS CONFIRMATION, same as native rows
+        , b.lifecycle_status_code
         , b.availability_status_primary
         , b.d365_site_id                        as inventory_site_id
 
