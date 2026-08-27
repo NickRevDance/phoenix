@@ -24,9 +24,9 @@ with trans as (
 
     from {{ ref('silver_byod_inventory_trans') }} t
 
-    where date(t.DATEPHYSICAL) >= '2023-07-01'  -- spec 3.4: certified history starts at D365 go-live; also drops the 1900-01-01 placeholder/unposted rows
-      and t.ReferenceCategory is not null        -- spec 3.4: unposted/unmapped-at-source rows excluded, not routed to UNKNOWN
-      and t.ReferenceCategory not in (26, 110, 201, 203)  -- spec 3.4 excluded populations: Blocking, ITMGIT transit layer, WHSWork/WHSContainer bin-level execution
+    where date(t.DATEPHYSICAL) >= '2023-07-01'  -- certified history starts at D365 go-live; also drops the 1900-01-01 placeholder/unposted rows
+      and t.ReferenceCategory is not null        -- unposted/unmapped-at-source rows excluded, not routed to UNKNOWN
+      and t.ReferenceCategory not in (26, 110, 201, 203)  -- excluded populations: Blocking, ITMGIT transit layer, WHSWork/WHSContainer bin-level execution
 
     {% if is_incremental() %}
     and t.MODIFIEDDATE > (select coalesce(max(etl_source_modified_datetime), timestamp('1900-01-01')) from {{ this }}) - interval 2 days
@@ -184,7 +184,7 @@ classified as (
 
 status_change_pairs as (
 
-    -- spec 3.1/3.3: a D365 status change posts as two legs (issue from old status, receipt into new status)
+    -- a D365 status change posts as two legs (issue from old status, receipt into new status)
     -- paired by VOUCHER + ReferenceId + physical date + item. Validated live 2026-08-27: 3,675/3,675 groups
     -- net to zero with exactly one leg per side, no orphans.
 
