@@ -186,21 +186,20 @@ classified as (
 status_change_pairs as (
 
     -- spec 3.1/3.3: a D365 status change posts as two legs (issue from old status, receipt into new status)
-    -- paired by VOUCHER + ReferenceId + physical date + item. Validated live 2026-08-27: 3,675/3,675 groups
-    -- net to zero with exactly one leg per side, no orphans.
+    -- paired by VOUCHER + ReferenceId + physical date (per Blocker 2 note: pairing must be voucher-keyed,
+    -- not origin-based, since each InventTransOrigin only ever touches one status table-wide).
 
     select
 
           VOUCHER
         , ReferenceId
         , date(DATEPHYSICAL) as phys_date
-        , ITEMID
         , max(case when QTY < 0 then inventory_status_code end) as from_status_code
         , max(case when QTY >= 0 then inventory_status_code end) as to_status_code
 
     from classified
     where ReferenceCategory = 202
-    group by VOUCHER, ReferenceId, date(DATEPHYSICAL), ITEMID
+    group by VOUCHER, ReferenceId, date(DATEPHYSICAL)
 
 ),
 
@@ -223,15 +222,15 @@ final as (
         , c.movement_type
         , c.movement_subtype
         , cast(c.ReferenceCategory as string)    as movement_reason_code
-        , null movement_reason_desc              -- Source once available: no description lookup for ReferenceCategory identified yet -- Phase 2
+        , cast(null as string) as movement_reason_desc  -- Source once available: no description lookup for ReferenceCategory identified yet -- Phase 2
 
     -- Traceability
         , c.source_document_type
         , c.ReferenceId                          as source_document_id
-        , null source_document_line_number       -- Source once available: no line-level column identified on InventTrans/InventTransOrigin
+        , cast(null as int) as source_document_line_number  -- Source once available: no line-level column identified on InventTrans/InventTransOrigin
         , c.INVENTTRANSID                        as transaction_id
         , c.PACKINGSLIPID                        as receipt_document_id
-        , null lot_id                            -- Source once available: silver_byod_inventory_dim.InventBatchId -- Phase 2 per spec
+        , cast(null as string) as lot_id         -- Source once available: silver_byod_inventory_dim.InventBatchId -- Phase 2 per spec
 
     -- Transfer
         , case
@@ -247,10 +246,10 @@ final as (
         , c.QTY                                              as quantity_change
         , c.COSTAMOUNTPHYSICAL / nullif(c.QTY, 0)             as unit_cost_at_movement
         , c.COSTAMOUNTPHYSICAL                                as cost_amount_change
-        , null qty_uom                           -- Source once available: no UOM column identified on bronze_byod_inventory_trans
-        , null quantity_before                   -- Phase 2 per spec
-        , null quantity_after                    -- Phase 2 per spec
-        , null retail_amount_change              -- Phase 2 per spec
+        , cast(null as string) as qty_uom        -- Source once available: no UOM column identified on bronze_byod_inventory_trans
+        , cast(null as decimal(18,4)) as quantity_before  -- Phase 2 per spec
+        , cast(null as decimal(18,4)) as quantity_after   -- Phase 2 per spec
+        , cast(null as decimal(19,4)) as retail_amount_change  -- Phase 2 per spec
 
     -- Status
         , c.inventory_status_code
@@ -258,10 +257,10 @@ final as (
             when c.movement_type = 'STATUS_CHANGE' and c.QTY < 0 then sc.to_status_code
             when c.movement_type = 'STATUS_CHANGE' and c.QTY >= 0 then sc.from_status_code
           end as counterparty_inventory_status_code
-        , null from_availability_status          -- Phase 2 per spec
-        , null to_availability_status            -- Phase 2 per spec
-        , null from_lifecycle_status             -- Phase 2 per spec
-        , null to_lifecycle_status               -- Phase 2 per spec
+        , cast(null as string) as from_availability_status  -- Phase 2 per spec
+        , cast(null as string) as to_availability_status    -- Phase 2 per spec
+        , cast(null as string) as from_lifecycle_status     -- Phase 2 per spec
+        , cast(null as string) as to_lifecycle_status       -- Phase 2 per spec
 
     -- Audit
         , 'silver_byod_inventory_trans + silver_byod_inventory_trans_origin + silver_byod_inventory_dim' as record_source_table
@@ -287,7 +286,6 @@ final as (
         on c.VOUCHER = sc.VOUCHER
         and c.ReferenceId = sc.ReferenceId
         and date(c.DATEPHYSICAL) = sc.phys_date
-        and c.ITEMID = sc.ITEMID
 
 )
 
