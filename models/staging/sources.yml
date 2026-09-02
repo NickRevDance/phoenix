@@ -72,7 +72,7 @@ sources:
     
   - name: SFDC
     database: "{{ 'phoenix_prod_catalog' if target.name == 'prod' else 'phoenix_dev_catalog' }}"
-    schema: bronze
+    schema: "{{ 'prod_raw' if target.name == 'prod' else 'dev_raw' }}"
     tables:
       - name: sfdc_account
         identifier: sfdc_account
