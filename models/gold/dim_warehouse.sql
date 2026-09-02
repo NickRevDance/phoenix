@@ -10,8 +10,8 @@ with warehouse_base as (
         , l.INVENTLOCATIONID                      as d365_warehouse_id
         , s.SITEID                                as d365_site_id
  
-    from {{ ref('silver_byod_inventory_location') }} l
-    left join {{ ref('silver_byod_inventory_site') }} s
+    from {{ ref('silver_d365_inventory_location') }} l
+    left join {{ ref('silver_d365_inventory_site') }} s
         on l.INVENTSITEID = s.SITEID
  
 ),
@@ -74,7 +74,7 @@ final as (
         , 1 as version_number
         , 'Initial load' as scd_change_reason
  
-        , 'silver_byod_inventory_location + silver_byod_inventory_site' as record_source_table
+        , 'silver_d365_inventory_location + silver_d365_inventory_site' as record_source_table
         , current_timestamp() as etl_insert_datetime
         , current_timestamp() as etl_update_datetime
  

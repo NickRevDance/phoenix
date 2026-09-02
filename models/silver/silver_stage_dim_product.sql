@@ -180,22 +180,22 @@ SELECT
         )
     as product_change_hash
 FROM
-    {{ ref('silver_centric_product_current') }} CPM
+    {{ ref('silver_dwh_centric_product_current') }} CPM
 LEFT JOIN
-    {{ ref('silver_byod_item_barcode') }} BAR
+    {{ ref('silver_d365_item_barcode') }} BAR
     ON CPM.UPC = BAR.ItemBarcode
 LEFT JOIN
-    {{ ref('bronze_byod_inventory_combinations') }} IDC
+    {{ ref('bronze_d365_inventory_combinations') }} IDC
     ON IDC.ItemID = BAR.ItemID
     AND IDC.InventDimID = BAR.InventDimID
 LEFT JOIN
-    {{ ref('silver_byod_inventory_item') }} INV
+    {{ ref('silver_d365_inventory_item') }} INV
     ON INV.ItemID = BAR.ItemID
 LEFT JOIN
-    {{ ref('silver_byod_inventory_module_sales') }} MODU
+    {{ ref('silver_d365_inventory_module_sales') }} MODU
     ON MODU.ItemID = BAR.ItemID
 LEFT JOIN
-    {{ ref('silver_byod_product_variant') }} PV
+    {{ ref('silver_d365_product_variant') }} PV
     ON PV.DisplayProductNumber = CONCAT(
          CPM.`Style#`
         ,'|'
@@ -204,5 +204,5 @@ LEFT JOIN
         ,CPM.Size
     )
 LEFT JOIN
-    {{ ref('silver_byod_hts_by_item') }} HTS
+    {{ ref('silver_d365_hts_by_item') }} HTS
     ON HTS.ItemID = BAR.ItemID

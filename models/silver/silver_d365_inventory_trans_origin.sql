@@ -8,7 +8,7 @@
 select
     *
 from
-    {{ref("bronze_byod_inventory_trans_origin")}}
+    {{ref("bronze_d365_inventory_trans_origin")}}
  
 {% if is_incremental() %}
 where SYNCSTARTDATETIME > (select coalesce(max(SYNCSTARTDATETIME), timestamp('1900-01-01')) from {{ this }}) - interval 2 days

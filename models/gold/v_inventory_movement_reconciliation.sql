@@ -16,7 +16,7 @@
 -- DQ flag: as of 2026-09-01, ~10% of native snapshot rows carry a null
 -- product_key (no dim_product match) and a meaningful share carry a null
 -- inventory_status_code (a stale pre-fix merge, not a live join miss --
--- silver_byod_inventory_sum/_dim join clean at the source). Both are
+-- silver_d365_inventory_sum/_dim join clean at the source). Both are
 -- coalesced to a single bucket ('UNMATCHED_PRODUCT' / 'UNKNOWN') per
 -- warehouse so this view reconciles in total rather than fanning out on the
 -- missing keys; this collapses distinct unmatched SKUs together and is a
@@ -36,7 +36,7 @@ with native_snapshot as (
         , on_hand_qty
 
     from {{ ref('fact_inventory_snapshot_daily') }}
-    where record_source_table = 'silver_byod_inventory_sum + silver_byod_inventory_dim'
+    where record_source_table = 'silver_d365_inventory_sum + silver_d365_inventory_dim'
 
 ),
 

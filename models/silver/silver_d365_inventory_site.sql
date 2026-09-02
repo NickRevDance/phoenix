@@ -3,4 +3,4 @@
 SELECT
     *
 FROM
-    {{ref("bronze_byod_inventory_site")}}
+    {{ref("bronze_d365_inventory_site")}}

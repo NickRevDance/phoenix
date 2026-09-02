@@ -27,7 +27,7 @@ with on_hand_raw as (
         , RESERVPHYSICAL
         , AVAILPHYSICAL
 
-    from {{ ref('silver_byod_inventory_sum') }}
+    from {{ ref('silver_d365_inventory_sum') }}
 
 ),
 
@@ -38,7 +38,7 @@ inventory_dim as (
           InventDimID
         , coalesce(nullif(INVENTSTATUSID, ''), 'UNKNOWN') as inventory_status_code  -- sign-off fix (spec 2.3 rule): was nullif-only, leaving blank statuses as NULL in the grain column instead of routing them to the UNKNOWN member per the EDW-7 unknown-mapping pattern
 
-    from {{ ref('silver_byod_inventory_dim') }}
+    from {{ ref('silver_d365_inventory_dim') }}
 
 ),
 
@@ -215,7 +215,7 @@ backfill_raw as (
 
     from {{ ref('silver_kpi_inventory_value') }}
     where SnapshotDate >= '2024-06-30'
-      and SnapshotDate < '2026-08-21'  -- sign-off fix: fixed literal, not a runtime bound. Confirmed live 2026-08-27: native branch's first date is 2026-08-21 (min(snapshot_date) where record_source_table = 'silver_byod_inventory_sum + silver_byod_inventory_dim'). Was previously bounded only by silver_kpi_inventory_value's own `< current_date()` filter, which drifts forward every day -- a --full-refresh run today would already pull 2026-08-21 through yesterday from both branches at once, double-counting those days. Update this literal only if the native pipeline's confirmed start date changes.
+      and SnapshotDate < '2026-08-21'  -- sign-off fix: fixed literal, not a runtime bound. Confirmed live 2026-08-27: native branch's first date is 2026-08-21 (min(snapshot_date) where record_source_table = 'silver_d365_inventory_sum + silver_d365_inventory_dim'). Was previously bounded only by silver_kpi_inventory_value's own `< current_date()` filter, which drifts forward every day -- a --full-refresh run today would already pull 2026-08-21 through yesterday from both branches at once, double-counting those days. Update this literal only if the native pipeline's confirmed start date changes.
 
 ),
 
@@ -288,7 +288,7 @@ final as (
         , null hold_qty                         -- Blocked/hold state is carried via inventory_status_code, not a separate quantity measure on these tables
         , null in_transit_inbound_qty           -- Phase 2 per spec
         , null in_transit_transfer_qty          -- Phase 2 per spec
-        , null on_order_qty                     -- Phase 2 per spec -- source (InventSum.ONORDER) already exists on silver_byod_inventory_sum, not selected yet
+        , null on_order_qty                     -- Phase 2 per spec -- source (InventSum.ONORDER) already exists on silver_d365_inventory_sum, not selected yet
         , null reorder_point_qty                -- Phase 2 per spec
         , null safety_stock_qty                 -- Phase 2 per spec
         , null backorder_qty                    -- Source once available: no column identified
@@ -318,7 +318,7 @@ final as (
         , null last_sale_date                   -- Phase 2 per spec
 
     -- Audit
-        , 'silver_byod_inventory_sum + silver_byod_inventory_dim' as record_source_table
+        , 'silver_d365_inventory_sum + silver_d365_inventory_dim' as record_source_table
         , current_timestamp()                   as etl_insert_datetime
         , current_timestamp()                   as etl_update_datetime
         , sha2(
