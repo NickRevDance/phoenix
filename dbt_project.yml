@@ -56,8 +56,9 @@ models:
       +schema: gold
       +materialized: table     # Gold is materialized as high-performance 
     
-    seeds:
-      phoenix:
-        +schema: seeds
+seeds:
+  phoenix:
+    +schema: seeds
+
 flags:
   manage_state: false 
