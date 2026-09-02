@@ -15,7 +15,7 @@ SELECT
      ) AS HTSCodeDutyComposition
     ,MAX(ModifiedDate) AS ModifiedDate
 FROM
-    {{ ref('bronze_byod_hts_assignment') }}
+    {{ ref('bronze_d365_hts_assignment') }}
 WHERE
     HTSType = 1
 GROUP BY

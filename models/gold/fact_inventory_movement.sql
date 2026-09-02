@@ -23,7 +23,7 @@ with trans as (
         , t.ReferenceId
         , t.VOUCHER
 
-    from {{ ref('silver_byod_inventory_trans') }} t
+    from {{ ref('silver_d365_inventory_trans') }} t
 
     where date(t.DATEPHYSICAL) >= '2023-07-01'  -- spec 3.4: certified history starts at D365 go-live; also drops the 1900-01-01 placeholder/unposted rows
       and t.ReferenceCategory is not null        -- spec 3.4: unposted/unmapped-at-source rows excluded, not routed to UNKNOWN
@@ -42,7 +42,7 @@ origin as (
           RECID
         , INVENTTRANSID
 
-    from {{ ref('silver_byod_inventory_trans_origin') }}
+    from {{ ref('silver_d365_inventory_trans_origin') }}
 
 ),
 
@@ -57,7 +57,7 @@ inventory_dim as (
         , INVENTCOLORID
         , INVENTSTATUSID
 
-    from {{ ref('silver_byod_inventory_dim') }}
+    from {{ ref('silver_d365_inventory_dim') }}
 
 ),
 
@@ -230,7 +230,7 @@ final as (
         , cast(null as int) as source_document_line_number  -- Source once available: no line-level column identified on InventTrans/InventTransOrigin
         , c.INVENTTRANSID                        as transaction_id
         , c.PACKINGSLIPID                        as receipt_document_id
-        , cast(null as string) as lot_id         -- Source once available: silver_byod_inventory_dim.InventBatchId -- Phase 2 per spec
+        , cast(null as string) as lot_id         -- Source once available: silver_d365_inventory_dim.InventBatchId -- Phase 2 per spec
 
     -- Transfer
         , case
@@ -246,7 +246,7 @@ final as (
         , c.QTY                                              as quantity_change
         , c.COSTAMOUNTPHYSICAL / nullif(c.QTY, 0)             as unit_cost_at_movement
         , c.COSTAMOUNTPHYSICAL                                as cost_amount_change
-        , cast(null as string) as qty_uom        -- Source once available: no UOM column identified on bronze_byod_inventory_trans
+        , cast(null as string) as qty_uom        -- Source once available: no UOM column identified on bronze_d365_inventory_trans
         , cast(null as decimal(18,4)) as quantity_before  -- Phase 2 per spec
         , cast(null as decimal(18,4)) as quantity_after   -- Phase 2 per spec
         , cast(null as decimal(19,4)) as retail_amount_change  -- Phase 2 per spec
@@ -263,7 +263,7 @@ final as (
         , cast(null as string) as to_lifecycle_status       -- Phase 2 per spec
 
     -- Audit
-        , 'silver_byod_inventory_trans + silver_byod_inventory_trans_origin + silver_byod_inventory_dim' as record_source_table
+        , 'silver_d365_inventory_trans + silver_d365_inventory_trans_origin + silver_d365_inventory_dim' as record_source_table
         , current_timestamp()                    as etl_insert_datetime
         , current_timestamp()                    as etl_update_datetime
         , c.MODIFIEDDATE                         as etl_source_modified_datetime  -- drives the incremental filter above (max() against this column on {{ this }})

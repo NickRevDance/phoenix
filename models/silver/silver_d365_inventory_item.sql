@@ -6,4 +6,4 @@ SELECT
     ,UnitVolume
     ,ModifiedDate
 FROM
-    {{ ref('bronze_byod_inventory_item') }}
+    {{ ref('bronze_d365_inventory_item') }}

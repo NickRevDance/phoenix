@@ -9,4 +9,4 @@ SELECT
     , INVENTCOLORID
     , INVENTSTATUSID
 FROM
-    {{ref("bronze_byod_inventory_dim")}}
+    {{ref("bronze_d365_inventory_dim")}}

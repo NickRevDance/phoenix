@@ -24,5 +24,5 @@ select
     , SnapshotDate
     , InventoryStatus
 
-from {{ ref('bronze_kpi_inventory_value') }}
+from {{ ref('bronze_dwh_kpi_inventory_value') }}
 where SnapshotDate < current_date()

@@ -3,6 +3,6 @@
 SELECT
     *
 FROM
-    {{ref("bronze_inventory_table_module")}}
+    {{ref("bronze_d365_inventory_table_module")}}
 where
     moduleType = 2

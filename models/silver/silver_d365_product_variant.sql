@@ -6,4 +6,4 @@ SELECT
     ,RecID
     ,ModifiedDate
 FROM
-    {{ ref('bronze_byod_product_variant') }}
+    {{ ref('bronze_d365_product_variant') }}

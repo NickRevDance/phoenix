@@ -9,7 +9,7 @@ SELECT
         ELSE 'Owned'
      END AS ProductOwnership
 FROM
-    {{ ref('bronze_centric_product') }}
+    {{ ref('bronze_dwh_centric_product') }}
 WHERE
     D365ProductSetup = 'Completed'
     AND IsCurrent

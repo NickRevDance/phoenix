@@ -11,8 +11,8 @@
         , ito.ReferenceId
         , ito.recid as invent_trans_origin_id
     from
-        {{ref("bronze_byod_inventory_trans")}} it
-        left join {{ref("silver_byod_inventory_trans_origin")}} ito
+        {{ref("bronze_d365_inventory_trans")}} it
+        left join {{ref("silver_d365_inventory_trans_origin")}} ito
             on it.INVENTTRANSORIGIN = ito.recid
  
     {% if is_incremental() %}

@@ -21,4 +21,4 @@ SELECT
         )
     ) as change_hash
 FROM
-    {{ ref('bronze_byod_inventory_sum') }}
+    {{ ref('bronze_d365_inventory_sum') }}
