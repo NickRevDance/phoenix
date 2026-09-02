@@ -1,0 +1,26 @@
+version: 2
+
+snapshots:
+  - name: silver_snapshot_fact_product_cost
+    relation: ref('silver_stage_fact_product_cost')
+
+    description: >
+      Type 2 historical snapshot of product cost records. A new version is
+      created whenever a tracked cost measure changes for a given
+      product_id + cost_type + source_system (e.g. D365 standard cost is
+      rolled over, or a PLM cost estimate changes).
+
+    config:
+      schema: silver_history
+      unique_key: product_cost_entity_key
+      strategy: check
+      hard_deletes: ignore
+
+      check_cols:
+        - cost_change_hash
+
+      snapshot_meta_column_names:
+        dbt_valid_from: effective_start_datetime
+        dbt_valid_to: effective_end_datetime
+        dbt_scd_id: row_hash
+        dbt_updated_at: etl_update_datetime
