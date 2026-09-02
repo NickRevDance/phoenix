@@ -75,6 +75,9 @@ sources:
       - name: itm_cost_trans
         identifier: rev_itmcosttransstaging
 
+      - name: voyage_cost
+        identifier: rev_revvoyagecoststaging
+
     
   - name: SFDC
     database: "{{ 'phoenix_prod_catalog' if target.schema == 'prod' else 'phoenix_dev_catalog' }}"
