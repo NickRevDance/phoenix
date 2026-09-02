@@ -110,7 +110,7 @@ final as (
           ) as vendor_change_hash -- hashes the currently-populated Type 2 (history-tracked) attributes per the spec's SCD2 Tracking Plan; extend this list as null placeholders above get wired to real sources
 
         , current_timestamp() as etl_insert_datetime
-        , current_timestamp() as etl_update_datetime
+        -- , current_timestamp() as etl_update_datetime
 
     from vendor_base b
 
