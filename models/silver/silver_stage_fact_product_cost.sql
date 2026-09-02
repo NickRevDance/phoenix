@@ -24,6 +24,58 @@ WITH dim_product_by_item as (
 
 ),
 
+shipment_cost_by_item as (
+
+    -- Real per-unit freight/brokerage cost from D365's voyage-level landed-
+    -- cost allocation (silver_d365_voyage_cost). Replaces the earlier
+    -- ItmCostTrans+InventTrans-joined CTE: this source carries ITEMID
+    -- directly (no join needed) and covers roughly 2x the Ocean/Air/Land
+    -- rows ItmCostTrans did (see COMPLIANCE_REVIEW.md addendum, 2026-09-02).
+    SELECT
+
+          ITEMID as product_id
+        , sum(case when SHIPCOSTTYPEID in ('Ocean', 'Air', 'Land') then SHIPACTUALCOST else 0 end)
+            / nullif(sum(case when SHIPCOSTTYPEID in ('Ocean', 'Air', 'Land') then SHIPQTY else 0 end), 0) as freight_cost_unit
+        , sum(case when SHIPCOSTTYPEID = 'Commission' then SHIPACTUALCOST else 0 end)
+            / nullif(sum(case when SHIPCOSTTYPEID = 'Commission' then SHIPQTY else 0 end), 0) as brokerage_cost_unit
+        , max(ALLOCATEDATE) as shipment_cost_update_datetime
+
+    FROM {{ ref('silver_d365_voyage_cost') }}
+    WHERE SHIPACTUALCOST <> 0
+        and SHIPQTY > 0
+        and ITEMID is not null
+    GROUP BY ITEMID
+
+),
+
+vendor_price_current as (
+
+    -- One currently-valid trade-agreement price per item: for the ~7% of
+    -- items with more than one vendor agreement active at once, picks the
+    -- most-recently-modified row as "current" -- NEEDS CONFIRMATION with
+    -- Nick/Purchasing if a different tie-break (e.g. preferred vendor)
+    -- should win instead.
+    SELECT
+
+          p.ITEMRELATION as product_id
+        , p.ACCOUNTRELATION as vendor_id
+        , cast(p.AMOUNT as decimal(19,4)) as vendor_cost_unit
+        , p.CURRENCY as cost_currency_code
+        , cast(p.FROMDATE as date) as effective_date
+        , p.MODIFIEDDATE as d365_cost_update_datetime
+        , row_number() over (
+            partition by p.ITEMRELATION
+            order by p.MODIFIEDDATE desc
+          ) as rn
+
+    FROM {{ ref('silver_d365_price_disc_table') }} p
+    WHERE p.AMOUNT <> 0
+        and p.ACCOUNTRELATION <> ''  -- ~89% of MODULE=2 rows have no vendor at all (a generic item price, not vendor-specific) -- excluded here since this cost_type is specifically vendor cost
+        and (p.TODATE is null or p.TODATE >= current_date() or p.TODATE = date('1900-01-01'))
+        and (p.FROMDATE is null or p.FROMDATE <= current_date())
+
+),
+
 standard_cost as (
 
     SELECT
@@ -78,19 +130,19 @@ landed_cost as (
     SELECT
 
           p.product_id
-        , 'PLM' as source_system
+        , case when p.plm_estimated_landed_cost is not null then 'PLM' else 'D365' end as source_system
         , 'LANDED' as cost_type
         , cast(null as string) as cost_subtype
         , cast(null as string) as cost_method
-        , cast(p.effective_start_datetime as date) as effective_date
-        , cast(null as timestamp) as d365_cost_update_datetime
+        , coalesce(cast(p.effective_start_datetime as date), cast(sc.shipment_cost_update_datetime as date)) as effective_date
+        , sc.shipment_cost_update_datetime as d365_cost_update_datetime
 
         , cast(null as decimal(19,4)) as standard_cost_unit
         , cast(p.plm_estimated_landed_cost as decimal(19,4)) as landed_cost_unit  -- populated from the PLM estimate while landed-cost components remain unsourced, per spec section 7
-        , cast(null as decimal(19,4)) as freight_cost_unit  -- same freight-rate-vs-$/unit gap as standard_cost's freight_cost_unit
-        , cast(null as decimal(19,4)) as duty_cost_unit  -- Phase 2
+        , cast(sc.freight_cost_unit as decimal(19,4)) as freight_cost_unit  -- Source: D365 voyage-cost allocation (Ocean/Air/Land), $/unit averaged over allocation history -- closes Open Decision #3's freight gap
+        , cast(null as decimal(19,4)) as duty_cost_unit  -- Phase 2 -- dim_product.duty_calculated exists, and silver_d365_voyage_cost carries a real, more complete Duty ship cost type (46,056 rows, avg $3.99/unit) than ItmCostTrans did -- still NEEDS CONFIRMATION before wiring in, not done unilaterally
         , cast(null as decimal(19,4)) as tariff_cost_unit  -- Phase 2
-        , cast(null as decimal(19,4)) as brokerage_cost_unit
+        , cast(sc.brokerage_cost_unit as decimal(19,4)) as brokerage_cost_unit  -- Source: D365 voyage-cost allocation Commission ship cost type, $/unit averaged over allocation history
         , cast(null as decimal(19,4)) as other_landed_cost_unit
         , cast(null as decimal(19,4)) as vendor_cost_unit
         , cast(null as string) as vendor_id
@@ -110,14 +162,20 @@ landed_cost as (
         , cast(null as string) as d365_item_cost_id
         , cast(null as string) as d365_cost_group
         , cast(null as string) as d365_cost_version
-        , 'dim_product' as record_source_table
+        , case
+            when sc.product_id is not null and p.plm_estimated_landed_cost is not null then 'dim_product+silver_d365_voyage_cost'
+            when sc.product_id is not null then 'silver_d365_voyage_cost'
+            else 'dim_product'
+          end as record_source_table
 
         , p.product_key
         , p.sku
 
     FROM dim_product_by_item p
+    LEFT JOIN shipment_cost_by_item sc
+        ON sc.product_id = p.product_id
     WHERE p.rn = 1
-        and p.plm_estimated_landed_cost is not null  -- only emit a LANDED row where PLM actually gave us something to derive it from
+        and (p.plm_estimated_landed_cost is not null or sc.product_id is not null)  -- emit a LANDED row when PLM gave an estimate OR real D365 shipment cost data exists
 
 ),
 
@@ -169,6 +227,63 @@ plm_estimated_cost as (
 
 ),
 
+vendor_cost as (
+
+    -- Real VENDOR cost_type rows from D365 PriceDiscTable (native vendor
+    -- trade agreements) -- closes the "no VENDOR rows" gap; previously this
+    -- cost_type had no source data to iterate over at all.
+    SELECT
+
+          v.product_id
+        , 'D365' as source_system
+        , 'VENDOR' as cost_type
+        , cast(null as string) as cost_subtype
+        , 'Trade Agreement' as cost_method
+        , v.effective_date
+        , v.d365_cost_update_datetime
+
+        , cast(null as decimal(19,4)) as standard_cost_unit
+        , cast(null as decimal(19,4)) as landed_cost_unit
+        , cast(null as decimal(19,4)) as freight_cost_unit
+        , cast(null as decimal(19,4)) as duty_cost_unit  -- Phase 2
+        , cast(null as decimal(19,4)) as tariff_cost_unit  -- Phase 2
+        , cast(null as decimal(19,4)) as brokerage_cost_unit
+        , cast(null as decimal(19,4)) as other_landed_cost_unit
+        , v.vendor_cost_unit
+        , v.vendor_id
+        , dv.vendor_name
+
+        , cast(null as decimal(19,4)) as plm_estimated_cost_unit
+        , cast(null as decimal(19,4)) as plm_estimated_freight_unit
+        , cast(null as decimal(9,4)) as plm_estimated_duty_pct
+        , cast(null as decimal(9,4)) as plm_estimated_tariff_pct
+
+        , v.cost_currency_code
+        , cast(null as decimal(19,8)) as fx_rate_to_usd  -- Phase 2
+        , cast(null as decimal(19,4)) as standard_cost_unit_usd  -- Phase 2
+        , cast(null as decimal(19,4)) as landed_cost_unit_usd  -- Phase 2
+        , cast(null as decimal(19,4)) as vendor_cost_unit_usd  -- Phase 2
+
+        , cast(null as string) as change_reason_code  -- Phase 2
+        , cast(null as string) as d365_item_cost_id
+        , cast(null as string) as d365_cost_group
+        , cast(null as string) as d365_cost_version
+        , 'silver_d365_price_disc_table' as record_source_table
+
+        , p.product_key
+        , p.sku
+
+    FROM vendor_price_current v
+    LEFT JOIN dim_product_by_item p
+        ON p.product_id = v.product_id
+        and p.rn = 1
+    LEFT JOIN {{ ref('silver_stage_dim_vendor') }} dv
+        ON dv.vendor_id = v.vendor_id
+        and dv.source_system = 'D365'
+    WHERE v.rn = 1
+
+),
+
 combined as (
 
     SELECT * FROM standard_cost
@@ -176,6 +291,8 @@ combined as (
     SELECT * FROM landed_cost
     UNION ALL
     SELECT * FROM plm_estimated_cost
+    UNION ALL
+    SELECT * FROM vendor_cost
 
 )
 
