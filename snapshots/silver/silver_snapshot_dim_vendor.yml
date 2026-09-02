@@ -5,7 +5,10 @@ snapshots:
     relation: ref('silver_stage_dim_vendor')
 
     description: >
-      Type 2 historical snapshot of the consolidated silver vendor entity
+      Type 2 historical snapshot of DIM_VENDOR. A new version is created
+      whenever a tracked vendor attribute (name, group, payment terms,
+      currency, incoterm, status) changes for a given vendor_id.
+
 
     config:
       schema: silver_history
