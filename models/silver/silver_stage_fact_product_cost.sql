@@ -76,19 +76,54 @@ vendor_price_current as (
 
 ),
 
+standard_price_current as (
+
+    -- standard_cost_unit now sources from
+    -- PriceDiscTable purchase price instead of the dead InventTableModule.Price
+    -- (confirmed a literal constant 0 across all rows in both dev and prod --
+    -- see COMPLIANCE_REVIEW.md). Purchase price on file in D365 trade
+    -- agreements stands in as the standard-cost proxy; this is a semantic
+    -- shift from a computed manufacturing cost to a purchase-price figure.
+    --
+    -- Prefers the generic (blank-vendor) item price -- the ~89% of MODULE=2
+    -- rows with no ACCOUNTRELATION, i.e. not already claimed by vendor_cost
+    -- above -- and falls back to a vendor-specific price for items that only
+    -- have one of those (per Nick's decision, maximizes STANDARD coverage
+    -- rather than leaving those items blank). Within either tier, picks the
+    -- most-recently-modified row as "current," same tie-break as
+    -- vendor_price_current.
+    SELECT
+
+          p.ITEMRELATION as product_id
+        , cast(p.AMOUNT as decimal(19,4)) as standard_cost_unit
+        , p.CURRENCY as cost_currency_code
+        , cast(p.FROMDATE as date) as effective_date
+        , p.MODIFIEDDATE as d365_cost_update_datetime
+        , row_number() over (
+            partition by p.ITEMRELATION
+            order by (case when p.ACCOUNTRELATION = '' then 0 else 1 end), p.MODIFIEDDATE desc
+          ) as rn
+
+    FROM {{ ref('silver_d365_price_disc_table') }} p
+    WHERE p.AMOUNT <> 0
+        and (p.TODATE is null or p.TODATE >= current_date() or p.TODATE = date('1900-01-01'))
+        and (p.FROMDATE is null or p.FROMDATE <= current_date())
+
+),
+
 standard_cost as (
 
     SELECT
 
-          s.ITEMID as product_id
+          sp.product_id
         , 'D365' as source_system
         , 'STANDARD' as cost_type
         , cast(null as string) as cost_subtype  -- Phase 2
-        , 'Standard' as cost_method
-        , cast(s.PRICEDATE as date) as effective_date
-        , s.MODIFIEDDATE as d365_cost_update_datetime
+        , 'Purchase Price' as cost_method  -- was 'Standard' -- source is PriceDiscTable purchase price, not a D365-computed standard cost, see standard_price_current
+        , sp.effective_date
+        , sp.d365_cost_update_datetime
 
-        , cast(s.PRICE as decimal(19,4)) as standard_cost_unit
+        , sp.standard_cost_unit
         , cast(null as decimal(19,4)) as landed_cost_unit
         , cast(null as decimal(19,4)) as freight_cost_unit  -- Source once available: dim_product.plm_estimated_freight_rate is a rate, not a $/unit amount -- no $/unit freight source yet, Open Decision #3
         , cast(null as decimal(19,4)) as duty_cost_unit  -- Phase 2 -- dim_product.duty_calculated exists but is held to the spec's Phase 2 tag
@@ -103,7 +138,7 @@ standard_cost as (
         , cast(null as decimal(9,4)) as plm_estimated_duty_pct
         , cast(null as decimal(9,4)) as plm_estimated_tariff_pct
 
-        , p.currency_code as cost_currency_code
+        , coalesce(sp.cost_currency_code, p.currency_code) as cost_currency_code
         , cast(null as decimal(19,8)) as fx_rate_to_usd  -- Phase 2
         , cast(null as decimal(19,4)) as standard_cost_unit_usd  -- Phase 2
         , cast(null as decimal(19,4)) as landed_cost_unit_usd  -- Phase 2
@@ -113,15 +148,16 @@ standard_cost as (
         , cast(null as string) as d365_item_cost_id  -- Source once available: D365 InventCostPrice, not yet ingested via BYOD
         , cast(null as string) as d365_cost_group  -- Source once available: bronze_inventory_item.COSTGROUPID, join not built yet
         , cast(null as string) as d365_cost_version  -- Source once available: D365 InventCostPrice.CostingVersionId, not yet ingested via BYOD
-        , 'silver_d365_inventory_product_cost' as record_source_table
+        , 'silver_d365_price_disc_table' as record_source_table
 
         , p.product_key
         , p.sku
 
-    FROM {{ ref('silver_d365_inventory_product_cost') }} s
+    FROM standard_price_current sp
     LEFT JOIN dim_product_by_item p
-        ON p.product_id = s.ITEMID
+        ON p.product_id = sp.product_id
         and p.rn = 1
+    WHERE sp.rn = 1
 
 ),
 
