@@ -135,6 +135,8 @@ product_cost as (
         , cost_currency_code
 
     from {{ ref('fact_product_cost') }}
+    where is_current = true
+      and cost_type = 'STANDARD'  -- bug fix 2026-09-03: fact_product_cost is grained by cost_type x effective_date (insert-only accumulating history, rebuilt 2026-09-01) -- an unfiltered join here fans every inventory row out to one source row per cost_type/effective_date version, which broke the incremental MERGE (DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE) once fact_product_cost accumulated more than one row per product_key
 
 ),
 
@@ -283,26 +285,26 @@ final as (
         , j.on_hand_qty
         , j.available_qty                       -- native InventSum.AVAILPHYSICAL (D365's own computed value), not the spec's literal subtraction formula -- allocated/hold/damaged aren't sourced (see below), and this matched the subtraction result within 0.03% when validated live
         , j.reserved_qty
-        , null allocated_qty                    -- Source once available: no column identified on InventSum/InventDim
-        , null damaged_qty                      -- Source once available: no column identified on InventSum/InventDim
-        , null hold_qty                         -- Blocked/hold state is carried via inventory_status_code, not a separate quantity measure on these tables
-        , null in_transit_inbound_qty           -- Phase 2 per spec
-        , null in_transit_transfer_qty          -- Phase 2 per spec
-        , null on_order_qty                     -- Phase 2 per spec -- source (InventSum.ONORDER) already exists on silver_d365_inventory_sum, not selected yet
-        , null reorder_point_qty                -- Phase 2 per spec
-        , null safety_stock_qty                 -- Phase 2 per spec
-        , null backorder_qty                    -- Source once available: no column identified
-        , null qty_uom                          -- Source once available: no UOM column identified on these tables
+        , cast(null as decimal(18,4)) as allocated_qty  -- Source once available: no column identified on InventSum/InventDim
+        , cast(null as decimal(18,4)) as damaged_qty  -- Source once available: no column identified on InventSum/InventDim
+        , cast(null as decimal(18,4)) as hold_qty  -- Blocked/hold state is carried via inventory_status_code, not a separate quantity measure on these tables
+        , cast(null as decimal(18,4)) as in_transit_inbound_qty  -- Phase 2 per spec
+        , cast(null as decimal(18,4)) as in_transit_transfer_qty  -- Phase 2 per spec
+        , cast(null as decimal(18,4)) as on_order_qty  -- Phase 2 per spec -- source (InventSum.ONORDER) already exists on silver_d365_inventory_sum, not selected yet
+        , cast(null as decimal(18,4)) as reorder_point_qty  -- Phase 2 per spec
+        , cast(null as decimal(18,4)) as safety_stock_qty  -- Phase 2 per spec
+        , cast(null as decimal(18,4)) as backorder_qty  -- Source once available: no column identified
+        , cast(null as string) as qty_uom  -- Source once available: no UOM column identified on these tables
 
     -- Costs
         , j.standard_cost_unit
         , j.on_hand_qty * j.standard_cost_unit  as standard_cost_amount
-        , null landed_cost_unit                 -- Phase 2 per spec -- source already exists on fact_product_cost.landed_cost_unit
-        , null landed_cost_amount               -- Phase 2 per spec
-        , null cost_variance_amount             -- Phase 2 per spec
-        , null retail_value_amount              -- Phase 2 per spec
+        , cast(null as decimal(19,4)) as landed_cost_unit  -- Phase 2 per spec -- source already exists on fact_product_cost.landed_cost_unit
+        , cast(null as decimal(19,4)) as landed_cost_amount  -- Phase 2 per spec
+        , cast(null as decimal(19,4)) as cost_variance_amount  -- Phase 2 per spec
+        , cast(null as decimal(19,4)) as retail_value_amount  -- Phase 2 per spec
         , j.available_qty * j.standard_cost_unit as available_cost_amount
-        , null damaged_cost_amount              -- = damaged_qty x standard_cost_unit once damaged_qty is sourced
+        , cast(null as decimal(19,4)) as damaged_cost_amount  -- = damaged_qty x standard_cost_unit once damaged_qty is sourced
         , j.cost_currency_code
 
     -- Status
@@ -311,11 +313,11 @@ final as (
         , j.inventsiteid                        as inventory_site_id
 
     -- Aging
-        , null first_receipt_date               -- Source once available: min(movement_datetime) from fact_inventory_movement where movement_type = 'RECEIPT'
-        , null last_receipt_date                -- Source once available: max(movement_datetime) from fact_inventory_movement where movement_type = 'RECEIPT'
-        , null days_on_hand_age                 -- Source once available: depends on first/last_receipt_date above
-        , null age_bucket                       -- Source once available: depends on days_on_hand_age above
-        , null last_sale_date                   -- Phase 2 per spec
+        , cast(null as date) as first_receipt_date  -- Source once available: min(movement_datetime) from fact_inventory_movement where movement_type = 'RECEIPT'
+        , cast(null as date) as last_receipt_date  -- Source once available: max(movement_datetime) from fact_inventory_movement where movement_type = 'RECEIPT'
+        , cast(null as int) as days_on_hand_age  -- Source once available: depends on first/last_receipt_date above
+        , cast(null as string) as age_bucket  -- Source once available: depends on days_on_hand_age above
+        , cast(null as date) as last_sale_date  -- Phase 2 per spec
 
     -- Audit
         , 'silver_d365_inventory_sum + silver_d365_inventory_dim' as record_source_table
@@ -352,28 +354,28 @@ final as (
 
     -- Quantities
         , b.InventoryQuantity                   as on_hand_qty
-        , null available_qty                    -- Source once available: no reserved/available breakdown on f_KPI_InventoryValue
-        , null reserved_qty                     -- Source once available: no reserved/available breakdown on f_KPI_InventoryValue
-        , null allocated_qty                    -- Source once available: no column on f_KPI_InventoryValue
-        , null damaged_qty                      -- Source once available: no column on f_KPI_InventoryValue
-        , null hold_qty                         -- Blocked/hold state carried via inventory_status_code
-        , null in_transit_inbound_qty           -- Phase 2 per spec
-        , null in_transit_transfer_qty          -- Phase 2 per spec
-        , null on_order_qty                     -- Phase 2 per spec
-        , null reorder_point_qty                -- Phase 2 per spec
-        , null safety_stock_qty                 -- Phase 2 per spec -- source has SafetyStock but withheld to match Phase 1 scope of the native rows
-        , null backorder_qty                    -- Source once available: no column on f_KPI_InventoryValue
-        , null qty_uom                          -- Source once available: no UOM column on f_KPI_InventoryValue
+        , cast(null as decimal(18,4)) as available_qty  -- Source once available: no reserved/available breakdown on f_KPI_InventoryValue
+        , cast(null as decimal(18,4)) as reserved_qty  -- Source once available: no reserved/available breakdown on f_KPI_InventoryValue
+        , cast(null as decimal(18,4)) as allocated_qty  -- Source once available: no column on f_KPI_InventoryValue
+        , cast(null as decimal(18,4)) as damaged_qty  -- Source once available: no column on f_KPI_InventoryValue
+        , cast(null as decimal(18,4)) as hold_qty  -- Blocked/hold state carried via inventory_status_code
+        , cast(null as decimal(18,4)) as in_transit_inbound_qty  -- Phase 2 per spec
+        , cast(null as decimal(18,4)) as in_transit_transfer_qty  -- Phase 2 per spec
+        , cast(null as decimal(18,4)) as on_order_qty  -- Phase 2 per spec
+        , cast(null as decimal(18,4)) as reorder_point_qty  -- Phase 2 per spec
+        , cast(null as decimal(18,4)) as safety_stock_qty  -- Phase 2 per spec -- source has SafetyStock but withheld to match Phase 1 scope of the native rows
+        , cast(null as decimal(18,4)) as backorder_qty  -- Source once available: no column on f_KPI_InventoryValue
+        , cast(null as string) as qty_uom  -- Source once available: no UOM column on f_KPI_InventoryValue
 
     -- Costs
         , b.UnitCost                             as standard_cost_unit  -- legacy report's own historical unit cost, not fact_product_cost's current-only cost
         , b.InventoryAmount                      as standard_cost_amount -- legacy report's own precomputed on-hand value, not recomputed, avoids rounding drift against its source
-        , null landed_cost_unit                 -- Phase 2 per spec
-        , null landed_cost_amount               -- Phase 2 per spec
-        , null cost_variance_amount             -- Phase 2 per spec
-        , null retail_value_amount              -- Phase 2 per spec
-        , null available_cost_amount            -- Source once available: depends on available_qty above
-        , null damaged_cost_amount              -- Source once available: depends on damaged_qty above
+        , cast(null as decimal(19,4)) as landed_cost_unit  -- Phase 2 per spec
+        , cast(null as decimal(19,4)) as landed_cost_amount  -- Phase 2 per spec
+        , cast(null as decimal(19,4)) as cost_variance_amount  -- Phase 2 per spec
+        , cast(null as decimal(19,4)) as retail_value_amount  -- Phase 2 per spec
+        , cast(null as decimal(19,4)) as available_cost_amount  -- Source once available: depends on available_qty above
+        , cast(null as decimal(19,4)) as damaged_cost_amount  -- Source once available: depends on damaged_qty above
         , b.cost_currency_code
 
     -- Status
@@ -382,11 +384,11 @@ final as (
         , b.d365_site_id                        as inventory_site_id
 
     -- Aging
-        , null first_receipt_date               -- Source once available: same plan as native rows
-        , null last_receipt_date                -- Source once available: same plan as native rows
-        , null days_on_hand_age                 -- Source once available: same plan as native rows
-        , null age_bucket                       -- Source once available: same plan as native rows
-        , null last_sale_date                   -- Phase 2 per spec
+        , cast(null as date) as first_receipt_date  -- Source once available: same plan as native rows
+        , cast(null as date) as last_receipt_date  -- Source once available: same plan as native rows
+        , cast(null as int) as days_on_hand_age  -- Source once available: same plan as native rows
+        , cast(null as string) as age_bucket  -- Source once available: same plan as native rows
+        , cast(null as date) as last_sale_date  -- Phase 2 per spec
 
     -- Audit
         , 'silver_kpi_inventory_value'          as record_source_table

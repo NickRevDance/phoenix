@@ -54,13 +54,26 @@ SELECT
     ,CPM.DebutDate as debut_date
     ,CPM.DebutYear as debut_year
     ,IDC.REVRETIREMENTDATE AS retirement_date
+    , CASE
+        WHEN IDC.REVRETIREMENTDATE IS NULL OR IDC.REVRETIREMENTDATE = DATE'1900-01-01' THEN NULL
+        ELSE YEAR(IDC.REVRETIREMENTDATE)
+      END AS retirement_year -- 1900-01-01 is a placeholder for "no retirement date," not a real year
     ,IDC.REVINACTIVEDATE AS inactive_date
     ,CPM.Vintage
     ,CPM.Holiday
 -- Status
     ,CPM.ProductStatus AS plm_status
     ,IDC.SUNTAFITEMSTATUS AS erp_status
-    , '' as dw_sku_status -- Data warehouse SKU status (Active, Retired). From view.
+    , CASE
+        WHEN CPM.ProductStatus IS NULL
+            AND IDC.SUNTAFITEMSTATUS IS NULL
+            AND (IDC.REVRETIREMENTDATE IS NULL OR IDC.REVRETIREMENTDATE = DATE'1900-01-01') THEN NULL
+        WHEN IDC.SUNTAFITEMSTATUS = 'Inactive' THEN 'Retired'
+        WHEN IDC.REVRETIREMENTDATE IS NOT NULL
+            AND IDC.REVRETIREMENTDATE <> DATE'1900-01-01'
+            AND IDC.REVRETIREMENTDATE <= CURRENT_DATE() THEN 'Retired'
+        ELSE 'Active'
+      END AS dw_sku_status
     ,CPM.Active as active_flag
     ,CPM.PlanningFlag as planning_flag
 -- Sourcing
@@ -139,7 +152,7 @@ SELECT
     ,CPM.CPSCStyleCompliantDate
     ,CPM.CPSCStyleExpiration
 
--- SCD2 change hash 
+-- SCD2 change hash
     -- this key is used to identify the fields used in SCD2. If more fields need to be tracked they should be added to this list
     , md5
         (
