@@ -50,7 +50,7 @@ sources:
 
       - name: inventory_table
         identifier: Rev_InventTableStaging
-      
+
       - name: inventory_location
         identifier: Rev_InventLocationStaging
 
@@ -65,20 +65,29 @@ sources:
 
       - name: d365_vendor
         identifier: Rev_VendTableStaging
-        
+
       - name: d365_dir_party
         identifier: Rev_dirpartytablestaging
 
       - name: price_disc_table
-        identifier: rev_pricedisctablestaging
+        identifier: Rev_PriceDiscTableStaging
 
       - name: itm_cost_trans
-        identifier: rev_itmcosttransstaging
+        identifier: Rev_ItmCostTransStaging
 
       - name: voyage_cost
-        identifier: rev_revvoyagecoststaging
+        identifier: Rev_RevVoyageCostStaging
 
-    
+      - name: d365_customer
+        identifier: Rev_CustTableStaging
+
+  - name: bc
+    database: dwhvisualnext
+    schema: bc
+    tables:
+      - name: bc_customer
+        identifier: customer_header
+
   - name: SFDC
     database: "{{ 'phoenix_prod_catalog' if target.schema == 'prod' else 'phoenix_dev_catalog' }}"
     schema: "{{ 'prod_raw' if target.schema == 'prod' else 'dev_raw' }}"

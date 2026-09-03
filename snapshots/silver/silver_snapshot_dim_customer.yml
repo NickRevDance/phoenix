@@ -1,0 +1,26 @@
+version: 2
+ 
+snapshots:
+  - name: silver_snapshot_dim_customer
+    relation: ref('silver_stage_dim_customer')
+ 
+    description: >
+      Type 2 historical snapshot of DIM_CUSTOMER. A new version is created
+      whenever a tracked customer attribute (customer_type, customer_status --
+      extend as more Type 2 attributes get real sources) changes for a given
+      customer_key.
+ 
+    config:
+      schema: silver_history
+      unique_key: customer_key
+      strategy: check
+      hard_deletes: ignore
+ 
+      check_cols:
+        - customer_change_hash
+ 
+      snapshot_meta_column_names:
+        dbt_valid_from: effective_start_datetime
+        dbt_valid_to: effective_end_datetime
+        dbt_scd_id: row_hash
+        dbt_updated_at: etl_update_datetime
