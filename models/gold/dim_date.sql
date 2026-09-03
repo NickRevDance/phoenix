@@ -1,4 +1,10 @@
-{{ config(materialized='table') }}
+{{ config(
+    materialized='table',
+    post_hook=[
+        "alter table {{ this }} alter column date_key set not null",
+        "alter table {{ this }} alter column date set not null"
+    ]
+) }}
 
 -- =============================================================================
 -- DIM_DATE - Gold Layer conformed date dimension
@@ -10,6 +16,11 @@
 -- dialect week functions, per spec Section 7.2 ("must NOT rely on default
 -- SQL Server or Databricks week functions"):
 --   2005-01-02 was a Sunday; 2005-01-03 was a Monday.
+--
+-- EDW-9 sign-off remediation (items 1, 2, 4 - item 3 blocked on spec v2.1):
+--   1. date/timestamp boundary columns cast to DATE - dateadd()/quarter-end
+--      arithmetic return TIMESTAMP in Databricks, spec Section 3 wants DATE.
+--   2. date_key/date enforced NOT NULL via post_hook (Delta ALTER COLUMN).
 -- =============================================================================
 
 with date_spine as (
@@ -62,7 +73,8 @@ calendar_attrs as (
         trunc(b.date, 'MM')                                               as first_day_of_month,
         last_day(b.date)                                                  as last_day_of_month,
         trunc(b.date, 'QUARTER')                                          as first_day_of_quarter,
-        dateadd(day, -1, add_months(trunc(b.date, 'QUARTER'), 3))         as last_day_of_quarter,
+        cast(dateadd(day, -1, add_months(trunc(b.date, 'QUARTER'), 3)) as date)
+                                                                          as last_day_of_quarter,
         make_date(b.calendar_year, 1, 1)                                  as first_day_of_year,
         make_date(b.calendar_year, 12, 31)                                as last_day_of_year,
         add_months(trunc(b.date, 'MM'), 1)                                as first_day_of_next_month,
@@ -112,7 +124,7 @@ retail_join as (
 
     select
         fw.*,
-        r.retail_year,
+        cast(r.retail_year as int)                                        as retail_year,
         r.retail_year_start_date,
         r.retail_year_end_date,
         r.weeks_in_retail_year                                            as retail_weeks_in_year,
@@ -201,16 +213,17 @@ retail_final as (
         ra.retail_week - ra.retail_period_start_week + 1                  as retail_week_in_period,
         ra.retail_weeks_in_year = 53                                      as is_53_week_retail_year,
         ra.retail_week = 53                                               as is_retail_week_53,
-        dateadd(day, (ra.retail_week - 1) * 7, ra.retail_year_start_date) as retail_week_start_date,
-        dateadd(day, (ra.retail_week - 1) * 7 + 6, ra.retail_year_start_date)
+        cast(dateadd(day, (ra.retail_week - 1) * 7, ra.retail_year_start_date) as date)
+                                                                          as retail_week_start_date,
+        cast(dateadd(day, (ra.retail_week - 1) * 7 + 6, ra.retail_year_start_date) as date)
                                                                           as retail_week_end_date,
-        dateadd(day, (ra.retail_period_start_week - 1) * 7, ra.retail_year_start_date)
+        cast(dateadd(day, (ra.retail_period_start_week - 1) * 7, ra.retail_year_start_date) as date)
                                                                           as retail_period_start_date,
-        dateadd(day, ra.retail_period_end_week * 7 - 1, ra.retail_year_start_date)
+        cast(dateadd(day, ra.retail_period_end_week * 7 - 1, ra.retail_year_start_date) as date)
                                                                           as retail_period_end_date,
-        dateadd(day, (ra.retail_quarter_start_week - 1) * 7, ra.retail_year_start_date)
+        cast(dateadd(day, (ra.retail_quarter_start_week - 1) * 7, ra.retail_year_start_date) as date)
                                                                           as retail_quarter_start_date,
-        dateadd(day, ra.retail_quarter_end_week * 7 - 1, ra.retail_year_start_date)
+        cast(dateadd(day, ra.retail_quarter_end_week * 7 - 1, ra.retail_year_start_date) as date)
                                                                           as retail_quarter_end_date,
         ra.retail_year * 100 + ra.retail_period                           as retail_year_period_int,
         ra.retail_year * 100 + ra.retail_week                             as retail_year_week_int,
@@ -222,13 +235,13 @@ retail_final as (
         -- Results before 2005-01-01 -> NULL.
         case when ra.retail_week = 53 then null
              when dateadd(day, -364,  ra.date) <  to_date('2005-01-01') then null
-             else dateadd(day, -364,  ra.date) end                        as comparable_date_ly,
+             else cast(dateadd(day, -364,  ra.date) as date) end          as comparable_date_ly,
         case when ra.retail_week = 53 then null
              when dateadd(day, -728,  ra.date) <  to_date('2005-01-01') then null
-             else dateadd(day, -728,  ra.date) end                        as comparable_date_2ly,
+             else cast(dateadd(day, -728,  ra.date) as date) end          as comparable_date_2ly,
         case when ra.retail_week = 53 then null
              when dateadd(day, -1092, ra.date) <  to_date('2005-01-01') then null
-             else dateadd(day, -1092, ra.date) end                        as comparable_date_3ly
+             else cast(dateadd(day, -1092, ra.date) as date) end          as comparable_date_3ly
     from retail_attrs ra
 
 ),
@@ -250,6 +263,10 @@ with_holidays as (
 
 ),
 
+-- Pending spec v2.1 (EDW-9 item 3): fiscal_year_total_days/fiscal_days_elapsed
+-- still derive from count(*) over the table, not true fiscal-year boundaries -
+-- only wrong for FY2005/FY2037, the two years truncated by the table range.
+-- Do not change until Chris Mathis publishes v2.1
 with_pacing as (
 
     select
