@@ -1,0 +1,7 @@
+channel_code,channel_name,channel_short_name,storefront_code,storefront_platform,is_loyalty_eligible,is_promotion_eligible,is_returns_enabled,channel_status,sort_order
+BC_US,US Ecommerce,US eCom,US,BigCommerce,1,1,1,Active,10
+BC_CA,Canada Ecommerce,CA eCom,CA,BigCommerce,1,1,1,Active,20
+BC_TT,Tippi Toes Ecommerce,TT eCom,TT,BigCommerce,0,1,1,Active,30
+CALL_CTR,Call Center,Call Ctr,,,1,1,1,Active,40
+B2B_DIRECT,B2B Direct/Wholesale,B2B,,,0,0,1,Active,50
+INTERNAL,Internal/Employee,Internal,,,0,0,0,Active,90
