@@ -15,52 +15,52 @@ sources:
     database: dwhvisualnext
     schema: d365_byod
     tables:
-      - name: item_barcode
+      - name: d365_item_barcode
         identifier: Rev_InventItembarcodeStaging
 
-      - name: inventory_combinations
+      - name: d365_inventory_combinations
         identifier: Rev_InventDimCombinationStaging
 
-      - name: inventory_item
+      - name: d365_inventory_item
         identifier: Rev_InventTableStaging
 
-      - name: inventory_module
+      - name: d365_inventory_module
         identifier: Rev_InventTableMODUleStaging
 
-      - name: product_variant
+      - name: d365_product_variant
         identifier: Rev_EcoResDistinctProductVariantStaging
 
-      - name: inventory_on_hand
+      - name: d365_inventory_on_hand
         identifier: InventWarehouseInventoryStatusOnHandV2Staging
 
-      - name: hts_assignment
+      - name: d365_hts_assignment
         identifier: REVCodesAssignmentStaging
 
-      - name: warehouse_location
+      - name: d365_warehouse_location
         identifier: Rev_WMSLocationStaging
 
-      - name: inventory_trans
+      - name: d365_inventory_trans
         identifier: Rev_InventTransStaging
 
-      - name: inventory_sum
+      - name: d365_inventory_sum
         identifier: Rev_InventSumStaging
 
-      - name: inventory_dim
+      - name: d365_inventory_dim
         identifier: Rev_InventDimStaging
 
-      - name: inventory_table
+      - name: d365_inventory_table
         identifier: Rev_InventTableStaging
 
-      - name: inventory_location
+      - name: d365_inventory_location
         identifier: Rev_InventLocationStaging
 
-      - name: inventory_site
+      - name: d365_inventory_site
         identifier: Rev_InventSiteStaging
 
-      - name: inventory_trans_origin
+      - name: d365_inventory_trans_origin
         identifier: Rev_InventTransOriginStaging
 
-      - name: inventory_table_module
+      - name: d365_inventory_table_module
         identifier: Rev_InventTableModuleStaging
 
       - name: d365_vendor
@@ -69,13 +69,13 @@ sources:
       - name: d365_dir_party
         identifier: Rev_dirpartytablestaging
 
-      - name: price_disc_table
+      - name: d365_price_disc_table
         identifier: Rev_PriceDiscTableStaging
 
-      - name: itm_cost_trans
+      - name: d365_itm_cost_trans
         identifier: Rev_ItmCostTransStaging
 
-      - name: voyage_cost
+      - name: d365_voyage_cost
         identifier: Rev_RevVoyageCostStaging
 
       - name: d365_customer
@@ -92,6 +92,22 @@ sources:
 
       - name: d365_purch_line
         identifier: Rev_PurchLineStaging
+
+      # Restored 2026-09-10 -- dropped by commit aa8454ab7 ("fact_sales_invoice"),
+      # re-added here with the d365_ prefix per Nick's naming standardization request.
+      - name: d365_itm_goods_in_transit_order
+        identifier: Rev_ItmGoodsInTransitOrderStaging
+        loaded_at_field: SYNCSTARTDATETIME
+        freshness:
+          warn_after: {count: 24, period: hour}
+          error_after: {count: 48, period: hour}
+
+      - name: d365_invent_transfer_line
+        identifier: Rev_InventTransferLineStaging
+        loaded_at_field: MODIFIEDDATE
+        freshness:
+          warn_after: {count: 24, period: hour}
+          error_after: {count: 48, period: hour}
 
   - name: bc
     database: dwhvisualnext

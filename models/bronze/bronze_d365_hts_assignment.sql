@@ -3,4 +3,4 @@
 SELECT
     *
 FROM
-    {{ source('byod', 'hts_assignment') }}
+    {{ source('byod', 'd365_hts_assignment') }}

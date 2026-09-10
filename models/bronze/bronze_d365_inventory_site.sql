@@ -3,4 +3,4 @@
 SELECT
     *
 from
-    {{source("byod", "inventory_site")}}
+    {{source("byod", "d365_inventory_site")}}

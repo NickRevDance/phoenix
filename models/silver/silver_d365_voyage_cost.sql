@@ -6,4 +6,4 @@
 SELECT
     *
 FROM
-    {{ ref('bronze_d365_voyage_cost') }}
+    {{ ref("bronze_d365_voyage_cost") }}
