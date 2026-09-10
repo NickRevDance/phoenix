@@ -81,27 +81,25 @@ sources:
       - name: d365_customer
         identifier: Rev_CustTableStaging
 
-      # New 2026-09-10 -- EDW-46 sourcing gap closure (on_order_qty / in-transit split)
-      - name: purch_line
-        identifier: Rev_PurchLineStaging
-        loaded_at_field: MODIFIEDDATE
-        freshness:
-          warn_after: {count: 24, period: hour}
-          error_after: {count: 48, period: hour}
+      # New for FACT_SALES_INVOICE, 2026-09-10 -- native D365 SalesTable
+      # BYOD export (order header). Used here only for order_date /
+      # order_date_key via a join on SalesId -- not a full order-header
+      # build (that's FACT_ORDER_LINE's job). Merge into the real
+      # models/staging/sources.yml.
+      - name: d365_sales_table
+        identifier: Rev_SalesTableStaging
 
-      - name: itm_goods_in_transit_order
-        identifier: Rev_ItmGoodsInTransitOrderStaging
-        loaded_at_field: SYNCSTARTDATETIME
-        freshness:
-          warn_after: {count: 24, period: hour}
-          error_after: {count: 48, period: hour}
+      # New for FACT_SALES_INVOICE, 2026-09-10 -- native D365
+      # CustInvoiceJour BYOD export (posted invoice header). Merge into
+      # the real models/staging/sources.yml.
+      - name: d365_cust_invoice_jour
+        identifier: Rev_CustInvoiceJourStaging
 
-      - name: invent_transfer_line
-        identifier: Rev_InventTransferLineStaging
-        loaded_at_field: MODIFIEDDATE
-        freshness:
-          warn_after: {count: 24, period: hour}
-          error_after: {count: 48, period: hour}
+      # New for FACT_SALES_INVOICE, 2026-09-10 -- native D365
+      # CustInvoiceTrans BYOD export (posted invoice line -- the fact's
+      # grain source). Merge into the real models/staging/sources.yml.
+      - name: d365_cust_invoice_trans
+        identifier: Rev_CustInvoiceTransStaging
 
   - name: bc
     database: dwhvisualnext
