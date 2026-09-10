@@ -3,4 +3,4 @@
 SELECT
     *
 FROM
-    {{ source('byod', 'invent_transfer_line') }}
+    {{ source('byod', 'd365_invent_transfer_line') }}

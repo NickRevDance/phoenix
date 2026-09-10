@@ -93,6 +93,24 @@ sources:
       - name: d365_purch_line
         identifier: Rev_PurchLineStaging
 
+
+      - name: d365_itm_goods_in_transit_order
+        identifier: Rev_ItmGoodsInTransitOrderStaging
+        loaded_at_field: SYNCSTARTDATETIME
+        config:
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 48, period: hour}
+
+
+      - name: d365_invent_transfer_line
+        identifier: Rev_InventTransferLineStaging
+        loaded_at_field: MODIFIEDDATE
+        config:
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 48, period: hour}
+
   - name: bc
     database: dwhvisualnext
     schema: bc
