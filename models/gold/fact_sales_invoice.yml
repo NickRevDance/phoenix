@@ -1,0 +1,37 @@
+version: 2
+
+models:
+  - name: fact_sales_invoice
+    description: >
+      FACT_SALES_INVOICE -- posted invoice-line grain, insert-only
+      accumulating fact (D365 CustInvoiceTrans + CustInvoiceJour). See
+      README.md for build status, known gaps, and open decisions.
+    columns:
+      - name: sales_invoice_key
+        tests: [is_valid_key]
+      - name: invoice_id
+        tests: [not_null]
+      - name: invoice_line_number
+        tests: [not_null]
+      - name: source_system
+        tests: [not_null]
+      - name: customer_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_customer')
+                field: customer_key
+      - name: invoiced_qty
+        tests: [not_null]
+      - name: net_sales_amount
+        tests: [not_null]
+
+# Deferred, not implemented in this pass:
+#   - Reconciliation rule 1 (spec Section 7): sum(net_sales_amount) by invoice_id
+#     vs. D365 CustInvoiceJour.InvoiceAmount. Needs a tolerance decided by
+#     Finance (Open Decision 9 / F5) before this can be a real test rather
+#     than an exploratory query.
+#   - Reconciliation rule 2 / F5 cross-fact gate: sum(discount_amount) from
+#     FACT_DISCOUNT_APPLICATION per sales_invoice_key vs. total_discount_amount
+#     here. Blocked on FACT_DISCOUNT_APPLICATION not existing yet.
