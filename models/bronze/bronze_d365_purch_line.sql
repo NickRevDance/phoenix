@@ -3,4 +3,4 @@
 SELECT
     *
 FROM
-    {{ source('byod', 'purch_line') }}
+    {{ source('byod', 'd365_purch_line') }}
