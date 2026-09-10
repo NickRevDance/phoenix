@@ -1,0 +1,18 @@
+version: 2
+
+models:
+  - name: dim_sales_channel
+    description: >
+      DIM_SALES_CHANNEL -- conformed sales channel dimension (Type 1,
+      seed-based). See README.md for build status and open decisions.
+    columns:
+      - name: channel_code
+        tests:
+          - unique
+          - not_null
+          - relationship_coverage:
+              to: ref('ref_sales_origin_map')
+              field: channel_code
+              where: "channel_status = 'Active'"
+              config:
+                severity: warn  # known open gap (spec Decision 6, BC_TT/INTERNAL unmapped) -- promote to error once resolved

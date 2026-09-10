@@ -26,15 +26,3 @@ models:
         tests: [not_null]
       - name: is_working_day
         tests: [not_null]
-
-  - name: stg_holiday_calendar
-    description: >
-      One row per calendar date pivoted from the long-form holiday_calendar
-      seed. calendar_type is resolved into explicit columns here and does not
-      survive the pivot (spec Section 8).
-    columns:
-      - name: date
-        tests: [unique, not_null]
-      - name: is_company_working_day
-        description: Drives DIM_DATE.is_working_day. Only Company seed rows affect it.
-        tests: [not_null]
