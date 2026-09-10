@@ -31,7 +31,6 @@ list_price_current AS (
     -- (QUANTITYAMOUNTFROM = 0, excludes volume-break rows) with an
     -- open-ended validity window (no TODATE, or a sentinel/far-future one)
     -- to isolate a standing price from a time-bounded promotional one.
-    -- NEEDS CONFIRMATION with Merchandising -- spec Open Decision #1.
     SELECT
 
           p.ITEMRELATION as product_id
@@ -66,7 +65,7 @@ sale_price_current AS (
     -- to still be in force today, same as every other price/cost type
     -- here. Operationalizes spec Open Decision #6's recommended option
     -- (b): detect sale prices by reading D365 PriceDiscTable promotional
-    -- records directly. NEEDS CONFIRMATION with Nick/Globant.
+    -- records directly.
     --
     -- CAUTION, confirmed live 2026-09-10: for the 1,400 items that get both
     -- a LIST and a SALE row from this split, the "SALE" price averages
@@ -107,8 +106,7 @@ sale_price_current AS (
 -- customer-group trade agreements are percentage-off arrangements, not
 -- fixed-dollar prices -- a b2b_price would need to be derived as
 -- list_price * (1 - PERCENT1/100) or similar, which is a real modeling
--- decision (what base price, which agreement wins per item) that spec
--- Open Decision #5 leaves open. Not done unilaterally -- flagged for Nick.
+-- decision (what base price, which agreement wins per item). Not done unilaterally
 -- No b2b_price rows are emitted until this is resolved (same convention
 -- as fact_product_cost's original zero-source VENDOR cost_type).
 
@@ -126,7 +124,7 @@ list_price_rows AS (
 
         , lp.price_amount as list_price
         , cast(null as decimal(19,4)) as sale_price
-        , cast(null as decimal(19,4)) as msrp  -- Source once available: no distinct MSRP field confirmed on D365/PLM -- spec Open Decision #2, unresolved
+        , cast(null as decimal(19,4)) as msrp  -- Source once available: no distinct MSRP field confirmed on D365/PLM
         , cast(null as decimal(19,4)) as b2b_price
 
         , lp.price_currency_code
