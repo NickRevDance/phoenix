@@ -38,3 +38,45 @@ models:
       - name: is_company_working_day
         description: Drives DIM_DATE.is_working_day. Only Company seed rows affect it.
         tests: [not_null]
+
+  - name: dim_sales_channel
+    description: >
+      DIM_SALES_CHANNEL -- conformed sales channel dimension (Type 1,
+      seed-based). See models/dim_sales_channel/README.md (staging copy,
+      Revolution Dance project folder) for build status and open decisions.
+    columns:
+      - name: channel_code
+        tests:
+          - unique
+          - not_null
+          - relationship_coverage:
+              to: ref('ref_sales_origin_map')
+              field: channel_code
+              where: "channel_status = 'Active'"
+
+  - name: ref_sales_origin_map
+    description: >
+      REF_SALES_ORIGIN_MAP -- crosswalk of D365 SalesOriginId values to
+      DIM_SALES_CHANNEL. See models/ref_sales_origin_map/README.md (staging
+      copy, Revolution Dance project folder) for build status and open
+      decisions.
+    columns:
+      - name: sales_origin_id
+        tests: [unique, not_null]
+      - name: channel_code
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_sales_channel')
+              field: channel_code
+      - name: mapping_confidence
+        tests:
+          - accepted_values:
+              values: ['Confirmed', 'Provisional']
+      - name: source_system
+        tests: [not_null]
+      - name: is_active_flag
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
