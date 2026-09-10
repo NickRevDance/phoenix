@@ -37,6 +37,10 @@ inventory_dim as (
 
           InventDimID
         , coalesce(nullif(INVENTSTATUSID, ''), 'UNKNOWN') as inventory_status_code  -- sign-off fix (spec 2.3 rule): was nullif-only, leaving blank statuses as NULL in the grain column instead of routing them to the UNKNOWN member per the EDW-7 unknown-mapping pattern
+        , INVENTSIZEID
+        , INVENTCOLORID
+        , INVENTLOCATIONID
+        , inventsiteid
 
     from {{ ref('silver_d365_inventory_dim') }}
 
@@ -140,6 +144,85 @@ product_cost as (
 
 ),
 
+product_cost_landed as (
+
+    select
+
+          product_key
+        , landed_cost_unit
+
+    from {{ ref('fact_product_cost') }}
+    where is_current = true
+      and cost_type = 'LANDED'  -- same fan-out guard as product_cost above -- confirmed live 2026-09-10: 1 row per product_key for this filter, no fan-out risk
+
+),
+
+open_po_agg as (
+
+    -- EDW-46: on_order_qty source, sourced 2026-09-10 from native PurchLine (Rev_PurchLineStaging via
+    -- silver_d365_purch_line, filtered PURCHSTATUS = 1 / Backorder). Confirmed live: REMAINPURCHPHYSICAL
+    -- equals PURCHQTY exactly for every open line (nothing received yet), 0 for Received/Invoiced/Canceled --
+    -- this is a clean open-PO-totals measure, reconciles to D365 by construction.
+    select
+
+          p.ITEMID
+        , d.INVENTSIZEID
+        , d.INVENTCOLORID
+        , d.INVENTLOCATIONID
+        , d.inventsiteid
+        , sum(p.REMAINPURCHPHYSICAL) as on_order_qty
+
+    from {{ ref('silver_d365_purch_line') }} p
+    left join inventory_dim d
+        on p.INVENTDIMID = d.InventDimID
+    group by 1, 2, 3, 4, 5
+
+),
+
+goods_in_transit_agg as (
+
+    -- EDW-46: in_transit_inbound_qty source, sourced 2026-09-10 from Rev_ItmGoodsInTransitOrderStaging
+    -- via silver_d365_itm_goods_in_transit_order (STATUS = 1, not yet received). Confirmed live: 100% of
+    -- these rows (952/952) join to a real PurchTable.PURCHID via TRANSREFID -- this table is vendor-PO
+    -- goods-in-transit only, not inter-warehouse (0 matches against InventTransferTable).
+    select
+
+          g.ITEMID
+        , d.INVENTSIZEID
+        , d.INVENTCOLORID
+        , d.INVENTLOCATIONID
+        , d.inventsiteid
+        , sum(g.REMAINQTY) as in_transit_inbound_qty
+
+    from {{ ref('silver_d365_itm_goods_in_transit_order') }} g
+    left join inventory_dim d
+        on g.INVENTDIMID = d.InventDimID
+    group by 1, 2, 3, 4, 5
+
+),
+
+transfer_in_transit_agg as (
+
+    -- EDW-46: in_transit_transfer_qty source, sourced 2026-09-10 from Rev_InventTransferLineStaging via
+    -- silver_d365_invent_transfer_line, keyed to the DESTINATION warehouse leg (INVENTDIMIDTO_RU).
+    -- Table carries 0 rows in the warehouse today (no live transfer-order activity) -- wired for when
+    -- transfer activity starts rather than left unbuilt, since the source and join logic are both real.
+    select
+
+          t.ITEMID
+        , d.INVENTSIZEID
+        , d.INVENTCOLORID
+        , d.INVENTLOCATIONID
+        , d.inventsiteid
+        , sum(t.QTYSHIPPED - t.QTYRECEIVED) as in_transit_transfer_qty
+
+    from {{ ref('silver_d365_invent_transfer_line') }} t
+    left join inventory_dim d
+        on t.INVENTDIMIDTO_RU = d.InventDimID
+    group by 1, 2, 3, 4, 5
+
+),
+
 snapshot_date_dim as (
 
     select
@@ -164,7 +247,21 @@ joined as (
         , coalesce(st.availability_class, 'UNKNOWN') as availability_status_primary
         , pc.standard_cost_unit
         , pc.cost_currency_code
+        , pcl.landed_cost_unit
+        , opo.on_order_qty
+        , git.in_transit_inbound_qty
+        , tit.in_transit_transfer_qty
         , dd.date_key as snapshot_date_key
+
+        -- EDW-46 fan-out guard: on_order/in-transit are item+warehouse-level supply
+        -- quantities, but 91% of item+warehouse combos carry >1 status row (confirmed
+        -- live 2026-09-10) -- a naive join repeats the same total on every status row and
+        -- overstates it on summation. Rank rows per item+warehouse (AVAILABLE status
+        -- first, else deterministic tie-break) and only the rank-1 row gets the qty below.
+        , row_number() over (
+            partition by oh.ItemID, oh.INVENTSIZEID, oh.INVENTCOLORID, oh.INVENTLOCATIONID, oh.inventsiteid
+            order by case when coalesce(st.availability_class, 'UNKNOWN') = 'AVAILABLE' then 0 else 1 end, oh.inventory_status_code
+          ) as item_warehouse_supply_rank
 
         -- lifecycle_status_code (sign-off fix, replaces the NEEDS CONFIRMATION null):
         -- precedence CLEARANCE -> VINTAGE -> NEW -> CORE -> NULL, confirmed against
@@ -197,6 +294,26 @@ joined as (
         on oh.inventory_status_code = st.inventory_status_code
     left join product_cost pc
         on pr.product_key = pc.product_key
+    left join product_cost_landed pcl
+        on pr.product_key = pcl.product_key
+    left join open_po_agg opo
+        on oh.ItemID = opo.ITEMID
+        and oh.INVENTSIZEID = opo.INVENTSIZEID
+        and oh.INVENTCOLORID = opo.INVENTCOLORID
+        and oh.INVENTLOCATIONID = opo.INVENTLOCATIONID
+        and oh.inventsiteid = opo.inventsiteid
+    left join goods_in_transit_agg git
+        on oh.ItemID = git.ITEMID
+        and oh.INVENTSIZEID = git.INVENTSIZEID
+        and oh.INVENTCOLORID = git.INVENTCOLORID
+        and oh.INVENTLOCATIONID = git.INVENTLOCATIONID
+        and oh.inventsiteid = git.inventsiteid
+    left join transfer_in_transit_agg tit
+        on oh.ItemID = tit.ITEMID
+        and oh.INVENTSIZEID = tit.INVENTSIZEID
+        and oh.INVENTCOLORID = tit.INVENTCOLORID
+        and oh.INVENTLOCATIONID = tit.INVENTLOCATIONID
+        and oh.inventsiteid = tit.inventsiteid
     left join snapshot_date_dim dd
         on dd.Date = oh.snapshot_date
 
@@ -288,21 +405,21 @@ final as (
         , cast(null as decimal(18,4)) as allocated_qty  -- Source once available: no column identified on InventSum/InventDim
         , cast(null as decimal(18,4)) as damaged_qty  -- Source once available: no column identified on InventSum/InventDim
         , cast(null as decimal(18,4)) as hold_qty  -- Blocked/hold state is carried via inventory_status_code, not a separate quantity measure on these tables
-        , cast(null as decimal(18,4)) as in_transit_inbound_qty  -- Phase 2 per spec
-        , cast(null as decimal(18,4)) as in_transit_transfer_qty  -- Phase 2 per spec
-        , cast(null as decimal(18,4)) as on_order_qty  -- Phase 2 per spec -- source (InventSum.ONORDER) already exists on silver_d365_inventory_sum, not selected yet
-        , cast(null as decimal(18,4)) as reorder_point_qty  -- Phase 2 per spec
-        , cast(null as decimal(18,4)) as safety_stock_qty  -- Phase 2 per spec
+        , case when j.item_warehouse_supply_rank = 1 then coalesce(j.in_transit_inbound_qty, 0) else 0 end as in_transit_inbound_qty  -- Phase 2 per spec -- sourced 2026-09-10, see goods_in_transit_agg above (EDW-46); supply_rank guard above prevents double counting across status rows
+        , case when j.item_warehouse_supply_rank = 1 then coalesce(j.in_transit_transfer_qty, 0) else 0 end as in_transit_transfer_qty  -- Phase 2 per spec -- sourced 2026-09-10, see transfer_in_transit_agg above (EDW-46) -- reads 0 today, source table has no live rows yet
+        , case when j.item_warehouse_supply_rank = 1 then coalesce(j.on_order_qty, 0) else 0 end as on_order_qty  -- Phase 2 per spec -- sourced 2026-09-10, see open_po_agg above (EDW-46); supply_rank guard above prevents double counting across status rows
+        , cast(null as decimal(18,4)) as reorder_point_qty  -- Phase 2 per spec -- EDW-46: no D365 item-coverage export exists anywhere in the warehouse yet (confirmed via a full dwhvisualnext table scan, 2026-09-10) -- needs a new BYOD export, pair with D365 admin per EDW-46's own scope note
+        , cast(null as decimal(18,4)) as safety_stock_qty  -- Phase 2 per spec -- EDW-46: same gap as reorder_point_qty, no source table exists yet
         , cast(null as decimal(18,4)) as backorder_qty  -- Source once available: no column identified
         , cast(null as string) as qty_uom  -- Source once available: no UOM column identified on these tables
 
     -- Costs
         , j.standard_cost_unit
         , j.on_hand_qty * j.standard_cost_unit  as standard_cost_amount
-        , cast(null as decimal(19,4)) as landed_cost_unit  -- Phase 2 per spec -- source already exists on fact_product_cost.landed_cost_unit
-        , cast(null as decimal(19,4)) as landed_cost_amount  -- Phase 2 per spec
-        , cast(null as decimal(19,4)) as cost_variance_amount  -- Phase 2 per spec
-        , cast(null as decimal(19,4)) as retail_value_amount  -- Phase 2 per spec
+        , j.landed_cost_unit  -- Phase 2 per spec -- sourced 2026-09-10 from fact_product_cost (cost_type='LANDED', is_current=true), PLM-estimate coverage only today (EDW-12) -- null where fact_product_cost has no LANDED row yet (~26% of products)
+        , j.on_hand_qty * j.landed_cost_unit as landed_cost_amount  -- Phase 2 per spec -- null when landed_cost_unit is null
+        , (j.on_hand_qty * j.landed_cost_unit) - (j.on_hand_qty * j.standard_cost_unit) as cost_variance_amount  -- Phase 2 per spec -- spec 2.3 derived rule: landed_cost_amount - standard_cost_amount
+        , cast(null as decimal(19,4)) as retail_value_amount  -- Phase 2 per spec -- blocked on FACT_PRODUCT_PRICE (EDW-20), not pushed to the repo yet -- not blocking the D365-sourced fields above on this per EDW-49 scope note
         , j.available_qty * j.standard_cost_unit as available_cost_amount
         , cast(null as decimal(19,4)) as damaged_cost_amount  -- = damaged_qty x standard_cost_unit once damaged_qty is sourced
         , j.cost_currency_code
@@ -317,7 +434,7 @@ final as (
         , cast(null as date) as last_receipt_date  -- Source once available: max(movement_datetime) from fact_inventory_movement where movement_type = 'RECEIPT'
         , cast(null as int) as days_on_hand_age  -- Source once available: depends on first/last_receipt_date above
         , cast(null as string) as age_bucket  -- Source once available: depends on days_on_hand_age above
-        , cast(null as date) as last_sale_date  -- Phase 2 per spec
+        , cast(null as date) as last_sale_date  -- Phase 2 per spec -- blocked on a certified sales fact (EDW-23); FACT_SALES_INVOICE not yet built -- not blocking the D365-sourced fields above on this per EDW-49 scope note
 
     -- Audit
         , 'silver_d365_inventory_sum + silver_d365_inventory_dim' as record_source_table
@@ -359,10 +476,10 @@ final as (
         , cast(null as decimal(18,4)) as allocated_qty  -- Source once available: no column on f_KPI_InventoryValue
         , cast(null as decimal(18,4)) as damaged_qty  -- Source once available: no column on f_KPI_InventoryValue
         , cast(null as decimal(18,4)) as hold_qty  -- Blocked/hold state carried via inventory_status_code
-        , cast(null as decimal(18,4)) as in_transit_inbound_qty  -- Phase 2 per spec
-        , cast(null as decimal(18,4)) as in_transit_transfer_qty  -- Phase 2 per spec
-        , cast(null as decimal(18,4)) as on_order_qty  -- Phase 2 per spec
-        , cast(null as decimal(18,4)) as reorder_point_qty  -- Phase 2 per spec
+        , cast(null as decimal(18,4)) as in_transit_inbound_qty  -- Phase 2 per spec -- EDW-46 sources (PurchLine/GoodsInTransit) reflect today's live D365 state only, no historical grain to backfill against
+        , cast(null as decimal(18,4)) as in_transit_transfer_qty  -- Phase 2 per spec -- same reason as in_transit_inbound_qty above
+        , cast(null as decimal(18,4)) as on_order_qty  -- Phase 2 per spec -- same reason as in_transit_inbound_qty above
+        , cast(null as decimal(18,4)) as reorder_point_qty  -- Phase 2 per spec -- EDW-46: no source table exists yet (see native branch note)
         , cast(null as decimal(18,4)) as safety_stock_qty  -- Phase 2 per spec -- source has SafetyStock but withheld to match Phase 1 scope of the native rows
         , cast(null as decimal(18,4)) as backorder_qty  -- Source once available: no column on f_KPI_InventoryValue
         , cast(null as string) as qty_uom  -- Source once available: no UOM column on f_KPI_InventoryValue
@@ -370,10 +487,10 @@ final as (
     -- Costs
         , b.UnitCost                             as standard_cost_unit  -- legacy report's own historical unit cost, not fact_product_cost's current-only cost
         , b.InventoryAmount                      as standard_cost_amount -- legacy report's own precomputed on-hand value, not recomputed, avoids rounding drift against its source
-        , cast(null as decimal(19,4)) as landed_cost_unit  -- Phase 2 per spec
-        , cast(null as decimal(19,4)) as landed_cost_amount  -- Phase 2 per spec
-        , cast(null as decimal(19,4)) as cost_variance_amount  -- Phase 2 per spec
-        , cast(null as decimal(19,4)) as retail_value_amount  -- Phase 2 per spec
+        , cast(null as decimal(19,4)) as landed_cost_unit  -- Phase 2 per spec -- fact_product_cost is current-only, no historical landed cost to backfill against
+        , cast(null as decimal(19,4)) as landed_cost_amount  -- Phase 2 per spec -- same reason as landed_cost_unit above
+        , cast(null as decimal(19,4)) as cost_variance_amount  -- Phase 2 per spec -- same reason as landed_cost_unit above
+        , cast(null as decimal(19,4)) as retail_value_amount  -- Phase 2 per spec -- blocked on FACT_PRODUCT_PRICE (EDW-20), see native branch note
         , cast(null as decimal(19,4)) as available_cost_amount  -- Source once available: depends on available_qty above
         , cast(null as decimal(19,4)) as damaged_cost_amount  -- Source once available: depends on damaged_qty above
         , b.cost_currency_code
@@ -388,7 +505,7 @@ final as (
         , cast(null as date) as last_receipt_date  -- Source once available: same plan as native rows
         , cast(null as int) as days_on_hand_age  -- Source once available: same plan as native rows
         , cast(null as string) as age_bucket  -- Source once available: same plan as native rows
-        , cast(null as date) as last_sale_date  -- Phase 2 per spec
+        , cast(null as date) as last_sale_date  -- Phase 2 per spec -- blocked on a certified sales fact (EDW-23), see native branch note
 
     -- Audit
         , 'silver_kpi_inventory_value'          as record_source_table
