@@ -81,6 +81,28 @@ sources:
       - name: d365_customer
         identifier: Rev_CustTableStaging
 
+      # New 2026-09-10 -- EDW-46 sourcing gap closure (on_order_qty / in-transit split)
+      - name: purch_line
+        identifier: Rev_PurchLineStaging
+        loaded_at_field: MODIFIEDDATE
+        freshness:
+          warn_after: {count: 24, period: hour}
+          error_after: {count: 48, period: hour}
+
+      - name: itm_goods_in_transit_order
+        identifier: Rev_ItmGoodsInTransitOrderStaging
+        loaded_at_field: SYNCSTARTDATETIME
+        freshness:
+          warn_after: {count: 24, period: hour}
+          error_after: {count: 48, period: hour}
+
+      - name: invent_transfer_line
+        identifier: Rev_InventTransferLineStaging
+        loaded_at_field: MODIFIEDDATE
+        freshness:
+          warn_after: {count: 24, period: hour}
+          error_after: {count: 48, period: hour}
+
   - name: bc
     database: dwhvisualnext
     schema: bc

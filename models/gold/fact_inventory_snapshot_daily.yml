@@ -1,0 +1,77 @@
+version: 2
+
+models:
+  - name: fact_inventory_snapshot_daily
+    description: >
+      Daily inventory position at item/warehouse/status grain (v2.1/v2.3 spec).
+      Phase 2 planning/in-transit/landed-cost columns populated 2026-09-10 per
+      the EDW-46 sourcing investigation (see project memory / EDW-46 for the
+      full per-field mapping). retail_value_amount (EDW-20) and last_sale_date
+      (EDW-23) remain blocked on upstream facts that don't exist/aren't pushed
+      yet; reorder_point_qty/safety_stock_qty remain blocked on a missing D365
+      BYOD export (no source table found anywhere in the warehouse).
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - snapshot_date
+            - product_id
+            - warehouse_id
+            - inventory_status_code
+          config:
+            severity: warn  # v2.1 grain test -- warn until re-verified against the full ~6.2M-row backfill branch, only smoke-tested against live data this session, not a full dbt run
+    columns:
+      - name: on_order_qty
+        description: >
+          Open PO remaining-to-receive quantity, from native PurchLine
+          (PURCHSTATUS = 1), sourced 2026-09-10 per EDW-46. Zero when no open
+          PO exists for the item/warehouse -- that's a real zero, not unknown.
+          Attributed once per item+warehouse (not duplicated across status
+          rows) via a supply-rank window function -- see the model's comments.
+        tests:
+          - not_null
+      - name: in_transit_inbound_qty
+        description: >
+          Vendor-PO goods-in-transit quantity, from native ItmGoodsInTransitOrder
+          (STATUS = 1), sourced 2026-09-10 per EDW-46. Confirmed live: 100%
+          vendor-PO (matches PurchTable via TRANSREFID), not inter-warehouse
+          transfer. ~5% of source quantity (6,216 of 125,485 units) has no
+          matching on-hand row yet -- items in transit for the first time,
+          with no prior warehouse presence -- and is legitimately excluded,
+          not a bug.
+        tests:
+          - not_null
+      - name: in_transit_transfer_qty
+        description: >
+          Inter-warehouse transfer-in-transit quantity, from native
+          InventTransferLine, sourced 2026-09-10 per EDW-46. The source table
+          has 0 live rows as of 2026-09-10 (no transfer-order activity yet) --
+          will populate automatically once transfers start.
+        tests:
+          - not_null
+      - name: reorder_point_qty
+        description: >
+          Phase 2, EDW-46 -- no D365 item-coverage BYOD export exists anywhere
+          in the warehouse (confirmed via a full dwhvisualnext table scan,
+          2026-09-10). Requires a new export from D365 admin before this can
+          be sourced; not buildable from existing data.
+      - name: safety_stock_qty
+        description: "Phase 2, EDW-46 -- same gap as reorder_point_qty."
+      - name: landed_cost_unit
+        description: >
+          From fact_product_cost (cost_type = 'LANDED', is_current = true),
+          sourced 2026-09-10. PLM-estimate coverage only today (EDW-12) -- null
+          for the ~26% of products fact_product_cost has no LANDED row for yet.
+      - name: landed_cost_amount
+        description: "on_hand_qty x landed_cost_unit -- null when landed_cost_unit is null."
+      - name: cost_variance_amount
+        description: "landed_cost_amount - standard_cost_amount, per spec 2.3's derived rule."
+      - name: retail_value_amount
+        description: >
+          Phase 2 -- blocked on FACT_PRODUCT_PRICE (EDW-20), which is built
+          but not yet pushed to this repo. Not blocking the D365-sourced
+          fields above on this per EDW-49's scope note.
+      - name: last_sale_date
+        description: >
+          Phase 2 -- blocked on a certified sales fact (EDW-23); FACT_SALES_INVOICE
+          does not exist yet. Not blocking the D365-sourced fields above on
+          this per EDW-49's scope note.
