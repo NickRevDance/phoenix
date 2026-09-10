@@ -3,4 +3,4 @@
 SELECT
     *
 FROM
-    {{source("byod","voyage_cost")}}
+    {{source("byod","d365_voyage_cost")}}

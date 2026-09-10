@@ -3,4 +3,4 @@
 SELECT
     *
 FROM
-    {{ source('byod', 'd365_inventory_on_hand') }}
+    {{ source('byod', 'd365_invent_transfer_line') }}

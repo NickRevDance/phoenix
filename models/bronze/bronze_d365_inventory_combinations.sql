@@ -3,4 +3,4 @@
 SELECT
     *
 FROM
-    {{ source('byod', 'inventory_combinations') }}
+    {{ source('byod', 'd365_inventory_combinations') }}

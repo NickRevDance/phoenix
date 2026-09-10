@@ -3,4 +3,4 @@
 SELECT
     *
 FROM
-    {{ source('byod', 'price_disc_table') }}
+    {{ source('byod', 'd365_price_disc_table') }}

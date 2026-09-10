@@ -3,4 +3,4 @@
 SELECT
     *
 FROM
-    {{ source('byod', 'item_barcode') }}
+    {{ source('byod', 'd365_item_barcode') }}

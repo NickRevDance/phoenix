@@ -3,4 +3,4 @@
 select
     *
 From
-    {{source('byod', 'inventory_trans_origin')}}
+    {{source('byod', 'd365_inventory_trans_origin')}}

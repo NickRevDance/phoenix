@@ -3,4 +3,4 @@
 SELECT
     *
 FROM
-    {{ source('byod', 'itm_cost_trans') }}
+    {{ source('byod', 'd365_itm_cost_trans') }}
