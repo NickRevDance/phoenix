@@ -1,5 +1,6 @@
 sales_origin_id,origin_description,channel_code,mapping_confidence,source_system,is_active_flag,mapping_notes
 BigComUS,Orders placed through the US BigCommerce storefront.,BC_US,Confirmed,BigCommerce,1,
+BigComUSA,Orders placed through the US BigCommerce storefront.,BC_US,Confirmed,BigCommerce,1,
 BigComCAN,Orders placed through the Canada BigCommerce storefront.,BC_CA,Confirmed,BigCommerce,1,
 CallCenter,Phone orders entered by CSRs in D365.,CALL_CTR,Confirmed,D365,1,
 DTCcustom,Custom / made-to-order direct-to-consumer orders.,BC_US,Provisional,D365,1,"PRELIMINARY ASSUMPTION (spec Open Decision #1, Option A): mapped to BC_US per spec Section 7 default. Not yet confirmed by the commercial org -- revisit before go-live."
