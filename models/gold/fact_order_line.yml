@@ -1,0 +1,43 @@
+version: 2
+
+models:
+  - name: fact_order_line
+    description: >
+      FACT_ORDER_LINE -- immutable as-ordered demand snapshot, insert-only
+      accumulating fact (D365 SalesLine + SalesTable). See README.md for
+      build status, known gaps, and open decisions.
+    columns:
+      - name: order_line_key
+        tests: [is_valid_key]
+      - name: order_id
+        tests: [not_null]
+      - name: order_line_number
+        tests: [not_null]
+      - name: source_system
+        tests: [not_null]
+      - name: customer_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_customer')
+              field: customer_key
+      - name: product_key
+        tests:
+          - relationships:
+              to: ref('dim_product')
+              field: product_key
+      - name: ordered_qty
+        tests: [not_null]
+      - name: net_line_amount
+        tests: [not_null]
+
+# Deferred, not implemented in this pass:
+#   - order_id + order_line_number + source_system business-key uniqueness:
+#     not tested directly (2 known live duplicates on this combination --
+#     see README/SQL comment on order_line_key -- is_valid_key on the
+#     surrogate key covers row-level uniqueness instead).
+#   - V_ORDER_DEMAND_FUNNEL reconciliation (spec Section 9.1): needs
+#     FACT_ORDERS_RETURNS, which doesn't exist in this project yet.
+#   - relationship_coverage-style check on sales_channel_key: same known
+#     BigComUSA reseed gap as fact_sales_invoice/ref_sales_origin_map,
+#     not re-flagged as a new test here.
