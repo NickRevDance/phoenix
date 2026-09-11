@@ -102,7 +102,9 @@ sources:
           warn_after: {count: 24, period: hour}
           error_after: {count: 48, period: hour}
 
-      - name: d365_invent_transfer_line
+      # Renamed 2026-09-11 from d365_invent_transfer_line -- avoid shortening "inventory" to "invent"
+      # in dbt object names going forward (per Nick's request). identifier/table unchanged.
+      - name: d365_inventory_transfer_line
         identifier: Rev_InventTransferLineStaging
         loaded_at_field: SYNCSTARTDATETIME
         freshness:

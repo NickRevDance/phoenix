@@ -234,7 +234,7 @@ final as (
     select
 
     -- Core ID
-          xxhash64(j.INVOICEID, cast(j.LINENUM as int), 'D365')      as sales_invoice_key
+          xxhash64(j.RECID, 'D365')                                  as sales_invoice_key  -- fixed 2026-09-11: was xxhash64(INVOICEID, LINENUM, 'D365'). That collides whenever a credit memo reuses the original invoice's INVOICEID with an overlapping LINENUM under a *different* CustInvoiceJour header (the same PARENTRECID fan-out this join was already built to handle, per the comment above) -- confirmed live: 107,248 distinct sales_invoice_key values were duplicated across 214,676 rows out of 2,780,550. j.RECID is CustInvoiceTrans's own row identifier and is 100% unique on the source table (2,780,780 of 2,780,780, confirmed live 2026-09-11) -- INVOICEID/LINENUM stay below as descriptive attributes, just no longer the key's inputs.
         , j.INVOICEID                                                as invoice_id
         , cast(j.LINENUM as int)                                     as invoice_line_number
         , j.SALESID                                                  as order_id
