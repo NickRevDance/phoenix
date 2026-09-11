@@ -104,7 +104,7 @@ sources:
 
       - name: d365_invent_transfer_line
         identifier: Rev_InventTransferLineStaging
-        loaded_at_field: MODIFIEDDATE
+        loaded_at_field: SYNCSTARTDATETIME
         freshness:
           warn_after: {count: 24, period: hour}
           error_after: {count: 48, period: hour}
