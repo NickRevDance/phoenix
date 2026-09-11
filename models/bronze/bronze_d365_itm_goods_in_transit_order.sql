@@ -3,4 +3,4 @@
 SELECT
     *
 FROM
-    {{ source('byod', 'itm_goods_in_transit_order') }}
+    {{ source('byod', 'd365_itm_goods_in_transit_order') }}
