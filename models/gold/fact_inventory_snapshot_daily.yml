@@ -12,13 +12,14 @@ models:
       BYOD export (no source table found anywhere in the warehouse).
     tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns:
-            - snapshot_date
-            - product_id
-            - warehouse_id
-            - inventory_status_code
+          arguments:
+            combination_of_columns:
+              - snapshot_date
+              - product_id
+              - warehouse_id
+              - inventory_status_code
           config:
-            severity: warn  # v2.1 grain test -- warn until re-verified against the full ~6.2M-row backfill branch, only smoke-tested against live data this session, not a full dbt run
+            severity: warn  # v2.1 grain test -- warn until re-verified against the full ~6.2M-row backfill branch
     columns:
       - name: on_order_qty
         description: >
