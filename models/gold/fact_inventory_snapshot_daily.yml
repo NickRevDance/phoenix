@@ -29,20 +29,30 @@ models:
           Attributed once per item+warehouse (not duplicated across status
           rows) via a supply-rank window function -- see the model's comments.
           Coalesced to 0 in the SQL, so every row computed under the current
-          logic is guaranteed non-null going forward. Confirmed live
-          2026-09-11: remaining nulls are exclusively historical -- 6,281,515
-          legacy backfill rows (record_source_table = 'silver_kpi_inventory_value',
-          dates before 2026-08-21, no historical open-PO state to source) plus
-          ~326K native rows computed by pre-Phase-2 versions of this model
-          (including a stale pre-rename 'silver_byod_...' batch) before this
-          column was wired in on 2026-09-10/11. Neither bucket can be
-          recomputed retroactively -- PurchLine reflects today's live D365
-          state, not a point-in-time snapshot of what was on order on a past
-          date.
+          logic is guaranteed non-null. Confirmed live 2026-09-11: nulls exist
+          only on rows that predate this column's sourcing and can never be
+          backfilled (PurchLine reflects today's live D365 state, not a
+          point-in-time history) -- 6,281,515 legacy backfill rows
+          (record_source_table = 'silver_kpi_inventory_value') and ~326K
+          native rows snapshotted before 2026-09-11 (including a stale
+          pre-rename 'silver_byod_...' batch). The not_null test below is
+          scoped to exclude exactly those permanently-null rows, so it never
+          fires on data that can't be fixed -- see the test's `where` clause.
         tests:
+          # where clause excludes the two permanently-null buckets (legacy
+          # backfill rows + native rows snapshotted before this column's
+          # 2026-09-11 go-live) entirely, rather than just muting them with
+          # severity: warn -- confirmed live every native row on/after
+          # 2026-09-11 is 100% non-null (coalesce(...,0) guarantees this
+          # going forward) and every row before it is 100% null and frozen
+          # (incremental models never rewrite past days). So this keeps the
+          # test a real regression check on exactly the rows where a good
+          # value is expected, with zero noise from rows that can never have
+          # one. Update the date only if this column is rebuilt/re-sourced
+          # again and needs a new go-live marker.
           - not_null:
               config:
-                severity: warn  # known historical-coverage gap, not a live bug -- see description. Promote to error if/when a retention policy ages the pre-Phase-2 rows out.
+                where: "record_source_table = 'silver_d365_inventory_sum + silver_d365_inventory_dim' and snapshot_date >= '2026-09-11'"
       - name: in_transit_inbound_qty
         description: >
           Vendor-PO goods-in-transit quantity, from native ItmGoodsInTransitOrder
@@ -52,24 +62,29 @@ models:
           matching on-hand row yet -- items in transit for the first time,
           with no prior warehouse presence -- and is legitimately excluded,
           not a bug. Coalesced to 0 in the SQL -- same historical-only null
-          gap as on_order_qty above (legacy backfill rows + pre-Phase-2
-          native rows); confirmed live 2026-09-11.
+          gap as on_order_qty above, same 2026-09-11 go-live date confirmed
+          live; see that column's description and this test's `where` clause.
         tests:
+          # same scoping as on_order_qty's test above -- see it for the full
+          # explanation.
           - not_null:
               config:
-                severity: warn  # known historical-coverage gap, not a live bug -- see description. Promote to error if/when a retention policy ages the pre-Phase-2 rows out.
+                where: "record_source_table = 'silver_d365_inventory_sum + silver_d365_inventory_dim' and snapshot_date >= '2026-09-11'"
       - name: in_transit_transfer_qty
         description: >
           Inter-warehouse transfer-in-transit quantity, from native
           InventTransferLine, sourced 2026-09-10 per EDW-46. The source table
           has 0 live rows as of 2026-09-10 (no transfer-order activity yet) --
           will populate automatically once transfers start. Coalesced to 0 in
-          the SQL -- same historical-only null gap as on_order_qty above;
-          confirmed live 2026-09-11.
+          the SQL -- same historical-only null gap as on_order_qty above,
+          same 2026-09-11 go-live date confirmed live; see that column's
+          description and this test's `where` clause.
         tests:
+          # same scoping as on_order_qty's test above -- see it for the full
+          # explanation.
           - not_null:
               config:
-                severity: warn  # known historical-coverage gap, not a live bug -- see description. Promote to error if/when a retention policy ages the pre-Phase-2 rows out.
+                where: "record_source_table = 'silver_d365_inventory_sum + silver_d365_inventory_dim' and snapshot_date >= '2026-09-11'"
       - name: reorder_point_qty
         description: >
           Phase 2, EDW-46 -- no D365 item-coverage BYOD export exists anywhere
