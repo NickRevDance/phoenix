@@ -216,7 +216,7 @@ transfer_in_transit_agg as (
         , d.inventsiteid
         , sum(t.QTYSHIPPED - t.QTYRECEIVED) as in_transit_transfer_qty
 
-    from {{ ref('silver_d365_inventory_transfer_line') }} t
+    from {{ ref('silver_d365_invent_transfer_line') }} t
     left join inventory_dim d
         on t.INVENTDIMIDTO_RU = d.InventDimID
     group by 1, 2, 3, 4, 5
