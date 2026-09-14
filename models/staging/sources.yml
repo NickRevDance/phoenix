@@ -97,7 +97,7 @@ sources:
       # re-added here with the d365_ prefix per Nick's naming standardization request.
       - name: d365_itm_goods_in_transit_order
         identifier: Rev_ItmGoodsInTransitOrderStaging
-        config config config:
+        config:
           loaded_at_field: SYNCSTARTDATETIME
           freshness:
             warn_after: {count: 24, period: hour}
