@@ -2,9 +2,11 @@
 {{ config(
     materialized = 'incremental',
     unique_key = 'RECID',
-    incremental_strategy = 'merge'
+    incremental_strategy = 'merge',
+    on_schema_change = 'sync_all_columns',
+    liquid_clustered_by = ['MODIFIEDDATE', 'RECID']
 ) }}
- 
+
     select
         it.*
         , ito.ReferenceCategory
@@ -14,8 +16,7 @@
         {{ref("bronze_d365_inventory_trans")}} it
         left join {{ref("silver_d365_inventory_trans_origin")}} ito
             on it.INVENTTRANSORIGIN = ito.recid
- 
+
     {% if is_incremental() %}
     where it.MODIFIEDDATE > (select coalesce(max(MODIFIEDDATE), timestamp('1900-01-01')) from {{ this }}) - interval 2 days
     {% endif %}
- 
