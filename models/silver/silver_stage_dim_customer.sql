@@ -4,6 +4,7 @@ with d365_customer_base as (
 
           c.ACCOUNTNUM   as customer_id
         , 'D365'         as source_system
+        , 'silver_d365_customer_table' as record_source_table
         , c.ACCOUNTNUM   as d365_customer_id
         , cast(null as string) as bc_customer_id
         , cast(null as string) as sf_customer_id  -- Source once available: Salesforce customer source not yet wired -- Phase 2 per spec
@@ -69,6 +70,7 @@ bc_customer_base as (
 
           cast(bc.customer_id as string) as customer_id
         , 'BigCommerce'  as source_system
+        , 'silver_bc_customer' as record_source_table
         , cast(null as string) as d365_customer_id
         , cast(bc.customer_id as string) as bc_customer_id
         , cast(null as string) as sf_customer_id  -- Source once available: Salesforce customer source not yet wired -- Phase 2 per spec
@@ -205,7 +207,7 @@ final as (
             ), 256
           ) as customer_change_hash
 
-        , 'silver_stage_dim_customer' as record_source_table
+        , c.record_source_table
         , current_timestamp() as etl_insert_datetime
 
     from combined c

@@ -27,7 +27,11 @@ with snap_versions as (
 
 windows as (
 
-    select * from snap_versions where snap_version = 1
+    -- effective_end_datetime is null excludes hard-deleted/invalidated
+    -- snapshot rows (see project memory for why this matters).
+    select * from snap_versions
+    where snap_version = 1
+        and effective_end_datetime is null
 
 ),
 
