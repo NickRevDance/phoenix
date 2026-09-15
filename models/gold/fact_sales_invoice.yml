@@ -19,9 +19,8 @@ models:
         tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('silver_snapshot_dim_customer')
-                field: customer_key
+              to: ref('dim_customer')
+              field: customer_key
       - name: invoiced_qty
         tests: [not_null]
       - name: net_sales_amount
