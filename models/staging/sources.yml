@@ -93,6 +93,12 @@ sources:
       - name: d365_purch_line
         identifier: Rev_PurchLineStaging
 
+      # Added 2026-09-14 for FACT_PURCHASE_ORDER -- d365_purch_line (line
+      # detail) was already registered 2026-09-10 for the inventory Phase 2
+      # on_order_qty build; this is the matching header table.
+      - name: d365_purch_table
+        identifier: Rev_PurchTableStaging
+
       # Restored 2026-09-10 -- dropped by commit aa8454ab7 ("fact_sales_invoice"),
       # re-added here with the d365_ prefix per Nick's naming standardization request.
       - name: d365_itm_goods_in_transit_order

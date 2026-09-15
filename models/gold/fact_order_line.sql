@@ -35,6 +35,9 @@ with line as (
     -- a label off this inference.
     where l.SALESTYPE = 3
 
+    -- Grace period so the SalesTable header has time to land
+    and l.MODIFIEDDATE <= current_timestamp() - interval 30 minutes
+
     {% if is_incremental() %}
     and l.MODIFIEDDATE > (select coalesce(max(etl_source_modified_datetime), timestamp('1900-01-01')) from {{ this }}) - interval 2 days
     {% endif %}

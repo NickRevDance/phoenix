@@ -1,0 +1,42 @@
+version: 2
+
+models:
+  - name: fact_purchase_order
+    description: >
+      FACT_PURCHASE_ORDER -- PO line version/change-event history fact
+      (D365 PurchTable + PurchLine), real SCD2 via dbt snapshot. See
+      README.md for build status, known gaps, and open decisions.
+    columns:
+      - name: purchase_order_key
+        tests: [is_valid_key]
+      - name: purchase_order_id
+        tests: [not_null]
+      - name: purchase_order_line_number
+        tests: [not_null]
+      - name: source_system
+        tests: [not_null]
+      - name: vendor_key
+        tests:
+          - relationships:
+              to: ref('dim_vendor')
+              field: vendor_key
+      - name: product_key
+        tests:
+          - relationships:
+              to: ref('dim_product')
+              field: product_key
+      - name: warehouse_key
+        tests:
+          - relationships:
+              to: ref('dim_warehouse')
+              field: warehouse_key
+
+# Deferred, not implemented in this pass:
+#   - ordered_qty/received_qty/open_qty and everything derived from them
+#     (receipt_status, is_late_flag, fill_rate_pct, extended_cost,
+#     landed_cost_*): left null-with-note per Nick's 2026-09-14 request --
+#     no confirmed receipt-qty source, see the SQL comments and README.
+#   - purchase_order_id + purchase_order_line_number + source_system
+#     uniqueness within a single version_start_datetime: not tested
+#     directly -- is_valid_key on the surrogate key covers row-level
+#     uniqueness instead, same approach as fact_order_line/fact_product_cost.
