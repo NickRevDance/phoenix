@@ -23,7 +23,7 @@ with trans as (
         , t.ReferenceId
         , t.VOUCHER
 
-    from {{ ref('silver_d365_inventory_trans') }} t
+    from {{ ref("silver_d365_inventory_trans") }} t
 
     where date(t.DATEPHYSICAL) >= '2023-07-01'  -- spec 3.4: certified history starts at D365 go-live; also drops the 1900-01-01 placeholder/unposted rows
       and t.ReferenceCategory is not null        -- spec 3.4: unposted/unmapped-at-source rows excluded, not routed to UNKNOWN
