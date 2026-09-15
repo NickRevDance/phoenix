@@ -4,15 +4,26 @@ models:
   - name: dim_sales_channel
     description: >
       DIM_SALES_CHANNEL -- conformed sales channel dimension (Type 1,
-      seed-based). See README.md for build status and open decisions.
+      seed-based). Rebuilt to spec v1.1 (EDW-77, 2026-09-14). See
+      README.md for build status and open decisions.
     columns:
+      - name: sales_channel_key
+        tests:
+          - is_valid_key
       - name: channel_code
         tests:
-          - unique
-          - not_null
+          - is_valid_key
           - relationship_coverage:
               to: ref('ref_sales_origin_map')
               field: channel_code
-              where: "channel_status = 'Active'"
+              where: "channel_status = 'Active' and channel_code not in ('B2B_DIRECT', 'INTERNAL', 'UNKNOWN', 'NO_SALES_CHANNEL')"
               config:
-                severity: warn  # known open gap (spec Decision 6, BC_TT/INTERNAL unmapped) -- promote to error once resolved
+                severity: warn  # spec Section 8 says this promotes to error once BC_TT is Planned (now true) -- left at warn because REF_SALES_ORIGIN_MAP (EDW-16) doesn't map NIMBLY_S2C/NIMBLY_S2S yet (still rolls Nimbly origins into B2B_DIRECT), so an error here would fail every build until that crosswalk update lands. Promote once EDW-16 is applied.
+      - name: channel_type
+        tests:
+          - accepted_values:
+              values: ['Ecommerce', 'Call Center', 'B2B Direct', 'Internal', 'Reserved']
+      - name: channel_status
+        tests:
+          - accepted_values:
+              values: ['Active', 'Inactive', 'Planned']

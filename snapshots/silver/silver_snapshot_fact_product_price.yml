@@ -5,16 +5,28 @@ snapshots:
     relation: ref('silver_stage_fact_product_price')
 
     description: >
-      Type 2 historical snapshot of product price records. A new version is
-      created whenever a tracked price measure changes for a given
-      product_id + price_type + source_system (e.g. D365 list price is
-      updated, or a promotional sale price is superseded).
+      v1.1 rebuild (EDW-20). Narrower job than a standard SCD2 snapshot in
+      this project: price *history* now loads natively from the source's
+      own FROMDATE/TODATE windows (every window is already its own row in
+      silver_stage_fact_product_price), so this snapshot no longer creates
+      history -- it exists for exactly one purpose (spec Section 3.2):
+      catching an in-place edit to an already-loaded window, i.e. D365
+      changing a trade agreement's AMOUNT without opening a new FROMDATE.
+      Because product_price_entity_key includes effective_date, a closed
+      historical window's business key never repeats and it gets exactly
+      one permanent snapshot version; an open window's key is stable
+      across runs, so if its list_price changes in place, check_cols
+      catches it and versions it -- the corrected amount becomes the
+      window's current value without a new native row for it to live in.
 
     config:
       schema: silver_history
       unique_key: product_price_entity_key
       strategy: check
-      hard_deletes: ignore
+      # v1.1 change from v1.0 (which used 'ignore'): a hard-deleted
+      # PriceDiscTable row -- a withdrawn agreement -- should stop being
+      # current rather than staying open forever with a stale price.
+      hard_deletes: invalidate
 
       check_cols:
         - price_change_hash

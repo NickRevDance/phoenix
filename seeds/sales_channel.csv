@@ -1,7 +1,9 @@
-channel_code,channel_name,channel_short_name,storefront_code,storefront_platform,is_loyalty_eligible,is_promotion_eligible,is_returns_enabled,channel_status,sort_order
-BC_US,US Ecommerce,US eCom,US,BigCommerce,1,1,1,Active,10
-BC_CA,Canada Ecommerce,CA eCom,CA,BigCommerce,1,1,1,Active,20
-BC_TT,Tippi Toes Ecommerce,TT eCom,TT,BigCommerce,0,1,1,Active,30
-CALL_CTR,Call Center,Call Ctr,,,1,1,1,Active,40
-B2B_DIRECT,B2B Direct/Wholesale,B2B,,,0,0,1,Active,50
-INTERNAL,Internal/Employee,Internal,,,0,0,0,Active,90
+channel_code,channel_name,channel_short_name,channel_description,channel_subtype,storefront_code,storefront_platform,is_loyalty_redemption_channel,loyalty_redemption_start_date,is_promotion_eligible,is_returns_enabled,channel_status,channel_start_date,sort_order
+BC_US,US Ecommerce,US eCom,"Consumer orders placed on the US BigCommerce storefront; D365 origin BigComUSA.",,US,BigCommerce,1,2026-08-18,1,1,Active,2023-01-15,10
+BC_CA,Canada Ecommerce,CA eCom,"Consumer orders placed on the Canada BigCommerce storefront in CAD; D365 origin BigComCAN.",,CA,BigCommerce,1,2026-08-18,1,1,Active,2023-06-04,20
+BC_TT,Tippi Toes Ecommerce,TT eCom,"Tippi Toes storefront; no D365 origin identified yet, see Open Decision 4.",,TT,BigCommerce,0,,1,1,Planned,,30
+CALL_CTR,Call Center,Call Ctr,"Orders entered by customer service representatives in D365; D365 origin CallCenter. Includes wholesale orders keyed by CSRs.",,,,0,,1,1,Active,2023-01-26,40
+NIMBLY_S2C,Nimbly Studio to Consumer,Nimbly S2C,"Studio-program orders placed on the Nimbly platform for delivery to the consumer; D365 origin NimblyS2C.",S2C,,,0,,0,1,Active,2023-05-14,50
+NIMBLY_S2S,Nimbly Studio to Studio,Nimbly S2S,"Studio-program orders placed on the Nimbly platform for delivery to the studio; D365 origin NimblyS2S.",S2S,,,0,,0,1,Active,2023-06-29,55
+B2B_DIRECT,B2B Direct/Wholesale,B2B,"Wholesale orders not placed through Nimbly or the call center. No D365 origin maps here today; retained as the B2B rollup parent and for budget lines.",,,,0,,0,1,Active,,60
+INTERNAL,Internal/Employee,Internal,"Employee and internal-use orders. No D365 origin; resolved from customer type where needed.",,,,0,,0,0,Active,,90

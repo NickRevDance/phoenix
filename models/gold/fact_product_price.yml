@@ -1,0 +1,69 @@
+version: 2
+
+models:
+  - name: fact_product_price
+    description: >
+      FACT_PRODUCT_PRICE -- v1.1 rebuild (EDW-20). Variant (product_key) +
+      price_type + price_currency_code + effective_date + source_system
+      grain, native history from PriceDiscTable FROMDATE/TODATE windows.
+      See project memory fact_product_price_spec_v1.1_rebuild_2026-09-15.md
+      and this folder's README.md for build status, known gaps, and open
+      decisions.
+    columns:
+      - name: product_price_key
+        tests: [is_valid_key]
+      - name: product_id
+        tests: [not_null]
+      - name: product_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_product')
+              field: product_key
+              config:
+                severity: warn  # 2026-09-15: 99.95% of the (deduped) Phase-1 population resolves to a barcode (146,421 of 146,495 rows), but only 56.0% of rows / 45.9% of distinct items (1,269 of 2,764) go on to match a live dim_product row -- ties to dim_product's own known coverage gap (see dim_product_feedback_2026-09-03.md / fact_product_cost_spec_compliance_review.md), not a defect in this join. -1 unresolved-to-barcode rows are also expected here by design (Open Decision #9) and would always fail a hard relationships test.
+      - name: price_type
+        tests: [not_null]
+      - name: price_currency_code
+        tests: [not_null]
+      - name: effective_date
+        tests: [not_null]
+      - name: list_price
+        tests: [not_null]
+      - name: source_system
+        tests: [not_null]
+
+# Deferred, not implemented in this pass:
+#   - Business Rule 8.3 "exactly one is_current row per product_key +
+#     price_type + price_currency_code": enforced via
+#     tests/one_current_row_per_variant_currency.sql, excluding
+#     product_key = '-1' (many distinct unresolved variants collapse into
+#     that one key by design, which would make a uniqueness test on it
+#     meaningless).
+#   - "no overlapping windows" (Business Rule 8.3): enforced via
+#     tests/no_overlapping_price_windows.sql, at severity: warn -- this
+#     genuinely fails on live data (~5,624 rows, 3.8%), traced to a real
+#     source data quality pattern (see the test file's own comment), not
+#     a build defect.
+#   - product_price_entity_key collisions: 3,370 of 149,865 raw
+#     Phase-1-eligible rows (2.3%) shared the same product_id +
+#     d365_invent_dim_id + price_currency_code + FROMDATE as another row
+#     before deduping (most-recently-modified wins) in
+#     silver_stage_fact_product_price.sql -- see that file's own comment.
+#     Not a spec item; found during this rebuild's own validation.
+#   - PRICEUNIT = 1 assertion (Section 10): enforced via
+#     tests/priceunit_equals_one.sql against the Phase 1 source population
+#     directly, not carried through as a stored column.
+#   - CURRENCY not blank (Section 10): enforced via
+#     tests/currency_not_blank.sql.
+#   - "every current USD row has a CAD sibling or is USD-only" (spec
+#     Section 15 recommended tests): not implemented as a pass/fail test
+#     -- per the spec's own wording every USD row trivially satisfies one
+#     side or the other, so there's nothing to fail on. Monitored instead
+#     via v_product_price_comparison (a null list_price_cad on a resolved
+#     product_key is visible there for review).
+#   - Resolution rate reporting (Open Decision #9): reported in README.md
+#     as an observed number (99.95% to a barcode, ~55.7% of rows / ~46%
+#     of distinct items on through to dim_product, as of 2026-09-15), not
+#     as a dbt test -- the spec asks for it to be a "required build
+#     output", not an enforced threshold.
