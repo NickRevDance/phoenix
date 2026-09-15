@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: dim_customer_segment
+    description: >
+      DIM_CUSTOMER_SEGMENT -- SCD Type 2 customer segmentation
+      mini-dimension. Phase 1 scope (customer_type, lifecycle_stage,
+      is_dso_member_flag, loyalty_enrolled_flag); remaining fields are
+      Phase 2 per spec and null-cast. See README.md.
+    columns:
+      - name: customer_segment_key
+        tests:
+          - is_valid_key
+      - name: customer_segment_id
+        tests:
+          - not_null
