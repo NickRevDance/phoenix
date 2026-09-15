@@ -2,12 +2,14 @@ with customer_current as (
 
     -- This model computes DIM_CUSTOMER_SEGMENT's inputs (customer_segment_key
     -- feeds back into DIM_CUSTOMER), so it is structurally upstream of
-    -- DIM_CUSTOMER and must read the pre-gold snapshot here, not
-    -- {{ ref('dim_customer') }} -- sourcing from the gold table would make
+    -- DIM_CUSTOMER and must read the pre-gold snapshot here, not the gold
+    -- dim_customer model -- sourcing from the gold table would make
     -- DIM_CUSTOMER depend on its own output. This is the one model in the
     -- customer chain that has to know its position in the DAG; every fact
     -- table (fact_sales_invoice included, see its customer CTE) is free to
-    -- ref('dim_customer') directly.
+    -- ref dim_customer directly.
+    -- NOTE: never write a literal Jinja ref() call inside a comment here --
+    -- dbt registers it as a real dependency edge even inside a SQL comment.
     select
           customer_key
         , customer_id
@@ -25,7 +27,7 @@ customer_activity as (
     -- Order recency is computed directly off the raw D365 invoice silver
     -- tables here (same PARENTRECID = REC header relation fact_sales_invoice
     -- uses -- see its trans/jour join comment) rather than by aggregating
-    -- {{ ref('fact_sales_invoice') }}. That's deliberate: it keeps this
+    -- the fact_sales_invoice model. That's deliberate: it keeps this
     -- model's dependencies below fact_sales_invoice in the DAG, so
     -- fact_sales_invoice never has to avoid dim_customer to dodge a cycle
     -- back through here.
