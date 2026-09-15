@@ -19,7 +19,7 @@ models:
         tests:
           - not_null
           - relationships:
-              to: ref('dim_customer')
+              to: ref('silver_snapshot_dim_customer')
               field: customer_key
       - name: product_key
         tests:

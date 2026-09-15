@@ -20,7 +20,7 @@ models:
           - not_null
           - relationships:
               arguments:
-                to: ref('dim_customer')
+                to: ref('silver_snapshot_dim_customer')
                 field: customer_key
       - name: invoiced_qty
         tests: [not_null]
