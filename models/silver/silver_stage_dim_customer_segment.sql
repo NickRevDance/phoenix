@@ -1,7 +1,12 @@
 with distinct_profiles as (
 
+    -- customer_segment_id is computed once, in silver_stage_customer_segment_profile.sql
+    -- (same sha2 formula), and just carried through/deduped here -- not recomputed --
+    -- so dim_customer.sql's segment_map join (profile.customer_segment_id =
+    -- this table's customer_segment_id) always resolves against the same values.
     select distinct
-          customer_type
+          customer_segment_id
+        , customer_type
         , customer_segment
         , lifecycle_stage
         , customer_tier
@@ -20,19 +25,7 @@ final as (
 
     select
 
-          sha2(
-            concat_ws('||',
-                coalesce(customer_type, ''),
-                coalesce(customer_segment, ''),
-                coalesce(lifecycle_stage, ''),
-                coalesce(customer_tier, ''),
-                coalesce(loyalty_tier, ''),
-                coalesce(cast(is_dso_member_flag as string), ''),
-                coalesce(purchase_frequency_band, ''),
-                coalesce(avg_order_value_band, ''),
-                coalesce(channel_preference, '')
-            ), 256
-          ) as customer_segment_id  -- business key per spec section 9 formula; dso_membership_status and loyalty_enrolled_flag excluded, they're Type 1 profile-completeness fields, not part of the combination
+          customer_segment_id
 
         , customer_type
         , customer_segment

@@ -41,7 +41,7 @@ customer_activity as (
 
 ),
 
-final as (
+profile_attrs as (
 
     select
 
@@ -79,6 +79,41 @@ final as (
     left join customer_activity a
         on c.customer_id = a.customer_id
         and c.source_system = 'D365'  -- order history is D365-only, same scope limit as fact_sales_invoice's customer CTE; BigCommerce customers fall into the null/no-orders bucket below
+
+),
+
+final as (
+
+    select
+
+          sha2(
+            concat_ws('||',
+                coalesce(customer_type, ''),
+                coalesce(customer_segment, ''),
+                coalesce(lifecycle_stage, ''),
+                coalesce(customer_tier, ''),
+                coalesce(loyalty_tier, ''),
+                coalesce(cast(is_dso_member_flag as string), ''),
+                coalesce(purchase_frequency_band, ''),
+                coalesce(avg_order_value_band, ''),
+                coalesce(channel_preference, '')
+            ), 256
+          ) as customer_segment_id  -- business key per spec section 9 formula; also the single source silver_stage_dim_customer_segment.sql dedupes on -- keep the hash formula in sync between the two if it ever changes. dso_membership_status and loyalty_enrolled_flag excluded, they're Type 1 profile-completeness fields, not part of the combination
+
+        , customer_key
+        , customer_type
+        , customer_segment
+        , lifecycle_stage
+        , customer_tier
+        , loyalty_tier
+        , is_dso_member_flag
+        , dso_membership_status
+        , loyalty_enrolled_flag
+        , purchase_frequency_band
+        , avg_order_value_band
+        , channel_preference
+
+    from profile_attrs
 
 )
 
