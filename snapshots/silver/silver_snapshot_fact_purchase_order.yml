@@ -1,0 +1,26 @@
+version: 2
+
+snapshots:
+  - name: silver_snapshot_fact_purchase_order
+    relation: ref('silver_stage_fact_purchase_order')
+
+    description: >
+      Type 2 historical snapshot of purchase order line versions. A new
+      version is created whenever a tracked PO line attribute (status, unit
+      cost, currency, expected/confirmed dates, or receipt-progress fields)
+      changes for a given purchase_order_id + purchase_order_line_number.
+
+    config:
+      schema: silver_history
+      unique_key: purchase_order_entity_key
+      strategy: check
+      hard_deletes: ignore
+
+      check_cols:
+        - po_change_hash
+
+      snapshot_meta_column_names:
+        dbt_valid_from: effective_start_datetime
+        dbt_valid_to: effective_end_datetime
+        dbt_scd_id: row_hash
+        dbt_updated_at: etl_update_datetime
