@@ -1,0 +1,28 @@
+version: 2
+
+snapshots:
+  - name: silver_snapshot_dim_customer_segment
+    relation: ref('silver_stage_dim_customer_segment')
+
+    description: >
+      Type 2 historical snapshot of DIM_CUSTOMER_SEGMENT. A new version
+      is created when a Type 1 attribute (loyalty_enrolled_flag,
+      dso_membership_status) changes for a given customer_segment_id.
+      Any change to a Type 2 attribute produces a different
+      customer_segment_id (a new profile), not a new version of an
+      existing one.
+
+    config:
+      schema: silver_history
+      unique_key: customer_segment_id
+      strategy: check
+      hard_deletes: ignore
+
+      check_cols:
+        - profile_change_hash
+
+      snapshot_meta_column_names:
+        dbt_valid_from: effective_start_datetime
+        dbt_valid_to: effective_end_datetime
+        dbt_scd_id: row_hash
+        dbt_updated_at: etl_update_datetime

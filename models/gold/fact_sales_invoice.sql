@@ -90,13 +90,17 @@ product as (
 
 customer as (
 
+    -- Reads the pre-gold snapshot, not {{ ref('dim_customer') }} -- DIM_CUSTOMER's
+    -- own gold model now joins a DIM_CUSTOMER_SEGMENT profile that's built from
+    -- this fact table's most_recent_order_date, so refing the gold table here
+    -- would create a circular ref. customer_key is identical either way.
     select
 
           customer_key
         , customer_id
 
-    from {{ ref('dim_customer') }}
-    where version_number = 1
+    from {{ ref('silver_snapshot_dim_customer') }}
+    where effective_end_datetime is null
       and source_system = 'D365'
 
 ),
