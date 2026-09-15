@@ -1,10 +1,17 @@
 with customer_current as (
 
-    -- Reads the pre-gold snapshot, not {{ ref('dim_customer') }} -- DIM_CUSTOMER's
-    -- own gold model joins back to DIM_CUSTOMER_SEGMENT for customer_segment_key,
-    -- so sourcing from the gold table here would create a circular ref.
+    -- This model computes DIM_CUSTOMER_SEGMENT's inputs (customer_segment_key
+    -- feeds back into DIM_CUSTOMER), so it is structurally upstream of
+    -- DIM_CUSTOMER and must read the pre-gold snapshot here, not
+    -- {{ ref('dim_customer') }} -- sourcing from the gold table would make
+    -- DIM_CUSTOMER depend on its own output. This is the one model in the
+    -- customer chain that has to know its position in the DAG; every fact
+    -- table (fact_sales_invoice included, see its customer CTE) is free to
+    -- ref('dim_customer') directly.
     select
           customer_key
+        , customer_id
+        , source_system
         , customer_type
         , is_dso_member_flag
         , dso_membership_status
@@ -15,11 +22,20 @@ with customer_current as (
 
 customer_activity as (
 
+    -- Order recency is computed directly off the raw D365 invoice silver
+    -- tables here (same PARENTRECID = REC header relation fact_sales_invoice
+    -- uses -- see its trans/jour join comment) rather than by aggregating
+    -- {{ ref('fact_sales_invoice') }}. That's deliberate: it keeps this
+    -- model's dependencies below fact_sales_invoice in the DAG, so
+    -- fact_sales_invoice never has to avoid dim_customer to dodge a cycle
+    -- back through here.
     select
-          customer_key
-        , max(invoice_date) as most_recent_order_date
-    from {{ ref('fact_sales_invoice') }}
-    group by customer_key
+          j.INVOICEACCOUNT as customer_id
+        , max(t.INVOICEDATE) as most_recent_order_date
+    from {{ ref('silver_d365_cust_invoice_trans') }} t
+    inner join {{ ref('silver_d365_cust_invoice_jour') }} j
+        on t.PARENTRECID = j.REC
+    group by j.INVOICEACCOUNT
 
 ),
 
@@ -59,7 +75,8 @@ final as (
 
     from customer_current c
     left join customer_activity a
-        on c.customer_key = a.customer_key
+        on c.customer_id = a.customer_id
+        and c.source_system = 'D365'  -- order history is D365-only, same scope limit as fact_sales_invoice's customer CTE; BigCommerce customers fall into the null/no-orders bucket below
 
 )
 

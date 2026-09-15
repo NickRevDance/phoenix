@@ -90,17 +90,18 @@ product as (
 
 customer as (
 
-    -- Reads the pre-gold snapshot, not {{ ref('dim_customer') }} -- DIM_CUSTOMER's
-    -- own gold model now joins a DIM_CUSTOMER_SEGMENT profile that's built from
-    -- this fact table's most_recent_order_date, so refing the gold table here
-    -- would create a circular ref. customer_key is identical either way.
+    -- Refs the gold dim_customer directly, same convention as fact_order_line.
+    -- DIM_CUSTOMER_SEGMENT's profile no longer derives order recency from this
+    -- fact table (it reads the raw D365 invoice silver tables itself -- see
+    -- silver_stage_customer_segment_profile.sql), so there's no cycle here to
+    -- avoid.
     select
 
           customer_key
         , customer_id
 
-    from {{ ref('silver_snapshot_dim_customer') }}
-    where effective_end_datetime is null
+    from {{ ref('dim_customer') }}
+    where version_number = 1
       and source_system = 'D365'
 
 ),
