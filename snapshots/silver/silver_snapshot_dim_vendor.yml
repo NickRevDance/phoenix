@@ -9,7 +9,6 @@ snapshots:
       whenever a tracked vendor attribute (name, group, payment terms,
       currency, incoterm, status) changes for a given vendor_id.
 
-
     config:
       schema: silver_history
       unique_key: vendor_key

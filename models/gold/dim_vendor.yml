@@ -1,0 +1,35 @@
+version: 2
+
+models:
+  - name: dim_vendor
+    description: >
+      DIM_VENDOR -- SCD Type 2 gold-layer vendor dimension, versioned
+      history (one row per vendor_key version; see v_dim_vendor_current
+      for the current-row-only view). Sourced from D365 VendTable +
+      DirPartyTable, filtered to VENDGROUP not in (NIM, Customer,
+      Employee) to exclude non-supplier AP payees (spec Open Decision
+      #1 Tier 1; Tier 2 allow-list narrowing to real merchandise
+      suppliers still open with Ops/Merchandising). Includes two
+      reserved members (UNKNOWN=-1, NO_VENDOR=0) added for the EDW-25
+      sign-off review. Phase 2 fields (address/location, vendor_type
+      classification, compliance tracking, lead time, quality
+      scorecard) are null-cast pending source availability -- see
+      README.md for the full field-by-field status and the EDW-25
+      remediation tracker for open items (R1-R6).
+    columns:
+      - name: vendor_key
+        tests:
+          - is_valid_key
+      - name: vendor_id
+        tests:
+          - not_null
+      - name: vendor_status
+        tests:
+          - accepted_values:
+              values: ['Active', 'Suspended', 'Blocked', 'Payment Blocked', 'Requisition Blocked', 'Never Blocked', 'Unknown']
+
+  - name: v_dim_vendor_current
+    description: >
+      Current-row view over dim_vendor (version_number = 1) with SCD2
+      and internal metadata columns stripped -- the object most
+      consumers (Power BI, ad hoc analysts) should query.
