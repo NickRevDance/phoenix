@@ -1,0 +1,13 @@
+brand,product_group,product_sub_group,summary_class,classification_owner,classified_date,notes
+Revolution,Costume,Costume,Revolution Costume,BI (Chris Mathis),2026-09-15,NEEDS BI CONFIRMATION -- 9245 current DIM_PRODUCT rows
+Revolution,Dancewear,Bodywear,Revolution Bodywear,BI (Chris Mathis),2026-09-15,NEEDS BI CONFIRMATION -- 2033 current DIM_PRODUCT rows
+Revolution,Dancewear,Shoes,Revolution Shoes,BI (Chris Mathis),2026-09-15,NEEDS BI CONFIRMATION -- 1311 current DIM_PRODUCT rows
+Revolution,Dancewear,Tights,Revolution Tights,BI (Chris Mathis),2026-09-15,NEEDS BI CONFIRMATION -- 1031 current DIM_PRODUCT rows
+Revolution,Dancewear,Bags,Bags & Accessories,BI (Chris Mathis),2026-09-15,NEEDS BI CONFIRMATION -- only candidate found for this class; 28 current DIM_PRODUCT rows
+Tenth House,Costume,Costume,Tenth House Costume,BI (Chris Mathis),2026-09-15,NEEDS BI CONFIRMATION -- 3027 current DIM_PRODUCT rows
+Art Stone,Costume,Costume,Art Stone Costumes,BI (Chris Mathis),2026-09-15,NEEDS BI CONFIRMATION -- 2032 current DIM_PRODUCT rows
+Art Stone,Costume,Accessories,Art Stone Costumes,BI (Chris Mathis),2026-09-15,NEEDS BI CONFIRMATION -- 44 rows; rolled into Art Stone Costumes not Bags & Accessories so the brand total ties to 2076
+2 - DIE - 4,Convention Wear,The Cut,2Die4 DTC,BI (Chris Mathis),2026-09-15,NEEDS BI CONFIRMATION -- 441 rows
+2 - DIE - 4,Convention Wear,Bodywear,2Die4 DTC,BI (Chris Mathis),2026-09-15,NEEDS BI CONFIRMATION -- 63 rows; combined with The Cut ties to the 504-row 2-DIE-4 brand total
+2 - DIE - 4 x Tenth House,Costume,Costume,2Die4 Costume,BI (Chris Mathis),2026-09-15,NEEDS BI CONFIRMATION -- 1084 current DIM_PRODUCT rows
+Label Lab,Convention Wear,Bodywear,Conventionwear,BI (Chris Mathis),2026-09-15,NEEDS BI CONFIRMATION -- 51 rows; Label Lab is distinct from the 2-DIE-4 brand despite sharing product_group=Convention Wear
