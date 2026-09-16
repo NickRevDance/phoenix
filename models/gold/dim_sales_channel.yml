@@ -18,7 +18,7 @@ models:
               field: channel_code
               where: "channel_status = 'Active' and channel_code not in ('B2B_DIRECT', 'INTERNAL', 'UNKNOWN', 'NO_SALES_CHANNEL')"
               config:
-                severity: warn  # spec Section 8 says this promotes to error once BC_TT is Planned (now true) -- left at warn because REF_SALES_ORIGIN_MAP (EDW-16) doesn't map NIMBLY_S2C/NIMBLY_S2S yet (still rolls Nimbly origins into B2B_DIRECT), so an error here would fail every build until that crosswalk update lands. Promote once EDW-16 is applied.
+                severity: error  # promoted 2026-09-16: REF_SALES_ORIGIN_MAP v1.1 (EDW-16) now maps NIMBLY_S2C/NIMBLY_S2S to their own channel rows and BC_TT is Planned -- both gaps that kept this at warn are closed.
       - name: channel_type
         tests:
           - accepted_values:

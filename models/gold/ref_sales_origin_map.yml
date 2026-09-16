@@ -4,10 +4,11 @@ models:
   - name: ref_sales_origin_map
     description: >
       REF_SALES_ORIGIN_MAP -- crosswalk of D365 SalesOriginId values to
-      DIM_SALES_CHANNEL. See README.md for build status and open decisions.
+      DIM_SALES_CHANNEL. Rebuilt to spec v1.1 (EDW-77, 2026-09-14). See
+      README.md for build status and open decisions.
     columns:
       - name: sales_origin_id
-        tests: [unique, not_null]
+        tests: [is_valid_key]
       - name: channel_code
         tests:
           - not_null
@@ -16,6 +17,7 @@ models:
               field: channel_code
       - name: mapping_confidence
         tests:
+          - not_null
           - accepted_values:
               values: ['Confirmed', 'Provisional']
       - name: source_system
