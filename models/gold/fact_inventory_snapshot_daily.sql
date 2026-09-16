@@ -146,14 +146,31 @@ product_cost as (
 
 product_cost_landed as (
 
+    -- 2026-09-16 hardening: dedup guard added after fact_product_cost's is_current briefly
+    -- violated its 1-row-per-product-key contract (LANDED entity-key drift bug, fixed same
+    -- day in gold/fact_product_cost.sql) and fanned this fact out to 3 duplicate keys. This
+    -- guard is defense-in-depth -- keeps a future is_current violation from doing it again --
+    -- same rank/dedup pattern as the item_warehouse_supply_rank guard below.
     select
 
           product_key
         , landed_cost_unit
 
-    from {{ ref('fact_product_cost') }}
-    where is_current = true
-      and cost_type = 'LANDED'  -- same fan-out guard as product_cost above -- confirmed live 2026-09-10: 1 row per product_key for this filter, no fan-out risk
+    from (
+        select
+
+              product_key
+            , landed_cost_unit
+            , row_number() over (
+                partition by product_key
+                order by effective_date desc, etl_insert_datetime desc
+              ) as landed_cost_rank
+
+        from {{ ref('fact_product_cost') }}
+        where is_current = true
+          and cost_type = 'LANDED'
+    )
+    where landed_cost_rank = 1
 
 ),
 

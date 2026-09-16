@@ -5,8 +5,10 @@ with versioned as (
     select
 
           snap.*
+        -- 2026-09-16 fix: partition by product_id+cost_type, not product_cost_entity_key --
+        -- the latter folds in source_system, which is derived on the LANDED branch and forked a product's cost history into two "current" rows once its PLM estimate populated (product_id 10003). Matches spec: is_current is per product + cost_type.
         , row_number() over (
-            partition by snap.product_cost_entity_key
+            partition by snap.product_id, snap.cost_type
             order by snap.effective_start_datetime desc
           ) as version_number
 
@@ -68,28 +70,28 @@ final as (
         , case when v.version_number = 1 then 'Active' else 'Superseded' end as cost_status
 
         , lag(v.cost_value) over (
-            partition by v.product_cost_entity_key
+            partition by v.product_id, v.cost_type
             order by v.effective_start_datetime
           ) as prior_cost_unit
         , v.cost_value - lag(v.cost_value) over (
-            partition by v.product_cost_entity_key
+            partition by v.product_id, v.cost_type
             order by v.effective_start_datetime
           ) as cost_change_amount
         , case
             when lag(v.cost_value) over (
-                   partition by v.product_cost_entity_key
+                   partition by v.product_id, v.cost_type
                    order by v.effective_start_datetime
                  ) is null
               or lag(v.cost_value) over (
-                   partition by v.product_cost_entity_key
+                   partition by v.product_id, v.cost_type
                    order by v.effective_start_datetime
                  ) = 0
             then null
             else (v.cost_value - lag(v.cost_value) over (
-                    partition by v.product_cost_entity_key
+                    partition by v.product_id, v.cost_type
                     order by v.effective_start_datetime
                   )) / lag(v.cost_value) over (
-                    partition by v.product_cost_entity_key
+                    partition by v.product_id, v.cost_type
                     order by v.effective_start_datetime
                   ) * 100
           end as cost_change_pct
