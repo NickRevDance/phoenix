@@ -1,0 +1,49 @@
+version: 2
+
+models:
+  - name: fact_orders_returns
+    description: >
+      FACT_ORDERS_RETURNS -- Type 1 overwrite, current-state order + return
+      lifecycle fact (D365 SalesLine + SalesTable + McrReturnSalesTable).
+      Combines forward-demand and return order lines in one physical table
+      per spec Section 4.9. See README.md for build status, known gaps
+      (shipped_qty/open_qty/fill_rate have no source yet), and open
+      decisions.
+    columns:
+      - name: orders_returns_key
+        tests: [is_valid_key]
+      - name: order_id
+        tests: [not_null]
+      - name: order_line_number
+        tests: [not_null]
+      - name: source_system
+        tests: [not_null]
+      - name: customer_key
+        tests:
+          - relationships:
+              to: ref('dim_customer')
+              field: customer_key
+      - name: product_key
+        tests:
+          - relationships:
+              to: ref('dim_product')
+              field: product_key
+      - name: ordered_qty
+        tests: [not_null]
+
+  - name: v_metrics_order_fulfillment
+    description: >
+      Certified order fulfillment/return metrics view per spec Section 9.
+      fill_rate/order_to_ship_days/on_time_ship_flag are null for every row
+      pending a shipped-quantity / actual-ship-date source -- see
+      fact_orders_returns.sql and README.md.
+
+# Deferred, not implemented in this pass:
+#   - order_id + order_line_number + source_system business-key uniqueness:
+#     not tested directly, same reasoning as FACT_ORDER_LINE's
+#     order_line_key (is_valid_key on the surrogate key covers row-level
+#     uniqueness; SALESID+LINENUM has known live duplicates upstream).
+#   - relationship_coverage-style check on sales_channel_key: same known
+#     BigComUSA reseed gap already flagged on FACT_ORDER_LINE/
+#     FACT_SALES_INVOICE/ref_sales_origin_map -- coalesced to -1 here so
+#     nothing breaks, not re-flagged as a new test.

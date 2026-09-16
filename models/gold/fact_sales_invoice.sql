@@ -152,9 +152,14 @@ product_cost as (
     -- fact_product_cost's real grain is product_id + cost_type + effective_date --
     -- filter to current STANDARD rows only, otherwise this join fans out (see
     -- dbt_build_conventions: any join to fact_product_cost needs this filter).
+    -- Joined below on product_id (raw D365 ItemId), not product_key, per the
+    -- EDW-12 sign-off recorded in spec v1.2 Section 10 -- fact_product_cost's
+    -- real grain is product_id-level, and going through dim_product's
+    -- style/size/color-resolved product_key was never the correct key for
+    -- this join.
     select
 
-          product_key
+          product_id
         , standard_cost_unit
         , cost_currency_code
 
@@ -191,7 +196,7 @@ joined as (
         , pr.product_key
         , cu.customer_key
         , wh.warehouse_key
-        , sc.sales_channel_key
+        , coalesce(sc.sales_channel_key, -1) as sales_channel_key  -- v1.2 (EDW-15/16, adopted): sales_channel_key is never NULL -- unmapped/blank origins resolve to dim_sales_channel's reserved -1 UNKNOWN member. The 10-14% of lines on a *mapped* origin that still come back with no channel (header-join loss, not an unmapped-origin gap) is an open EDW-23 review item, not fixed by this coalesce.
         , pc.standard_cost_unit
         , pc.cost_currency_code
 
@@ -230,7 +235,7 @@ joined as (
         on som.channel_code = sc.channel_code
 
     left join product_cost pc
-        on pr.product_key = pc.product_key
+        on tr.ITEMID = pc.product_id
 
 ),
 
@@ -310,8 +315,8 @@ final as (
 
     -- DSO / Loyalty
         , cast(null as boolean) as is_dso_order_flag  -- Phase 2 per spec -- Open Decision 8
-        , cast(null as decimal(18,4)) as loyalty_points_earned  -- Phase 2 per spec
-        , cast(null as decimal(18,4)) as loyalty_points_redeemed  -- Phase 2 per spec
+        , cast(null as decimal(18,4)) as loyalty_points_earned  -- Phase 2 per spec v1.2: source is FACT_LOYALTY_TRANSACTION (EDW-78, order-level earn event), allocated to lines pro-rata by net_sales_amount over qualifying lines on the order (spec 4.8); qualifying-spend scope (costume-only vs. all products) open with Marketing. Stays a typed NULL until FACT_LOYALTY_TRANSACTION exists.
+        -- loyalty_points_redeemed retired per spec v1.2 (Revolution Rewards two-step Rev Cash model, adopted 2026-08-19): points convert to a certificate and are spent as tender, so there's no invoice-line redemption event to source. Certificate burn is a FACT_PAYMENT_TRANSACTION event instead -- column dropped, not left as a null scaffold.
 
     -- Audit
         , j.RECID                                                    as d365_invoice_rec_id

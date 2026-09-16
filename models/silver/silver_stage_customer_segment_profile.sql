@@ -2,12 +2,14 @@ with customer_current as (
 
     -- This model computes DIM_CUSTOMER_SEGMENT's inputs (customer_segment_key
     -- feeds back into DIM_CUSTOMER), so it is structurally upstream of
-    -- DIM_CUSTOMER and must read the pre-gold snapshot here, not
-    -- {{ ref('dim_customer') }} -- sourcing from the gold table would make
+    -- DIM_CUSTOMER and must read the pre-gold snapshot here, not the gold
+    -- dim_customer model -- sourcing from the gold table would make
     -- DIM_CUSTOMER depend on its own output. This is the one model in the
     -- customer chain that has to know its position in the DAG; every fact
     -- table (fact_sales_invoice included, see its customer CTE) is free to
-    -- ref('dim_customer') directly.
+    -- ref dim_customer directly.
+    -- NOTE: never write a literal Jinja ref() call inside a comment here --
+    -- dbt registers it as a real dependency edge even inside a SQL comment.
     select
           customer_key
         , customer_id
@@ -25,7 +27,7 @@ customer_activity as (
     -- Order recency is computed directly off the raw D365 invoice silver
     -- tables here (same PARENTRECID = REC header relation fact_sales_invoice
     -- uses -- see its trans/jour join comment) rather than by aggregating
-    -- {{ ref('fact_sales_invoice') }}. That's deliberate: it keeps this
+    -- the fact_sales_invoice model. That's deliberate: it keeps this
     -- model's dependencies below fact_sales_invoice in the DAG, so
     -- fact_sales_invoice never has to avoid dim_customer to dodge a cycle
     -- back through here.
@@ -39,7 +41,7 @@ customer_activity as (
 
 ),
 
-final as (
+profile_attrs as (
 
     select
 
@@ -77,6 +79,41 @@ final as (
     left join customer_activity a
         on c.customer_id = a.customer_id
         and c.source_system = 'D365'  -- order history is D365-only, same scope limit as fact_sales_invoice's customer CTE; BigCommerce customers fall into the null/no-orders bucket below
+
+),
+
+final as (
+
+    select
+
+          sha2(
+            concat_ws('||',
+                coalesce(customer_type, ''),
+                coalesce(customer_segment, ''),
+                coalesce(lifecycle_stage, ''),
+                coalesce(customer_tier, ''),
+                coalesce(loyalty_tier, ''),
+                coalesce(cast(is_dso_member_flag as string), ''),
+                coalesce(purchase_frequency_band, ''),
+                coalesce(avg_order_value_band, ''),
+                coalesce(channel_preference, '')
+            ), 256
+          ) as customer_segment_id  -- business key per spec section 9 formula; also the single source silver_stage_dim_customer_segment.sql dedupes on -- keep the hash formula in sync between the two if it ever changes. dso_membership_status and loyalty_enrolled_flag excluded, they're Type 1 profile-completeness fields, not part of the combination
+
+        , customer_key
+        , customer_type
+        , customer_segment
+        , lifecycle_stage
+        , customer_tier
+        , loyalty_tier
+        , is_dso_member_flag
+        , dso_membership_status
+        , loyalty_enrolled_flag
+        , purchase_frequency_band
+        , avg_order_value_band
+        , channel_preference
+
+    from profile_attrs
 
 )
 
