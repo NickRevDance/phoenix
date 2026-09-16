@@ -311,13 +311,13 @@ final as (
     -- Revenue
         , j.SALESPRICE                                               as unit_price
         , j.QTY * j.SALESPRICE                                       as gross_sales_amount
-        , cast(j.QTY * j.LINEDISC as decimal(32,6))                   as line_discount_amount  -- 2026-09-16 fix (Chris review): LINEDISC is a per-unit amount, not a line total -- the prior LINEDISC-as-is value gave a discounted return line's discount to the credit instead of subtracting it, and undercounted a discounted multi-unit line to one unit's discount. Missed CustInvoiceJour.SALESBALANCE on 62K of 802K invoices (~$6.9M absolute) under the old formula. QTY * LINEDISC ties LINEAMOUNT on 99.2% of lines (a ~21K-line PRICEUNIT=0-with-no-discount residual is unchased -- see README).
+        , {{ amount('j.QTY * j.LINEDISC') }}                          as line_discount_amount  -- 2026-09-16 fix (Chris review): LINEDISC is a per-unit amount, not a line total -- the prior LINEDISC-as-is value gave a discounted return line's discount to the credit instead of subtracting it, and undercounted a discounted multi-unit line to one unit's discount. Missed CustInvoiceJour.SALESBALANCE on 62K of 802K invoices (~$6.9M absolute) under the old formula. QTY * LINEDISC ties LINEAMOUNT on 99.2% of lines (a ~21K-line PRICEUNIT=0-with-no-discount residual is unchased -- see README).
         , cast(null as decimal(19,4)) as header_discount_allocated  -- Source once available: Finance Decision F1 (header discount proration basis) -- open, gates margin certification per spec 4.4/12
-        , cast(j.QTY * j.LINEDISC as decimal(32,6))                   as total_discount_amount  -- = line_discount_amount + header_discount_allocated once F1 is confirmed; header component contributes 0 today
-        , cast(j.LINEAMOUNT as decimal(38,6))                        as net_sales_amount  -- 2026-09-16 fix: sourced from CustInvoiceTrans.LINEAMOUNT directly (source truth) instead of re-derived as QTY * SALESPRICE - LINEDISC -- sum(LINEAMOUNT) ties CustInvoiceJour.SALESBALANCE on every invoice
+        , {{ amount('j.QTY * j.LINEDISC') }}                          as total_discount_amount  -- = line_discount_amount + header_discount_allocated once F1 is confirmed; header component contributes 0 today
+        , {{ amount('j.LINEAMOUNT') }}                                as net_sales_amount  -- 2026-09-16 fix: sourced from CustInvoiceTrans.LINEAMOUNT directly (source truth) instead of re-derived as QTY * SALESPRICE - LINEDISC -- sum(LINEAMOUNT) ties CustInvoiceJour.SALESBALANCE on every invoice
         , j.TAXAMOUNT                                                as tax_amount
         , cast(null as decimal(19,4)) as shipping_revenue  -- Source once available: Open Decision 3 (shipping revenue allocation basis) -- open
-        , cast(j.LINEAMOUNT + coalesce(j.TAXAMOUNT, 0) as decimal(38,6)) as total_invoice_line_amount  -- shipping_revenue term omitted while null per above; base term now net_sales_amount (LINEAMOUNT) rather than the re-derived formula
+        , {{ amount('j.LINEAMOUNT + coalesce(j.TAXAMOUNT, 0)') }}        as total_invoice_line_amount  -- shipping_revenue term omitted while null per above; base term now net_sales_amount (LINEAMOUNT) rather than the re-derived formula
 
     -- Costs
         , j.standard_cost_unit
