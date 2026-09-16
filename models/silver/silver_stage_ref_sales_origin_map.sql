@@ -6,6 +6,7 @@ SELECT
     , TRIM(mapping_confidence)              AS mapping_confidence
     , TRIM(source_system)                   AS source_system
     , CAST(is_active_flag AS INT)           AS is_active_flag
+    , CAST(first_observed_date AS DATE)     AS first_observed_date
     , NULLIF(TRIM(mapping_notes), '')       AS mapping_notes
 
 FROM {{ ref('sales_origin_map') }}
