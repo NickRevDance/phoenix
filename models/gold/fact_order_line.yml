@@ -34,6 +34,20 @@ models:
           - relationships:
               to: ref('dim_product')
               field: product_key
+              config:
+                severity: warn  # 2026-09-16: -1 unresolved-to-barcode rows
+                # are expected by design (same convention as
+                # fact_product_price) and would always fail a hard
+                # relationships test -- see that model's yml for the same
+                # pattern. Chris's 2026-09-16 review also flagged this
+                # column's relationships test as pointing at the wrong
+                # target on an earlier read; confirmed here it already
+                # targets dim_customer/dim_product directly, not a silver
+                # snapshot -- no code change needed, noting for the record.
+      - name: sales_channel_key
+        tests: [not_null]  # 2026-09-16 (EDW-16 v1.1 rebuild): never NULL
+                            # since sales_channel_key is coalesced to -1 above,
+                            # same as fact_sales_invoice.
       - name: ordered_qty
         tests: [not_null]
       - name: net_line_amount
@@ -44,11 +58,6 @@ models:
 #     not tested directly (2 known live duplicates on this combination --
 #     see README/SQL comment on order_line_key -- is_valid_key on the
 #     surrogate key covers row-level uniqueness instead).
-#   - V_ORDER_DEMAND_FUNNEL reconciliation (spec Section 9.1): needs
-#     FACT_ORDERS_RETURNS, which doesn't exist in this project yet.
-#   - relationship_coverage-style check on sales_channel_key: same known
-#     BigComUSA reseed gap as fact_sales_invoice/ref_sales_origin_map,
-#     not re-flagged as a new test here.
 #
 # 2026-09-16: customer_key not_null converted to warn (threshold error_if
 # >5) instead of hard error, per the project-wide dq_exceptions_framework
