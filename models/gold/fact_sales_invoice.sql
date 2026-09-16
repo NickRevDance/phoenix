@@ -20,6 +20,7 @@ with trans as (
         , t.SALESUNIT
         , t.SALESPRICE
         , t.LINEDISC
+        , t.LINEAMOUNT
         , t.TAXAMOUNT
         , t.CURRENCYCODE
         , t.MODIFIEDDATE
@@ -74,17 +75,40 @@ inventory_dim as (
 
 ),
 
-product as (
+barcode as (
 
+    -- 2026-09-16 fix (Chris review, item 1): style+size+color through
+    -- dim_product is the same join shape that left ~10% NULL product_key on
+    -- the inventory snapshot fact. Spec v1.2 and the EDW-20 fact_product_price
+    -- rebuild both use the barcode path instead: ITEMID + INVENTDIMID resolve
+    -- through D365's item-barcode table to a UPC, hashed identically to
+    -- DIM_PRODUCT's own product_key formula (md5(ifnull(upc,'0'))) so the two
+    -- line up without a second lookup table. item_barcode's own InventDimID
+    -- is a reference-level dimension record, not the transactional one on
+    -- CustInvoiceTrans -- confirmed live 2026-09-16 that a direct InventDimID
+    -- join matches 0 rows even though every ITEMID overlaps. Resolved through
+    -- silver_d365_inventory_dim to size/color instead, then matched on
+    -- ITEMID + size + color against the transactional line's own size/color
+    -- (same inventory_dim CTE this model already joins for warehouse) --
+    -- 99.77% resolution confirmed live on the sibling fact_order_line
+    -- population, vs. 97.95% via the old style+size+color-to-dim_product
+    -- path. Most-recently-modified barcode wins when more than one exists
+    -- for the same item + size + color.
     select
 
-          product_key
-        , style_number
-        , size
-        , d365_color_code
+          b.ITEMID
+        , bd.INVENTSIZEID
+        , bd.INVENTCOLORID
+        , b.ITEMBARCODE
+        , row_number() over (
+            partition by b.ITEMID, bd.INVENTSIZEID, bd.INVENTCOLORID
+            order by b.MODIFIEDDATE desc
+          ) as rn
 
-    from {{ ref('dim_product') }}
-    where version_number = 1
+    from {{ ref('silver_d365_item_barcode') }} b
+
+    left join {{ ref('silver_d365_inventory_dim') }} bd
+        on b.INVENTDIMID = bd.InventDimID
 
 ),
 
@@ -182,6 +206,7 @@ joined as (
         , tr.SALESUNIT
         , tr.SALESPRICE
         , tr.LINEDISC
+        , tr.LINEAMOUNT
         , tr.TAXAMOUNT
         , tr.CURRENCYCODE
         , tr.MODIFIEDDATE
@@ -190,13 +215,18 @@ joined as (
         , j.INVOICEACCOUNT
         , j.PURCHASEORDER
         , j.RETURNREASONCODEID
+        , j.SALESORIGINID
 
         , st.CREATEDDATE                        as order_created_date
 
-        , pr.product_key
+        , case when bar.ITEMBARCODE is not null
+               then md5(concat_ws('|', bar.ITEMBARCODE))
+               else '-1'
+          end                                    as product_key
         , cu.customer_key
         , wh.warehouse_key
         , coalesce(sc.sales_channel_key, -1) as sales_channel_key  -- v1.2 (EDW-15/16, adopted): sales_channel_key is never NULL -- unmapped/blank origins resolve to dim_sales_channel's reserved -1 UNKNOWN member. The 10-14% of lines on a *mapped* origin that still come back with no channel (header-join loss, not an unmapped-origin gap) is an open EDW-23 review item, not fixed by this coalesce.
+        , nullif(j.SALESORIGINID, '') as source_sales_origin_id  -- v1.1 (EDW-16, Decision 4): raw D365 origin carried on the fact as a non-key lineage attribute, so an unmapped/blank row can be traced without a join back to silver.
         , pc.standard_cost_unit
         , pc.cost_currency_code
 
@@ -216,10 +246,11 @@ joined as (
     left join inventory_dim d
         on tr.INVENTDIMID = d.InventDimID
 
-    left join product pr
-        on tr.ITEMID = pr.style_number
-        and d.INVENTSIZEID = pr.size
-        and d.INVENTCOLORID = pr.d365_color_code
+    left join barcode bar
+        on tr.ITEMID = bar.ITEMID
+        and d.INVENTSIZEID = bar.INVENTSIZEID
+        and d.INVENTCOLORID = bar.INVENTCOLORID
+        and bar.rn = 1
 
     left join customer cu
         on j.INVOICEACCOUNT = cu.customer_id
@@ -259,8 +290,9 @@ final as (
         , j.customer_key
         , cast(null as bigint) as ship_to_customer_key  -- Phase 2 per spec -- role-playing DIM_CUSTOMER, not distinguished from bill-to yet
         , j.sales_channel_key
+        , j.source_sales_origin_id
         , j.warehouse_key
-        , cast(null as bigint) as employee_sales_hierarchy_key  -- Source once available: no worker/sales-rep table found in the warehouse scan -- NULL for B2C anyway per spec 4.5
+        , cast(-1 as bigint) as employee_sales_hierarchy_key  -- 2026-09-16 fix (Chris review, Aug 5 note): coalesced to the reserved -1 UNKNOWN member rather than left null -- no worker/sales-rep table found in the warehouse scan; still applies to B2C per spec 4.5
         , cast(null as bigint) as campaign_key  -- Phase 2 per spec -- contingent on DIM_CAMPAIGN, not scoped
         , cast(null as bigint) as vendor_key  -- Phase 2 per spec -- derived from DIM_PRODUCT vendor linkage, not wired yet
         , cast(null as bigint) as customer_segment_key  -- Phase 2 per spec -- DIM_CUSTOMER_SEGMENT doesn't exist in this project yet
@@ -279,13 +311,13 @@ final as (
     -- Revenue
         , j.SALESPRICE                                               as unit_price
         , j.QTY * j.SALESPRICE                                       as gross_sales_amount
-        , j.LINEDISC                                                 as line_discount_amount
+        , j.QTY * j.LINEDISC                                         as line_discount_amount  -- 2026-09-16 fix (Chris review): LINEDISC is a per-unit amount, not a line total -- the prior LINEDISC-as-is value gave a discounted return line's discount to the credit instead of subtracting it, and undercounted a discounted multi-unit line to one unit's discount. Missed CustInvoiceJour.SALESBALANCE on 62K of 802K invoices (~$6.9M absolute) under the old formula. QTY * LINEDISC ties LINEAMOUNT on 99.2% of lines (a ~21K-line PRICEUNIT=0-with-no-discount residual is unchased -- see README).
         , cast(null as decimal(19,4)) as header_discount_allocated  -- Source once available: Finance Decision F1 (header discount proration basis) -- open, gates margin certification per spec 4.4/12
-        , j.LINEDISC                                                 as total_discount_amount  -- = line_discount_amount + header_discount_allocated once F1 is confirmed; header component contributes 0 today
-        , (j.QTY * j.SALESPRICE) - j.LINEDISC                        as net_sales_amount
+        , j.QTY * j.LINEDISC                                         as total_discount_amount  -- = line_discount_amount + header_discount_allocated once F1 is confirmed; header component contributes 0 today
+        , j.LINEAMOUNT                                                as net_sales_amount  -- 2026-09-16 fix: sourced from CustInvoiceTrans.LINEAMOUNT directly (source truth) instead of re-derived as QTY * SALESPRICE - LINEDISC -- sum(LINEAMOUNT) ties CustInvoiceJour.SALESBALANCE on every invoice
         , j.TAXAMOUNT                                                as tax_amount
         , cast(null as decimal(19,4)) as shipping_revenue  -- Source once available: Open Decision 3 (shipping revenue allocation basis) -- open
-        , ((j.QTY * j.SALESPRICE) - j.LINEDISC) + coalesce(j.TAXAMOUNT, 0)  as total_invoice_line_amount  -- shipping_revenue term omitted while null per above
+        , j.LINEAMOUNT + coalesce(j.TAXAMOUNT, 0)                    as total_invoice_line_amount  -- shipping_revenue term omitted while null per above; base term now net_sales_amount (LINEAMOUNT) rather than the re-derived formula
 
     -- Costs
         , j.standard_cost_unit

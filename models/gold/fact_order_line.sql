@@ -18,6 +18,7 @@ with line as (
         , l.SALESPRICE
         , l.SALESUNIT
         , l.LINEDISC
+        , l.LINEAMOUNT
         , l.CURRENCYCODE
         , l.SALESSTATUS
         , l.SHIPPINGDATEREQUESTED
@@ -73,17 +74,41 @@ inventory_dim as (
 
 ),
 
-product as (
+barcode as (
 
+    -- 2026-09-16 fix (Chris review, same pattern as EDW-23/fact_sales_invoice
+    -- and fact_product_price's EDW-20 rebuild): ITEMID + INVENTDIMID resolve
+    -- through D365's item-barcode table to a UPC, hashed identically to
+    -- DIM_PRODUCT's own product_key formula (md5(ifnull(upc,'0'))) so the two
+    -- line up without a second lookup table. Replaces the prior
+    -- style+size+color join to dim_product, which is the same join shape that
+    -- left ~10% of rows with no product_key on the inventory snapshot fact.
+    -- item_barcode's own InventDimID is a reference-level dimension record,
+    -- not the transactional one on SalesLine/CustInvoiceTrans -- confirmed
+    -- live 2026-09-16 that a direct InventDimID join matches 0 rows even
+    -- though every ITEMID overlaps. Resolved through silver_d365_inventory_dim
+    -- to size/color instead, then matched on ITEMID + size + color against
+    -- the transactional line's own size/color (same inventory_dim CTE this
+    -- model already joins for warehouse) -- 99.77% resolution confirmed live,
+    -- vs. 97.95% via the old style+size+color-to-dim_product path.
+    -- Most-recently-modified barcode wins when more than one exists for the
+    -- same item + size + color (same dedupe convention used everywhere else
+    -- in this project).
     select
 
-          product_key
-        , style_number
-        , size
-        , d365_color_code
+          b.ITEMID
+        , bd.INVENTSIZEID
+        , bd.INVENTCOLORID
+        , b.ITEMBARCODE
+        , row_number() over (
+            partition by b.ITEMID, bd.INVENTSIZEID, bd.INVENTCOLORID
+            order by b.MODIFIEDDATE desc
+          ) as rn
 
-    from {{ ref('dim_product') }}
-    where version_number = 1
+    from {{ ref('silver_d365_item_barcode') }} b
+
+    left join {{ ref('silver_d365_inventory_dim') }} bd
+        on b.INVENTDIMID = bd.InventDimID
 
 ),
 
@@ -115,12 +140,10 @@ warehouse as (
 
 sales_origin_map as (
 
-    -- Same live-data gap fact_sales_invoice already flagged and fixed at
-    -- the seed level (models/ref_sales_origin_map/seeds/sales_origin_map.csv,
-    -- BigComUS -> BigComUSA): as of 2026-09-11 that reseed still hasn't run,
-    -- so BigComUSA (1,689,974 of 2,588,287 order lines, 65%) doesn't match
-    -- here yet either. Not re-fixed in this build -- same open fix, same
-    -- table. See README.
+    -- BigComUS -> BigComUSA reseed landed on main 2026-09-11 (commit
+    -- 8fede99); REF_SALES_ORIGIN_MAP rebuilt to spec v1.1 2026-09-16
+    -- (EDW-16) -- Nimbly origins now map to their own NIMBLY_S2C/
+    -- NIMBLY_S2S channel rows instead of rolling into B2B_DIRECT.
     select
 
           sales_origin_id
@@ -153,6 +176,7 @@ joined as (
         , l.SALESPRICE
         , l.SALESUNIT
         , l.LINEDISC
+        , l.LINEAMOUNT
         , l.CURRENCYCODE
         , l.SALESSTATUS
         , l.SHIPPINGDATEREQUESTED
@@ -165,10 +189,13 @@ joined as (
         , st.CREATEDDATE                         as order_created_date
 
         , d.INVENTLOCATIONID
-        , pr.product_key
+        , case when bar.ITEMBARCODE is not null
+               then md5(concat_ws('|', bar.ITEMBARCODE))
+               else '-1'
+          end                                     as product_key
         , cu.customer_key
         , wh.warehouse_key
-        , sc.sales_channel_key
+        , coalesce(sc.sales_channel_key, -1)      as sales_channel_key  -- 2026-09-16 fix (Chris review, same as EDW-23/fact_sales_invoice v1.2): sales_channel_key is never NULL -- unmapped/blank origins resolve to dim_sales_channel's reserved -1 UNKNOWN member.
 
     from line l
 
@@ -178,10 +205,11 @@ joined as (
     left join inventory_dim d
         on l.INVENTDIMID = d.InventDimID
 
-    left join product pr
-        on l.ITEMID = pr.style_number
-        and d.INVENTSIZEID = pr.size
-        and d.INVENTCOLORID = pr.d365_color_code
+    left join barcode bar
+        on l.ITEMID = bar.ITEMID
+        and d.INVENTSIZEID = bar.INVENTSIZEID
+        and d.INVENTCOLORID = bar.INVENTCOLORID
+        and bar.rn = 1
 
     left join customer cu
         on st.CUSTACCOUNT = cu.customer_id
@@ -225,8 +253,9 @@ final as (
         , l.customer_key
         , cast(null as bigint) as ship_to_customer_key  -- Phase 2 per spec
         , l.sales_channel_key
+        , nullif(l.SALESORIGINID, '') as source_sales_origin_id  -- v1.1 (EDW-16, Decision 4): raw D365 origin carried on the fact as a non-key lineage attribute, so an unmapped/blank row can be traced without a join back to silver.
         , l.warehouse_key
-        , cast(null as bigint) as employee_sales_hierarchy_key  -- Source once available: no worker/sales-rep table found in the warehouse scan -- shared gap with fact_sales_invoice
+        , cast(-1 as bigint) as employee_sales_hierarchy_key  -- 2026-09-16 fix (Chris review, same as EDW-23/fact_sales_invoice): coalesced to the reserved -1 UNKNOWN member rather than left null -- no worker/sales-rep table found in the warehouse scan, shared gap with fact_sales_invoice
         , cast(null as bigint) as campaign_key  -- Phase 2 per spec
         , cast(null as bigint) as promotion_key  -- Phase 2 per spec
         , cast(null as bigint) as customer_segment_key  -- Phase 2 per spec -- DIM_CUSTOMER_SEGMENT doesn't exist in this project yet
@@ -263,8 +292,8 @@ final as (
     -- Amounts
         , l.SALESPRICE                                                as unit_price
         , l.QTYORDERED * l.SALESPRICE                                 as line_amount
-        , l.LINEDISC                                                  as line_discount_amount  -- LINEDISC is already a line-level dollar amount live (avg $0.73, 9.5% of lines nonzero); LINEPERCENT is not used in this data (nonzero on 1 of 2,588,292 lines)
-        , (l.QTYORDERED * l.SALESPRICE) - l.LINEDISC                  as net_line_amount
+        , l.QTYORDERED * l.LINEDISC                                   as line_discount_amount  -- 2026-09-16 fix (Chris review): LINEDISC is a per-unit amount, not a line total -- LINEDISC-as-is missed SalesLine.LINEAMOUNT on 125K of 2.6M lines (~$3.5M absolute); QTYORDERED * (SALESPRICE - LINEDISC) missed on 358 more. QTYORDERED * LINEDISC is the reconciling formula.
+        , l.LINEAMOUNT                                                as net_line_amount  -- 2026-09-16 fix: sourced from SalesLine.LINEAMOUNT directly (source truth) instead of re-derived as QTYORDERED * SALESPRICE - LINEDISC
         , l.CURRENCYCODE                                              as transaction_currency_code
         , cast(null as decimal(19,8)) as fx_rate_to_usd  -- Phase 2 per spec
         , cast(null as decimal(19,4)) as net_line_amount_usd  -- Phase 2 per spec
