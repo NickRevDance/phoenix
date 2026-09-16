@@ -6,6 +6,12 @@ models:
       FACT_SALES_INVOICE -- posted invoice-line grain, insert-only
       accumulating fact (D365 CustInvoiceTrans + CustInvoiceJour). See
       README.md for build status, known gaps, and open decisions.
+    tests:
+      - dbt_utils.unique_combination_of_columns:  # 2026-09-16 (Chris review, EDW-23): unique on the business key
+          combination_of_columns:
+            - invoice_id
+            - invoice_line_number
+            - source_system
     columns:
       - name: sales_invoice_key
         tests: [is_valid_key]
@@ -21,6 +27,18 @@ models:
           - relationships:
               to: ref('dim_customer')
               field: customer_key
+      - name: product_key
+        tests:
+          - relationships:
+              to: ref('dim_product')
+              field: product_key
+              config:
+                severity: warn  # 2026-09-16: -1 unresolved-to-barcode rows are
+                # expected by design (same convention as fact_product_price),
+                # which would always fail a hard relationships test.
+      - name: sales_channel_key
+        tests: [not_null]  # 2026-09-16 (Chris review, item 3): never NULL
+                            # since sales_channel_key is coalesced to -1 above
       - name: invoiced_qty
         tests: [not_null]
       - name: net_sales_amount
@@ -28,9 +46,24 @@ models:
 
 # Deferred, not implemented in this pass:
 #   - Reconciliation rule 1 (spec Section 7): sum(net_sales_amount) by invoice_id
-#     vs. D365 CustInvoiceJour.InvoiceAmount. Needs a tolerance decided by
-#     Finance (Open Decision 9 / F5) before this can be a real test rather
-#     than an exploratory query.
+#     vs. D365 CustInvoiceJour.InvoiceAmount. Tolerance (F5, Open Decision 9) is
+#     now adopted at zero (2026-08-27, EDW-63, ratified EDW-97) -- what still
+#     blocks a real test is that CustInvoiceJour.InvoiceAmount itself isn't
+#     ingested yet (not in bronze/silver_d365_cust_invoice_jour). Source it,
+#     then this becomes a real test rather than an exploratory query.
 #   - Reconciliation rule 2 / F5 cross-fact gate: sum(discount_amount) from
 #     FACT_DISCOUNT_APPLICATION per sales_invoice_key vs. total_discount_amount
-#     here. Blocked on FACT_DISCOUNT_APPLICATION not existing yet.
+#     here. Zero tolerance also adopted (same F5 decision) -- still blocked on
+#     FACT_DISCOUNT_APPLICATION not existing yet (EDW-65).
+#   - header_discount_allocated (F1, Open Decision 1) is also adopted: pro-rata
+#     by gross_sales_amount with a largest-remainder rule on the rounding
+#     residual (2026-08-27, EDW-63, ratified EDW-97). Not implemented this pass
+#     -- no header discount amount is sourced from CustInvoiceJour yet, so
+#     header_discount_allocated stays null and total_discount_amount =
+#     line_discount_amount only. Same basis will apply in
+#     FACT_DISCOUNT_APPLICATION per spec 4.4 so the two can never disagree.
+#   - V_METRICS_SALES_DAILY (Chris review, smaller item): Phase 1 view flagged
+#     as "build right after the fact" -- not built this pass, needs its own
+#     spec/shape decision with Nick before scoping.
+#   - ~21K-line PRICEUNIT = 0 / no-discount residual under the new
+#     QTY * LINEDISC line_discount_amount formula: unchased, see README.

@@ -1,0 +1,41 @@
+version: 2
+
+models:
+  - name: dim_promotion
+    description: >
+      DIM_PROMOTION -- conformed promotion master (SCD Type 2), shared_gold.
+      One governed row per source promotion per storefront per SCD2 version:
+      D365 trade agreements (promotion_class = CONTRACTUAL_PRICING) and
+      manual seed rows this pass; BigCommerce promotions/coupons pending
+      EDW-33 (see README.md). Precedes FACT_DISCOUNT_APPLICATION by design --
+      promotion_key there is Phase 1 NOT NULL, so this dimension and its
+      default members (0 = NO_PROMOTION, -1 = UNKNOWN) must exist first.
+      Coupon codes are NOT dimension rows -- the degenerate coupon_code
+      stays on the fact.
+    tests:
+      - dbt_utils.unique_combination_of_columns:  # EDW-7: exactly one current row per natural key
+          combination_of_columns:
+            - source_system
+            - source_storefront_code
+            - source_promotion_id
+          config:
+            where: "is_current_row = 1"
+    columns:
+      - name: promotion_key
+        tests:
+          - is_valid_key
+      - name: source_promotion_id
+        tests:
+          - not_null
+      - name: promotion_class
+        tests:
+          - accepted_values:
+              values: ['CONTRACTUAL_PRICING', 'PROMOTIONAL_DISCOUNT', 'MANUAL', 'Reserved']
+      - name: promotion_mechanism
+        tests:
+          - accepted_values:
+              values: ['TRADE_AGREEMENT', 'PERCENT_DISCOUNT', 'AMOUNT_DISCOUNT', 'BOGO', 'FREE_SHIPPING', 'COUPON_CODE', 'CART_RULE', 'MANUAL_OVERRIDE', 'NONE', 'UNKNOWN']
+      - name: discount_type_default
+        tests:
+          - accepted_values:
+              values: ['PERCENT', 'FIXED_AMOUNT', 'FIXED_PRICE', 'FREE_SHIPPING', 'NONE']

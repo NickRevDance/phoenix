@@ -1,0 +1,12 @@
+version: 2
+
+seeds:
+  - name: promotion_enrichment
+    config:
+      column_types:
+        source_system: string
+        source_storefront_code: string
+        source_promotion_id: string
+        funding_source_default_override: string
+        vendor_key_override: string
+        promotion_group_code_override: string
