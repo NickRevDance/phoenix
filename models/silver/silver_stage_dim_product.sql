@@ -31,7 +31,7 @@ SELECT
     ,CPM.ProductSet as product_set
     ,CPM.ProductSubset as product_subset
     ,CPM.ProductSummary as product_summary
-    , '' as summary_class --Reporting summary class (e.g., Revolution Costume, Art Stone Costumes). Critical for Finance/Ops slicing. Currently derived in view — should be stored.
+    , REF_SC.summary_class --Sourced from REF_PRODUCT_SUMMARY_CLASS (BI-maintained mapping); NULL when brand/product_group/product_sub_group has no mapping row.
     ,MODU.ModuleType as module_type
     ,PV.ProductClass as product_class
     ,CPM.Classifier3 as classifier_3
@@ -162,14 +162,14 @@ SELECT
             , style_name
             , colorway
             , color_family
-            , product_group
-            , product_sub_group
+            , CPM.ProductGroup
+            , CPM.ProductSubGroup
             , product_set
             , product_subset
             , product_summary
             , summary_class
             , classifier_3
-            , brand
+            , CPM.Brand
             , genre
             , sub_genre
             , adult_child
@@ -219,3 +219,8 @@ LEFT JOIN
 LEFT JOIN
     {{ ref('silver_d365_hts_by_item') }} HTS
     ON HTS.ItemID = BAR.ItemID
+LEFT JOIN
+    {{ ref('ref_product_summary_class') }} REF_SC
+    ON REF_SC.brand = CPM.Brand
+    AND REF_SC.product_group = CPM.ProductGroup
+    AND REF_SC.product_sub_group = CPM.ProductSubGroup
