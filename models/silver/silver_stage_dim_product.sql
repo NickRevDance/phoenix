@@ -162,14 +162,14 @@ SELECT
             , style_name
             , colorway
             , color_family
-            , product_group
-            , product_sub_group
+            , CPM.ProductGroup
+            , CPM.ProductSubGroup
             , product_set
             , product_subset
             , product_summary
             , summary_class
             , classifier_3
-            , brand
+            , CPM.Brand
             , genre
             , sub_genre
             , adult_child
