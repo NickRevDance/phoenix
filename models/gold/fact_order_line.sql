@@ -292,7 +292,7 @@ final as (
     -- Amounts
         , l.SALESPRICE                                                as unit_price
         , l.QTYORDERED * l.SALESPRICE                                 as line_amount
-        , l.QTYORDERED * l.LINEDISC                                   as line_discount_amount  -- 2026-09-16 fix (Chris review): LINEDISC is a per-unit amount, not a line total -- LINEDISC-as-is missed SalesLine.LINEAMOUNT on 125K of 2.6M lines (~$3.5M absolute); QTYORDERED * (SALESPRICE - LINEDISC) missed on 358 more. QTYORDERED * LINEDISC is the reconciling formula.
+        , cast(l.QTYORDERED * l.LINEDISC as decimal(32,6))             as line_discount_amount  -- 2026-09-16 fix (Chris review): LINEDISC is a per-unit amount, not a line total -- LINEDISC-as-is missed SalesLine.LINEAMOUNT on 125K of 2.6M lines (~$3.5M absolute); QTYORDERED * (SALESPRICE - LINEDISC) missed on 358 more. QTYORDERED * LINEDISC is the reconciling formula.
         , l.LINEAMOUNT                                                as net_line_amount  -- 2026-09-16 fix: sourced from SalesLine.LINEAMOUNT directly (source truth) instead of re-derived as QTYORDERED * SALESPRICE - LINEDISC
         , l.CURRENCYCODE                                              as transaction_currency_code
         , cast(null as decimal(19,8)) as fx_rate_to_usd  -- Phase 2 per spec
