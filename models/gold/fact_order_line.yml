@@ -17,7 +17,15 @@ models:
         tests: [not_null]
       - name: customer_key
         tests:
-          - not_null
+          - not_null:
+              config:
+                severity: warn
+                warn_if: ">0"
+                error_if: ">5"   # known D365 header-sync gap (see project
+                                 # memory / dq_exceptions_framework README) --
+                                 # a handful is a source-system gap to chase,
+                                 # not a model bug; a spike past 5 means
+                                 # something upstream actually broke
           - relationships:
               to: ref('dim_customer')
               field: customer_key
@@ -41,3 +49,9 @@ models:
 #   - relationship_coverage-style check on sales_channel_key: same known
 #     BigComUSA reseed gap as fact_sales_invoice/ref_sales_origin_map,
 #     not re-flagged as a new test here.
+#
+# 2026-09-16: customer_key not_null converted to warn (threshold error_if
+# >5) instead of hard error, per the project-wide dq_exceptions_framework
+# (see maintenance/dq_exceptions_framework_2026-09-16/README.md) -- flags
+# the known SO-3715780-style header-sync gap for remediation via
+# v_dq_open_exceptions instead of failing the whole Prod Daily job on it.

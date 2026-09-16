@@ -58,6 +58,18 @@ models:
     archive:
       +enabled: false
 
+# Data-quality exceptions framework (added 2026-09-16, see this folder's README.md):
+# every test's failing rows are captured to a dedicated schema instead of only
+# failing the job, and a persistent run-history log feeds an audit dashboard.
+tests:
+  phoenix:
+    +store_failures: true
+    +schema: dq_exceptions
+    +catalog: "{{ 'phoenix_prod_catalog' if target.schema == 'prod' else 'phoenix_dev_catalog' }}"
+
+on-run-end:
+  - "{{ log_test_run_results(results) }}"
+
 seeds:
   phoenix:
     +schema: seeds
