@@ -161,3 +161,13 @@ sources:
 
       - name: ref_product_summary_class
         identifier: ref_product_summary_class
+  
+  - name: dq_internal
+    description: >
+      Internal data-quality run history, written by the on-run-end hook
+      (macros/log_test_run_results.sql), not a dbt-built model. Backs
+      models/gold/v_dq_open_exceptions.sql and v_dq_exception_history.sql.
+    schema: "{{ target.schema }}_dq_exceptions"
+    tables:
+      - name: dq_test_run_log
+        description: One row per test per dbt invocation (pass/warn/fail/error).
