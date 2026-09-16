@@ -1,0 +1,3 @@
+source_system,source_storefront_code,source_promotion_id,promotion_code,promotion_name,promotion_description,promotion_class,promotion_mechanism,discount_type_default,discount_value,promotion_start_date,promotion_end_date,is_active_flag,funding_source_default,vendor_key,promotion_group_code
+Manual Seed,,UNKNOWN,UNKNOWN,Unknown Promotion,Reserved member for discount/order rows whose promotion reference is blank or does not resolve to a known promotion.,Reserved,UNKNOWN,NONE,0,,,true,Company,,RESERVED
+Manual Seed,,NO_PROMOTION,NO_PROMOTION,No Promotion,Reserved member for order/discount rows where no promotion applies.,Reserved,NONE,NONE,0,,,true,Company,,RESERVED
