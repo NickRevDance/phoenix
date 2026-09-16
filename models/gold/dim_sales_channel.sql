@@ -178,28 +178,26 @@ final as (
 
         u.*
 
-        , sha2(
-            concat_ws('||',
-                coalesce(u.channel_name, ''),
-                coalesce(u.channel_short_name, ''),
-                coalesce(u.channel_description, ''),
-                coalesce(u.channel_type, ''),
-                coalesce(u.channel_subtype, ''),
-                coalesce(u.storefront_code, ''),
-                coalesce(u.storefront_platform, ''),
-                coalesce(u.country_code, ''),
-                coalesce(u.currency_code, ''),
-                coalesce(cast(u.is_loyalty_redemption_channel as string), ''),
-                coalesce(cast(u.loyalty_redemption_start_date as string), ''),
-                coalesce(cast(u.is_promotion_eligible as string), ''),
-                coalesce(cast(u.is_returns_enabled as string), ''),
-                coalesce(u.channel_status, ''),
-                coalesce(cast(u.is_active_flag as string), ''),
-                coalesce(cast(u.channel_start_date as string), ''),
-                coalesce(cast(u.channel_end_date as string), ''),
-                coalesce(cast(u.sort_order as string), '')
-            ), 256
-          ) as row_hash  -- v1.1 new. Spec calls this "EDW-8 shared audit macro" but no such macro exists in this project yet -- dim_warehouse/dim_vendor/dim_customer all inline this same sha2/concat_ws pattern per model rather than share one. Worth centralizing if EDW-8 wants a literal shared macro.
+        , {{ generate_row_hash([
+              "coalesce(u.channel_name, '')",
+              "coalesce(u.channel_short_name, '')",
+              "coalesce(u.channel_description, '')",
+              "coalesce(u.channel_type, '')",
+              "coalesce(u.channel_subtype, '')",
+              "coalesce(u.storefront_code, '')",
+              "coalesce(u.storefront_platform, '')",
+              "coalesce(u.country_code, '')",
+              "coalesce(u.currency_code, '')",
+              "coalesce(cast(u.is_loyalty_redemption_channel as string), '')",
+              "coalesce(cast(u.loyalty_redemption_start_date as string), '')",
+              "coalesce(cast(u.is_promotion_eligible as string), '')",
+              "coalesce(cast(u.is_returns_enabled as string), '')",
+              "coalesce(u.channel_status, '')",
+              "coalesce(cast(u.is_active_flag as string), '')",
+              "coalesce(cast(u.channel_start_date as string), '')",
+              "coalesce(cast(u.channel_end_date as string), '')",
+              "coalesce(cast(u.sort_order as string), '')"
+          ]) }} as row_hash  -- v1.1: now centralized via the EDW-8 generate_row_hash macro (was inline sha2/concat_ws; dim_warehouse/dim_vendor now use the same macro)
 
     from unioned u
 
