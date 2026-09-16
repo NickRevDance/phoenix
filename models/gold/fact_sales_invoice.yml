@@ -7,11 +7,10 @@ models:
       accumulating fact (D365 CustInvoiceTrans + CustInvoiceJour). See
       README.md for build status, known gaps, and open decisions.
     tests:
-      - dbt_utils.unique_combination_of_columns:  # 2026-09-16 (Chris review, EDW-23): unique on the business key
+      - dbt_utils.unique_combination_of_columns:  # 2026-09-16 (Chris review, EDW-23): fixed same day -- invoice_line_number (D365 LINENUM) is not unique per invoice_id (a single order line can explode into many CustInvoiceTrans rows across different products/qty under the same LINENUM), and source_system is constant 'D365' so it added no uniqueness. d365_invoice_rec_id (CustInvoiceTrans.RECID) is the true per-row identifier -- confirmed live 2026-09-16 (107,910 FAILs on the old combo, 0 on this one).
           combination_of_columns:
             - invoice_id
-            - invoice_line_number
-            - source_system
+            - d365_invoice_rec_id
     columns:
       - name: sales_invoice_key
         tests: [is_valid_key]
