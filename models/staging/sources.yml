@@ -118,9 +118,16 @@ sources:
           freshness:
             warn_after: {count: 24, period: hour}
             error_after: {count: 48, period: hour}
-      
+
       - name: d365_sales_line
         identifier: Rev_SalesLineStaging
+
+      # Added 2026-09-15 for FACT_ORDERS_RETURNS -- D365's return-order
+      # extension table (McrReturnSalesTable). No native ReturnTable exists
+      # in this D365 instance; this add-on table is the closest equivalent,
+      # joined to SalesTable via SALESTABLE = SalesTable.REC.
+      - name: d365_mcr_return_sales_table
+        identifier: Rev_mcrreturnsalestableStaging
 
   - name: bc
     database: dwhvisualnext
@@ -151,3 +158,6 @@ sources:
     tables:
       - name: ref_inventory_status
         identifier: ref_inventory_status
+
+      - name: ref_product_summary_class
+        identifier: ref_product_summary_class
