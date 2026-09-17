@@ -1,0 +1,5 @@
+metric_code,metric_name,business_unit_code,scope_type,scope_code,comparison_operator,target_value,target_unit,goal_direction,is_monitor_only_flag,effective_from_date,effective_to_date,approved_by_role,approved_date,target_notes
+ABANDON_RATE,Abandon Rate,CS,GLOBAL,ALL,<,0.0500,RATE,LOWER_IS_BETTER,false,2026-07-22,,CS Manager,2026-07-22,"Confirmed by CS management, July 22, 2026 SLA thread."
+ASA,Average Speed of Answer,CS,GLOBAL,ALL,<=,60,SECONDS,LOWER_IS_BETTER,false,2026-07-22,,CS Manager,2026-07-22,"Confirmed by CS management, July 22, 2026 SLA thread."
+ATT,Average Talk Time,CS,GLOBAL,ALL,<,480,SECONDS,LOWER_IS_BETTER,false,2026-07-22,,CS Manager,2026-07-22,"Confirmed by CS management, July 22, 2026 SLA thread."
+EMAIL_SLA_PCT,Email 2-Business-Day SLA %,CS,GLOBAL,ALL,>=,0.9800,RATE,HIGHER_IS_BETTER,false,2026-07-22,,CS Manager,2026-07-22,"Confirmed by CS management, July 22, 2026 SLA thread. Carried from the FACT_CS_EMAIL_CASE spec; the 2-business-day eligibility window is a rule parameter owned there, not this table."

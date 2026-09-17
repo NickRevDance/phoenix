@@ -1,0 +1,21 @@
+version: 2
+
+seeds:
+  - name: ref_sla_target
+    config:
+      column_types:
+        metric_code: string
+        metric_name: string
+        business_unit_code: string
+        scope_type: string
+        scope_code: string
+        comparison_operator: string
+        target_value: string
+        target_unit: string
+        goal_direction: string
+        is_monitor_only_flag: string
+        effective_from_date: string
+        effective_to_date: string
+        approved_by_role: string
+        approved_date: string
+        target_notes: string
