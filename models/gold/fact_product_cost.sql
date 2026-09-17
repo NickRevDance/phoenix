@@ -1,25 +1,47 @@
 {{ config(materialized = 'table') }}
 
-with versioned as (
+with deduped as (
 
     select
 
           snap.*
+        , row_number() over (
+            partition by snap.product_id, snap.cost_type, snap.source_system, snap.effective_date
+            order by snap.effective_start_datetime desc
+          ) as grain_dedup_rn
+        -- 2026-09-17 fix (EDW-7 is_valid_key finding): collapses same-day snapshot
+        -- restatements to the latest version -- e.g. a $0.00 D365 placeholder cost
+        -- corrected 2 days later, or a PLM landed cost's freight_cost_unit backfilled
+        -- from voyage cost hours later, both still dated the same effective_date.
+        -- Spec's literal grain is one row per product+cost_type+effective_date; without
+        -- this, both versions survived into the final table (1,101 duplicate keys found
+        -- in dev, split PLM/LANDED 823 + D365/STANDARD 278, always exactly 2 rows/group).
+
+    from {{ ref('silver_snapshot_fact_product_cost') }} snap
+
+),
+
+versioned as (
+
+    select
+
+          d.*
         -- 2026-09-16 fix: partition by product_id+cost_type, not product_cost_entity_key --
         -- the latter folds in source_system, which is derived on the LANDED branch and forked a product's cost history into two "current" rows once its PLM estimate populated (product_id 10003). Matches spec: is_current is per product + cost_type.
         , row_number() over (
-            partition by snap.product_id, snap.cost_type
-            order by snap.effective_start_datetime desc
+            partition by d.product_id, d.cost_type
+            order by d.effective_start_datetime desc
           ) as version_number
 
-        , case snap.cost_type
-            when 'STANDARD' then snap.standard_cost_unit
-            when 'LANDED' then snap.landed_cost_unit
-            when 'VENDOR' then snap.vendor_cost_unit
-            when 'PLM_ESTIMATED' then snap.plm_estimated_cost_unit
+        , case d.cost_type
+            when 'STANDARD' then d.standard_cost_unit
+            when 'LANDED' then d.landed_cost_unit
+            when 'VENDOR' then d.vendor_cost_unit
+            when 'PLM_ESTIMATED' then d.plm_estimated_cost_unit
           end as cost_value
 
-    from {{ ref('silver_snapshot_fact_product_cost') }} snap
+    from deduped d
+    where d.grain_dedup_rn = 1
 
 ),
 

@@ -1,0 +1,26 @@
+version: 2
+
+models:
+  - name: fact_product_cost
+    description: >
+      FACT_PRODUCT_COST -- insert-only accumulating fact, one row per
+      product_id + cost_type + effective_date (spec grain). See project
+      memory fact_product_cost_rebuild.md and
+      fact_product_cost_spec_compliance_review.md for build history and
+      known source gaps (no source for vendor trade agreements / PO
+      actuals; no freight $/unit source).
+    columns:
+      - name: product_cost_key
+        tests:
+          - is_valid_key
+      - name: product_id
+        tests:
+          - not_null
+      - name: cost_type
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['STANDARD', 'LANDED', 'VENDOR', 'PLM_ESTIMATED']
+      - name: effective_date
+        tests:
+          - not_null

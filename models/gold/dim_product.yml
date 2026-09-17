@@ -1,0 +1,24 @@
+version: 2
+
+models:
+  - name: dim_product
+    description: >
+      DIM_PRODUCT -- SCD Type 2 gold-layer product dimension, versioned
+      history via silver_snapshot_dim_product (one row per product_key
+      version, latest flagged version_number = 1 / is_current_row). See
+      v_dim_product_current for the current-row-only view most consumers
+      should query, and README.md in this folder for build status.
+    columns:
+      - name: product_id
+        tests:
+          - not_null
+
+  - name: v_dim_product_current
+    description: >
+      Current-row view over dim_product (version_number = 1) with SCD2
+      and internal metadata columns stripped -- the object most
+      consumers should query.
+    columns:
+      - name: product_key
+        tests:
+          - is_valid_key

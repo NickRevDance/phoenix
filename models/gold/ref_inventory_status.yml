@@ -1,0 +1,20 @@
+version: 2
+
+models:
+  - name: ref_inventory_status
+    description: >
+      REF_INVENTORY_STATUS -- SCD Type 2 reference table of inventory
+      status codes, snapshot-wired (mirrors dim_product's pattern). See
+      v_ref_inventory_status_current for the current-row-only view.
+    columns:
+      - name: inventory_status_key
+        tests:
+          - not_null
+
+  - name: v_ref_inventory_status_current
+    description: >
+      Current-row view over ref_inventory_status (is_current_row = 1).
+    columns:
+      - name: inventory_status_key
+        tests:
+          - is_valid_key
