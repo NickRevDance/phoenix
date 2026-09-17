@@ -17,9 +17,6 @@ models:
       README.md for the full field-by-field status and the EDW-25
       remediation tracker for open items (R1-R6).
     columns:
-      - name: vendor_key
-        tests:
-          - is_valid_key
       - name: vendor_id
         tests:
           - not_null
@@ -33,3 +30,7 @@ models:
       Current-row view over dim_vendor (version_number = 1) with SCD2
       and internal metadata columns stripped -- the object most
       consumers (Power BI, ad hoc analysts) should query.
+    columns:
+      - name: vendor_key
+        tests:
+          - is_valid_key
