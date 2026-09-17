@@ -33,7 +33,7 @@ final as (
 
     select
 
-          {{ generate_surrogate_key(['b.rule_id']) }} as size_weight_rule_key  -- stable per rule_id, not per version -- see ref_inventory_status/dim_product precedent
+          {{ generate_surrogate_key(['b.rule_id', 'b.effective_start_date']) }} as size_weight_rule_key  -- version-distinct key, matching ref_sla_target's pattern (natural key + effective_start_date)
 
         , b.rule_id
         , b.priority
@@ -55,20 +55,10 @@ final as (
         , b.is_active
         , b.effective_start_date
         , b.effective_end_date
-        , {{ scd2_version_number('b.rule_id', order_by='b.effective_start_date') }} as version_number
-
         , b.notes
         , 'size_weight_rules_seed' as record_source
         , current_timestamp() as etl_insert_datetime
         , current_timestamp() as etl_update_datetime
-
-        , {{ generate_row_hash([
-              "coalesce(cast(b.size_weight as string), '')",
-              "coalesce(cast(b.size_rank as string), '')",
-              "coalesce(cast(b.is_core_size as string), '')",
-              "coalesce(cast(b.is_active as string), '')",
-              "coalesce(cast(b.effective_end_date as string), '')"
-          ]) }} as row_hash
 
     from size_weight_rules_base b
 
