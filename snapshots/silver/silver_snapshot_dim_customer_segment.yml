@@ -16,7 +16,7 @@ snapshots:
       schema: silver_history
       unique_key: customer_segment_id
       strategy: check
-      hard_deletes: ignore
+      hard_deletes: invalidate  # EDW-8 standardization (2026-09-17, Nick's decision): house default is invalidate, not ignore
 
       check_cols:
         - profile_change_hash

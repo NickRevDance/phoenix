@@ -17,7 +17,7 @@ snapshots:
       schema: silver_history
       unique_key: inventory_status_key
       strategy: check
-      hard_deletes: ignore
+      hard_deletes: invalidate  # EDW-8 standardization (2026-09-17, Nick's decision): house default is invalidate, not ignore
 
       check_cols:
         - status_change_hash
