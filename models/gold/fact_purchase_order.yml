@@ -4,8 +4,9 @@ models:
   - name: fact_purchase_order
     description: >
       FACT_PURCHASE_ORDER -- PO line version/change-event history fact
-      (D365 PurchTable + PurchLine), real SCD2 via dbt snapshot. See
-      README.md for build status, known gaps, and open decisions.
+      (D365 PurchTable + PurchLine + VendPackingSlipTrans + VendInvoiceTrans),
+      real SCD2 via dbt snapshot. See README.md for build status, known
+      gaps, and open decisions.
     columns:
       - name: purchase_order_key
         tests: [is_valid_key]
@@ -30,12 +31,30 @@ models:
           - relationships:
               to: ref('dim_warehouse')
               field: warehouse_key
+      - name: receipt_status
+        tests:
+          - accepted_values:
+              values: ['Not Received', 'Partially Received', 'Fully Received']
+              config:
+                where: "receipt_status is not null"
 
-# Deferred, not implemented in this pass:
-#   - ordered_qty/received_qty/open_qty and everything derived from them
-#     (receipt_status, is_late_flag, fill_rate_pct, extended_cost,
-#     landed_cost_*): left null-with-note per Nick's 2026-09-14 request --
-#     no confirmed receipt-qty source, see the SQL comments and README.
+# Resolved 2026-09-17 (Rev_VendPackingSlipTransStaging / Rev_VendInvoiceTransStaging
+# landed in BYOD this session -- see silver_stage_fact_purchase_order.sql and README):
+#   - ordered_qty, expected_ship_date: PURCHQTY / REQUESTEDSHIPDATE, per Nick's
+#     2026-09-15 answer (never actually wired into this file until now).
+#   - received_qty, open_qty, cancelled_qty, backorder_qty, qty_uom, invoiced_qty
+#     (new column), first_receipt_date, last_receipt_date, receipt_status,
+#     is_late_flag, days_early_late_to_receipt, vendor_lead_time_days,
+#     fill_rate_pct, extended_cost: see README for the derivation and the
+#     Canceled-status (PURCHSTATUS=4) caveat on received_qty/cancelled_qty.
+#
+# Still deferred, not implemented in this pass:
+#   - landed_cost_unit and everything derived from it (landed_cost_extended,
+#     freight/duty/tariff/brokerage/other_landed unit costs) -- blocked on
+#     Open Decision #3, unrelated to today's two new tables.
+#   - approval_status, is_closed_flag, po_approved_date, change_reason_code/desc,
+#     buyer/manufacturer/country-of-origin, logistics fields -- all still
+#     Planned per spec, no new source landed for these.
 #   - purchase_order_id + purchase_order_line_number + source_system
 #     uniqueness within a single version_start_datetime: not tested
 #     directly -- is_valid_key on the surrogate key covers row-level

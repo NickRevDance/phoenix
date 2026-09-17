@@ -129,6 +129,12 @@ sources:
       - name: d365_mcr_return_sales_table
         identifier: Rev_mcrreturnsalestableStaging
 
+      - name: d365_vend_packing_slip_trans
+        identifier: Rev_VendPackingSlipTransStaging
+
+      - name: d365_vend_invoice_trans
+        identifier: Rev_VendInvoiceTransStaging
+
   - name: bc
     database: dwhvisualnext
     schema: bc
