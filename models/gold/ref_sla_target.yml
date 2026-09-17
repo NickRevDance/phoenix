@@ -1,0 +1,70 @@
+version: 2
+
+models:
+  - name: ref_sla_target
+    description: >
+      REF_SLA_TARGET -- governed, seed-managed reference of SLA and
+      performance targets for department scorecards and alerting.
+      shared_gold, presentation-facing (never joined to facts).
+      Effective-dated, not SCD2-snapshotted: a target change closes the
+      current row and opens a new one; a mis-keyed row is corrected
+      Type 1 in place. See README.md for what's loaded vs. blocked on
+      open spec decisions.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - metric_code
+            - business_unit_code
+            - scope_type
+            - scope_code
+          config:
+            where: "is_current_flag = true"
+      - no_overlapping_effective_periods:
+          partition_by:
+            - metric_code
+            - business_unit_code
+            - scope_type
+            - scope_code
+    columns:
+      - name: sla_target_key
+        tests: [is_valid_key]
+      - name: metric_code
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['ABANDON_RATE', 'ASA', 'ATT', 'EMAIL_SLA_PCT', 'CALL_VOLUME', 'EMAIL_VOLUME']
+      - name: business_unit_code
+        tests: [not_null]
+      - name: scope_type
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['GLOBAL', 'BRAND', 'QUEUE', 'CHANNEL', 'TEAM']
+      - name: scope_code
+        tests: [not_null]
+      - name: comparison_operator
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['<', '<=', '>=', '>']
+      - name: target_value
+        tests:
+          - not_null:
+              config:
+                where: "is_monitor_only_flag = false"
+      - name: target_unit
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['SECONDS', 'RATE', 'COUNT']
+      - name: goal_direction
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['LOWER_IS_BETTER', 'HIGHER_IS_BETTER', 'MONITOR']
+      - name: is_monitor_only_flag
+        tests: [not_null]
+      - name: effective_from_date
+        tests: [not_null]
+      - name: is_current_flag
+        tests: [not_null]
