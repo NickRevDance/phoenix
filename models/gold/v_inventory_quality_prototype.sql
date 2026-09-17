@@ -104,7 +104,7 @@ size_level as (
         , p.adult_child
         , p.brand
         , p.size
-        , coalesce(sum(case when f.is_sellable_flag = true then f.available_qty else 0 end), 0) as sellable_available_qty
+        , coalesce(sum(case when cast(f.is_sellable_flag as boolean) then f.available_qty else 0 end), 0) as sellable_available_qty
 
     from product_scope p
     left join fact_scope f
