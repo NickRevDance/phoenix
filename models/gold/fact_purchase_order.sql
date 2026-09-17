@@ -121,11 +121,11 @@ final as (
         , cast(null as timestamp) as po_created_datetime  -- Source exists (PurchTable.CREATEDDATE) but tagged Planned in the spec -- phase boundary, not a data gap
         , cast(null as date) as po_approved_date  -- Planned -- no confirmed approved-date field (DOCUMENTSTATUS/WORKFLOWSTATE carry a workflow state, not a timestamp)
         , cast(date_format(j.CREATEDDATE, 'yyyyMMdd') as int)         as order_date_key
-        , cast(null as date) as expected_ship_date  -- Source exists (PurchLine.REQUESTEDSHIPDATE/CONFIRMEDSHIPDATE) but tagged Planned in the spec -- NEEDS CONFIRMATION whether to promote this now that the columns are known to exist
+        , cast(j.REQUESTEDSHIPDATE as date)                           as expected_ship_date  -- Resolved 2026-09-17: PurchLine.REQUESTEDSHIPDATE, confirmed present 2026-09-15
         , cast(j.CONFIRMEDDLV as date)                                as expected_receipt_date
         , cast(null as date) as confirmed_receipt_date  -- Planned -- CONFIRMEDDLV is already used above for expected_receipt_date; no separate vendor-reconfirmed date field found -- flag to Nick which of the two spec fields CONFIRMEDDLV is really meant to answer
-        , cast(null as date) as first_receipt_date  -- Blocked on the unresolved PO receipt-qty/receipt-event source -- see quantities section
-        , cast(null as date) as last_receipt_date  -- Blocked, same reason
+        , cast(j.first_receipt_date as date)                          as first_receipt_date  -- Resolved 2026-09-17 via Rev_VendPackingSlipTransStaging -- null where no packing-slip row exists for this line
+        , cast(j.last_receipt_date as date)                           as last_receipt_date   -- same source/caveat as first_receipt_date
         , cast(null as date) as po_closed_date  -- Planned
 
     -- Vendor and sourcing
@@ -150,36 +150,35 @@ final as (
         , cast(null as string) as inventory_site_id  -- Source exists (InventDim.inventsiteid, already used for the warehouse join above) but tagged Planned in the spec as its own convenience column
         , cast(null as string) as inventory_status_code  -- Planned
 
-    -- Quantities -- LEFT OPEN per Nick's 2026-09-14 request: no confirmed
-    -- PO-receipt-document source exists (no VendPackingSlip* table found),
-    -- and PurchLine carries several candidate received-quantity fields
-    -- (PURCHRECEIVEDNOW, INVENTRECEIVEDNOW, REMAINPURCHPHYSICAL-derived)
-    -- that haven't been reconciled against each other or against
-    -- ordered_qty's own unit of measure (PURCHQTY is in purchase unit,
-    -- QTYORDERED is in inventory unit -- not guaranteed equal). Every field
-    -- below stays null-with-note rather than guessing which source is
-    -- authoritative; the raw candidates are captured in
-    -- silver_stage_fact_purchase_order's change hash so version history
-    -- isn't lost once this gets resolved. Flag to Nick: which of PURCHQTY
-    -- vs QTYORDERED is ordered_qty, and which of PURCHRECEIVEDNOW /
-    -- INVENTRECEIVEDNOW / (PURCHQTY - REMAINPURCHPHYSICAL) is received_qty.
-        , cast(null as decimal(18,4)) as ordered_qty
-        , cast(null as decimal(18,4)) as received_qty
-        , cast(null as decimal(18,4)) as open_qty
-        , cast(null as decimal(18,4)) as cancelled_qty
-        , cast(null as decimal(18,4)) as backorder_qty
-        , cast(null as string) as qty_uom  -- Blocked on the same ordered/received unit-of-measure question above (PURCHUNIT exists but which qty column it corresponds to is unconfirmed)
+    -- Quantities -- resolved 2026-09-17 via Rev_VendPackingSlipTransStaging /
+    -- Rev_VendInvoiceTransStaging (both newly landed in BYOD). See
+    -- silver_stage_fact_purchase_order.sql for the received_qty/cancelled_qty/
+    -- invoiced_qty derivation and its Canceled-status caveat.
+        , cast(j.PURCHQTY as decimal(18,4))                           as ordered_qty  -- Resolved 2026-09-15: PURCHQTY is the ordered qty (purchase unit)
+        , cast(j.received_qty as decimal(18,4))                       as received_qty
+        , case when j.received_qty is not null
+               then cast(j.PURCHQTY as decimal(18,4)) - cast(j.received_qty as decimal(18,4))
+               else cast(null as decimal(18,4)) end                   as open_qty
+        , cast(j.invoiced_qty as decimal(18,4))                       as invoiced_qty  -- New column, not in the original spec field catalog -- added per Nick's 2026-09-15 proposal
+        , cast(j.cancelled_qty as decimal(18,4))                      as cancelled_qty
+        , case
+            when j.PURCHSTATUS = 1 and j.received_qty is not null
+                 then cast(j.PURCHQTY as decimal(18,4)) - cast(j.received_qty as decimal(18,4))
+            when j.PURCHSTATUS in (2,3) then cast(0 as decimal(18,4))
+            else cast(null as decimal(18,4))
+          end                                                         as backorder_qty
+        , j.PURCHUNIT                                                  as qty_uom
 
     -- Costs and landed cost
         , cast(j.PURCHPRICE as decimal(19,4))                         as unit_cost
-        , cast(null as decimal(19,4)) as extended_cost  -- Blocked on ordered_qty (see quantities section)
+        , cast(j.PURCHQTY as decimal(19,4)) * cast(j.PURCHPRICE as decimal(19,4))  as extended_cost  -- Resolved 2026-09-17: unblocked now that ordered_qty is sourced
         , cast(null as decimal(19,4)) as freight_inbound_unit_cost  -- Source once available: same Open Decision #3 gap as FACT_PRODUCT_COST -- no $/unit freight source
         , cast(null as decimal(19,4)) as duty_unit_cost  -- Phase 2 per spec
         , cast(null as decimal(19,4)) as tariff_unit_cost  -- Phase 2 per spec
         , cast(null as decimal(19,4)) as brokerage_unit_cost  -- Source once available: same Open Decision #3 gap as FACT_PRODUCT_COST
         , cast(null as decimal(19,4)) as other_landed_unit_cost  -- Planned
         , cast(null as decimal(19,4)) as landed_cost_unit  -- Reserved per spec Section 6 -- components above are unsourced, so this stays null rather than silently equal unit_cost
-        , cast(null as decimal(19,4)) as landed_cost_extended  -- Blocked on landed_cost_unit and ordered_qty
+        , cast(null as decimal(19,4)) as landed_cost_extended  -- Still blocked on landed_cost_unit (Open Decision #3, unrelated to the two tables landed this session)
         , j.standard_cost_unit
         , coalesce(j.CURRENCYCODE, j.header_currencycode)             as cost_currency_code
         , cast(null as decimal(19,8)) as fx_rate_to_usd  -- Phase 2 per spec
@@ -203,8 +202,17 @@ final as (
           end                                                         as po_status
         , cast(null as string) as po_line_status  -- Planned -- PURCHSTATUS above is the only line-level status found
         , cast(null as string) as approval_status  -- Source exists (PurchTable.DOCUMENTSTATUS/WORKFLOWSTATE) but enum mapping unconfirmed -- flag to Nick before wiring up
-        , cast(null as string) as receipt_status  -- Blocked on received_qty/open_qty (see quantities section)
-        , cast(null as boolean) as is_late_flag  -- Blocked on open_qty (see quantities section)
+        , case
+            when j.received_qty is null then cast(null as string)
+            when j.received_qty <= 0 then 'Not Received'
+            when j.received_qty < j.PURCHQTY then 'Partially Received'
+            else 'Fully Received'
+          end                                                         as receipt_status  -- Resolved 2026-09-17
+        , case
+            when j.last_receipt_date is not null and j.CONFIRMEDDLV is not null
+                 then j.last_receipt_date > j.CONFIRMEDDLV
+            else cast(null as boolean)
+          end                                                         as is_late_flag  -- Resolved 2026-09-17 -- only populated where a packing-slip receipt date exists
         , cast(null as boolean) as is_closed_flag  -- D365's PurchStatus enum has no single value that cleanly means "closed" beyond Canceled -- NEEDS CONFIRMATION with Nick what "closed" should mean here (e.g. is Invoiced closed?)
         , j.PURCHSTATUS = 4                                            as is_cancelled_flag
         , cast(null as boolean) as is_drop_ship_flag  -- Source exists (PurchLine/PurchTable.MCRDROPSHIPMENT) but tagged Planned in the spec
@@ -218,12 +226,24 @@ final as (
         , cast(null as string) as port_of_arrival  -- Planned
 
     -- Derived operational metrics
-        , cast(null as int) as days_early_late_to_receipt  -- Blocked on last_receipt_date
-        , cast(null as int) as vendor_lead_time_days  -- Blocked on an actual receipt date; spec defines this off receipt date, not expected_receipt_date
-        , cast(null as decimal(9,4)) as fill_rate_pct  -- Blocked on received_qty/ordered_qty
+        , case
+            when j.last_receipt_date is not null and j.CONFIRMEDDLV is not null
+                 then datediff(cast(j.last_receipt_date as date), cast(j.CONFIRMEDDLV as date))
+            else cast(null as int)
+          end                                                         as days_early_late_to_receipt  -- Resolved 2026-09-17. Positive = late (received after CONFIRMEDDLV), negative = early
+        , case
+            when j.first_receipt_date is not null and j.CREATEDDATE is not null
+                 then datediff(cast(j.first_receipt_date as date), cast(j.CREATEDDATE as date))
+            else cast(null as int)
+          end                                                         as vendor_lead_time_days  -- Resolved 2026-09-17, off actual first receipt date per spec's own definition (not expected_receipt_date)
+        , case
+            when j.received_qty is not null and j.PURCHQTY > 0
+                 then cast(j.received_qty / j.PURCHQTY as decimal(9,4))
+            else cast(null as decimal(9,4))
+          end                                                         as fill_rate_pct  -- Resolved 2026-09-17
 
     -- Audit and lineage
-        , 'silver_stage_fact_purchase_order (PurchTable + PurchLine)'  as record_source_table
+        , 'silver_stage_fact_purchase_order (PurchTable + PurchLine + VendPackingSlipTrans + VendInvoiceTrans)'  as record_source_table
         , j.effective_start_datetime                                  as etl_insert_datetime
         , j.etl_update_datetime
         , j.row_hash
