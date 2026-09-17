@@ -1,0 +1,30 @@
+version: 2
+
+models:
+  - name: ref_inventory_quality_thresholds
+    description: >
+      REF_INVENTORY_QUALITY_THRESHOLDS (spec 8.2, EDW-48) -- externalized
+      quality-scoring configuration, SCD2 effective-dated straight from the
+      business-maintained seed (no dbt snapshot). threshold_key is stable
+      per setting_name + scope_product_subgroup across future versions.
+      See README.md for the sub-group-then-ALL consumption pattern.
+    columns:
+      - name: threshold_key
+        tests: [not_null]
+      - name: setting_name
+        tests: [not_null]
+      - name: setting_type
+        tests:
+          - accepted_values:
+              values: ['number', 'percentage', 'text']
+      - name: is_active
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+
+  - name: v_ref_inventory_quality_thresholds_current
+    description: Current-row view over ref_inventory_quality_thresholds (is_active = 1).
+    columns:
+      - name: setting_name
+        tests: [not_null]
