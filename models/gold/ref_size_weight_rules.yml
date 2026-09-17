@@ -4,15 +4,17 @@ models:
   - name: ref_size_weight_rules
     description: >
       REF_SIZE_WEIGHT_RULES (spec 8.1, EDW-47) -- size-level demand weight
-      rules that drive inventory quality scoring, SCD2 effective-dated
-      straight from the business-maintained seed (no dbt snapshot -- the
-      seed is already versioned). size_weight_rule_key is stable per
-      rule_id across future re-based versions; version_number/is_active
-      distinguish them. See README.md for priority-matching logic and
-      open items.
+      rules that drive inventory quality scoring, effective-dated straight
+      from the business-maintained seed (no dbt snapshot). Follows the
+      ref_sla_target pattern: size_weight_rule_key hashes rule_id +
+      effective_start_date (version-distinct, not stable across versions);
+      is_active (seed-maintained) is the current-row indicator -- no
+      version_number, no row_hash, no separate current-row view; filter
+      ref_size_weight_rules directly. See README.md for priority-matching
+      logic and open items.
     columns:
       - name: size_weight_rule_key
-        tests: [not_null]
+        tests: [not_null, unique]
       - name: rule_id
         tests: [not_null]
       - name: priority
@@ -33,9 +35,3 @@ models:
           - not_null
           - accepted_values:
               values: [0, 1]
-
-  - name: v_ref_size_weight_rules_current
-    description: Current-row view over ref_size_weight_rules (is_active = 1).
-    columns:
-      - name: rule_id
-        tests: [is_valid_key]

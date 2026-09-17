@@ -4,13 +4,17 @@ models:
   - name: ref_inventory_quality_thresholds
     description: >
       REF_INVENTORY_QUALITY_THRESHOLDS (spec 8.2, EDW-48) -- externalized
-      quality-scoring configuration, SCD2 effective-dated straight from the
-      business-maintained seed (no dbt snapshot). threshold_key is stable
-      per setting_name + scope_product_subgroup across future versions.
-      See README.md for the sub-group-then-ALL consumption pattern.
+      quality-scoring configuration, effective-dated straight from the
+      business-maintained seed (no dbt snapshot). Follows the ref_sla_target
+      pattern: threshold_key hashes setting_name + scope_product_subgroup +
+      effective_start_date (version-distinct, not stable across versions);
+      is_active (seed-maintained) is the current-row indicator -- no
+      version_number, no row_hash, no separate current-row view; filter
+      ref_inventory_quality_thresholds directly. See README.md for the
+      sub-group-then-ALL consumption pattern.
     columns:
       - name: threshold_key
-        tests: [not_null]
+        tests: [not_null, unique]
       - name: setting_name
         tests: [not_null]
       - name: setting_type
@@ -22,9 +26,3 @@ models:
           - not_null
           - accepted_values:
               values: [0, 1]
-
-  - name: v_ref_inventory_quality_thresholds_current
-    description: Current-row view over ref_inventory_quality_thresholds (is_active = 1).
-    columns:
-      - name: setting_name
-        tests: [not_null]

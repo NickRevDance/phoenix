@@ -1,0 +1,44 @@
+version: 2
+
+models:
+  - name: v_inventory_quality_prototype
+    description: >
+      EDW-52 -- prototype inventory quality scoring view. Point-in-time
+      (latest snapshot_date) code/color-grain quality score and
+      broken-size-run flag, joining FACT_INVENTORY_SNAPSHOT_DAILY +
+      DIM_PRODUCT + REF_INVENTORY_STATUS + the EDW-47/48 config tables.
+      Scoped to the 4 product_group/product_sub_group combos with
+      size-weight curve coverage (Costume/Costume, Dancewear/Bodywear,
+      Dancewear/Shoes, Dancewear/Tights). See the model's header comment
+      for the full formula and README.md for build status/open items.
+    columns:
+      - name: inventory_quality_key
+        tests:
+          - not_null
+          - unique
+      - name: code_color
+        tests:
+          - not_null
+      - name: product_subgroup
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Costume', 'Bodywear', 'Shoes', 'Tights']
+      - name: inventory_quality_score
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1
+              inclusive: true
+              config:
+                severity: warn   # null (UNSCORED) rows pass this test trivially; only checks the 0-1 bound on scored rows
+      - name: broken_size_run_flag
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+      - name: quality_band
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Healthy', 'At Risk', 'Broken', 'UNSCORED']
