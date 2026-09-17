@@ -1,0 +1,26 @@
+version: 2
+
+models:
+  - name: dim_warehouse
+    description: >
+      DIM_WAREHOUSE -- gold-layer warehouse/fulfillment-node dimension.
+      Currently an "initial load" (one row per warehouse -- see this
+      model's own SQL header comment for the planned migration to a real
+      4-stage SCD2 snapshot pattern). warehouse_key is genuinely unique
+      at the table level today for that reason; once SCD2 versioning
+      lands here, move this test onto a new V_DIM_WAREHOUSE_CURRENT view
+      instead of testing the versioned table directly, matching the
+      dim_product.yml / dim_vendor.yml pattern.
+    columns:
+      - name: warehouse_key
+        tests:
+          - is_valid_key
+      - name: warehouse_id
+        tests:
+          - not_null
+      - name: warehouse_status
+        tests:
+          - accepted_values:
+              values: ['Active', 'Inactive', 'Decommissioned', 'Planned']
+              config:
+                severity: warn  # only 'Active' exists in live data today -- REF_WAREHOUSE_STATUS_OVERRIDE (spec) doesn't exist yet, so the other 3 values are the intended future domain, not yet reachable

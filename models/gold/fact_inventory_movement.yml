@@ -1,0 +1,25 @@
+version: 2
+
+models:
+  - name: fact_inventory_movement
+    description: >
+      FACT_INVENTORY_MOVEMENT -- incremental/merge accumulating fact of
+      D365 inventory transaction movements (spec 3.4). See project
+      memory fact_inventory_movement_rebuild.md for build history, known
+      reconciliation caveats, and the transfer-pair / status-change
+      pairing logic.
+    columns:
+      - name: inventory_movement_key
+        tests:
+          - is_valid_key
+      - name: movement_datetime
+        tests:
+          - not_null
+      - name: movement_type
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['RECEIPT', 'SHIPMENT', 'RETURN', 'TRANSFER_OUT', 'TRANSFER_IN', 'STATUS_CHANGE', 'ADJUSTMENT', 'UNKNOWN']
+      - name: quantity_change
+        tests:
+          - not_null
