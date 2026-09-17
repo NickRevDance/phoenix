@@ -1,0 +1,14 @@
+setting_name,scope_product_subgroup,setting_value,setting_type,is_active,effective_start_date,effective_end_date,notes
+available_qty_threshold,ALL,5,number,1,2026-09-16,9999-12-31,Size is in stock when sellable available_qty summed to size level is strictly greater than this value (D4)
+healthy_threshold,ALL,0.85,percentage,1,2026-09-16,9999-12-31,Score >= this value = Healthy (D7)
+at_risk_threshold,ALL,0.6,percentage,1,2026-09-16,9999-12-31,Score >= this value and < healthy = At Risk (D7)
+broken_threshold,ALL,0.0,percentage,1,2026-09-16,9999-12-31,Score < at_risk = Broken (D7)
+broken_size_run_threshold,ALL,1.0,percentage,1,2026-09-16,9999-12-31,broken_size_run_flag = 1 when core size completeness is below this value (D2)
+core_size_cumulative_pct,ALL,0.8,percentage,1,2026-09-16,9999-12-31,Sizes within the top 80 percent of a code/color normalized curve are core unless overridden (D1)
+aged_inventory_days,ALL,180,number,1,2026-09-16,9999-12-31,Units with days_on_hand_age strictly greater than this value are aged (D5)
+sell_through_window_short_days,ALL,30,number,1,2026-09-16,9999-12-31,Short sell-through window (D6)
+sell_through_window_long_days,ALL,90,number,1,2026-09-16,9999-12-31,Long sell-through window (D6)
+size_curve_window_months,ALL,24,number,1,2026-09-16,9999-12-31,Rolling sales window for building size curves; documentation setting (D8)
+peak_season_start_month,ALL,11,number,1,2026-09-16,9999-12-31,Calendar month the peak season starts (D10)
+peak_season_end_month,ALL,2,number,1,2026-09-16,9999-12-31,"Calendar month the peak season ends, inclusive; wraps the year end (D10)"
+pre_season_months,ALL,2,number,1,2026-09-16,9999-12-31,Months before the peak start tagged Pre-season (D10)

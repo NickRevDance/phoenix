@@ -1,0 +1,19 @@
+version: 2
+
+seeds:
+  - name: inventory_quality_thresholds_seed
+    description: >
+      Business-maintained source of record for REF_INVENTORY_QUALITY_THRESHOLDS
+      (spec 8.2). Loaded as-is from the EDW-48 attachment (13 active settings,
+      scope ALL, effective 2026-09-16). All columns loaded as string;
+      silver_stage_ref_inventory_quality_thresholds casts real types.
+    config:
+      column_types:
+        setting_name: string
+        scope_product_subgroup: string
+        setting_value: string
+        setting_type: string
+        is_active: string
+        effective_start_date: string
+        effective_end_date: string
+        notes: string

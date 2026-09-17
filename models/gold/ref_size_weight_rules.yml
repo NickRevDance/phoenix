@@ -1,0 +1,41 @@
+version: 2
+
+models:
+  - name: ref_size_weight_rules
+    description: >
+      REF_SIZE_WEIGHT_RULES (spec 8.1, EDW-47) -- size-level demand weight
+      rules that drive inventory quality scoring, SCD2 effective-dated
+      straight from the business-maintained seed (no dbt snapshot -- the
+      seed is already versioned). size_weight_rule_key is stable per
+      rule_id across future re-based versions; version_number/is_active
+      distinguish them. See README.md for priority-matching logic and
+      open items.
+    columns:
+      - name: size_weight_rule_key
+        tests: [not_null]
+      - name: rule_id
+        tests: [not_null]
+      - name: priority
+        tests:
+          - not_null
+          - accepted_values:
+              values: [10, 20, 30, 40, 50, 60, 70, 80, 90]
+      - name: size
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_product')
+              field: size
+              config:
+                severity: warn  # spec 8.1: unmatched sizes are expected/reportable, not a hard failure -- feeds unmatched_size_count downstream (EDW-53)
+      - name: is_active
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+
+  - name: v_ref_size_weight_rules_current
+    description: Current-row view over ref_size_weight_rules (is_active = 1).
+    columns:
+      - name: rule_id
+        tests: [is_valid_key]

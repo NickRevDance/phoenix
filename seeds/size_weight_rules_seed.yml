@@ -1,0 +1,31 @@
+version: 2
+
+seeds:
+  - name: size_weight_rules_seed
+    description: >
+      Business-maintained source of record for REF_SIZE_WEIGHT_RULES (spec
+      8.1). Loaded as-is from the EDW-47 attachment (131 priority-90 default
+      rules, FY24-26 sales curves, effective 2025-07-01). All columns loaded
+      as string; silver_stage_ref_size_weight_rules casts real types.
+    config:
+      column_types:
+        rule_id: string
+        priority: string
+        product_group: string
+        product_subgroup: string
+        gender: string
+        adult_child: string
+        style: string
+        brand: string
+        genre: string
+        age_look: string
+        size: string
+        size_weight: string
+        size_rank: string
+        is_core_size: string
+        size_system: string
+        size_sort_order: string
+        is_active: string
+        effective_start_date: string
+        effective_end_date: string
+        notes: string
