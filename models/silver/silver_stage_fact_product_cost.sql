@@ -61,7 +61,7 @@ vendor_price_current as (
         , p.ACCOUNTRELATION as vendor_id
         , cast(p.AMOUNT as decimal(19,4)) as vendor_cost_unit
         , p.CURRENCY as cost_currency_code
-        , cast(p.FROMDATE as date) as effective_date
+        , case when p.FROMDATE = date('1900-01-01') then cast(null as date) else cast(p.FROMDATE as date) end as effective_date  -- EDW-94 A4: 1900-01-01 is D365's unset-date placeholder, not a real date
         , p.MODIFIEDDATE as d365_cost_update_datetime
         , row_number() over (
             partition by p.ITEMRELATION
@@ -78,12 +78,13 @@ vendor_price_current as (
 
 standard_price_current as (
 
-    -- standard_cost_unit now sources from
+    -- Per Nick's decision 2026-09-02: standard_cost_unit now sources from
     -- PriceDiscTable purchase price instead of the dead InventTableModule.Price
     -- (confirmed a literal constant 0 across all rows in both dev and prod --
     -- see COMPLIANCE_REVIEW.md). Purchase price on file in D365 trade
     -- agreements stands in as the standard-cost proxy; this is a semantic
-    -- shift from a computed manufacturing cost to a purchase-price figure.
+    -- shift from a computed manufacturing cost to a purchase-price figure,
+    -- flagged to Nick and accepted.
     --
     -- Prefers the generic (blank-vendor) item price -- the ~89% of MODULE=2
     -- rows with no ACCOUNTRELATION, i.e. not already claimed by vendor_cost
@@ -97,7 +98,7 @@ standard_price_current as (
           p.ITEMRELATION as product_id
         , cast(p.AMOUNT as decimal(19,4)) as standard_cost_unit
         , p.CURRENCY as cost_currency_code
-        , cast(p.FROMDATE as date) as effective_date
+        , case when p.FROMDATE = date('1900-01-01') then cast(null as date) else cast(p.FROMDATE as date) end as effective_date  -- EDW-94 A4: 1900-01-01 is D365's unset-date placeholder, not a real date
         , p.MODIFIEDDATE as d365_cost_update_datetime
         , row_number() over (
             partition by p.ITEMRELATION

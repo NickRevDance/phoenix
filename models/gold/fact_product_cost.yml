@@ -22,5 +22,14 @@ models:
           - accepted_values:
               values: ['STANDARD', 'LANDED', 'VENDOR', 'PLM_ESTIMATED']
       - name: effective_date
-        tests:
-          - not_null
+        description: >
+          Null where the D365 source's effective date was the 1900-01-01
+          unset-date placeholder rather than a real date (EDW-94 A4).
+      - name: freight_cost_unit
+        description: >
+          Lifetime average $/unit from voyage cost allocation history for
+          the item; re-versions whenever a new voyage lands (EDW-94 A6).
+      - name: brokerage_cost_unit
+        description: >
+          Lifetime average $/unit from voyage cost allocation history for
+          the item; re-versions whenever a new voyage lands (EDW-94 A6).

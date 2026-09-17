@@ -134,7 +134,7 @@ product_cost as (
 
     select
 
-          product_key
+          product_id
         , standard_cost_unit
         , cost_currency_code
 
@@ -153,16 +153,16 @@ product_cost_landed as (
     -- same rank/dedup pattern as the item_warehouse_supply_rank guard below.
     select
 
-          product_key
+          product_id
         , landed_cost_unit
 
     from (
         select
 
-              product_key
+              product_id
             , landed_cost_unit
             , row_number() over (
-                partition by product_key
+                partition by product_id
                 order by effective_date desc, etl_insert_datetime desc
               ) as landed_cost_rank
 
@@ -309,10 +309,13 @@ joined as (
         and oh.inventsiteid = wh.d365_site_id
     left join inventory_status st
         on oh.inventory_status_code = st.inventory_status_code
+    -- EDW-94 A1: join on product_id, not product_key -- product_key on the cost fact
+    -- carries one arbitrary UPC per item and is not a relationship key; the old join
+    -- left 92% of stocked units (2.34M of 2.54M) without a standard cost.
     left join product_cost pc
-        on pr.product_key = pc.product_key
+        on oh.ItemID = pc.product_id
     left join product_cost_landed pcl
-        on pr.product_key = pcl.product_key
+        on oh.ItemID = pcl.product_id
     left join open_po_agg opo
         on oh.ItemID = opo.ITEMID
         and oh.INVENTSIZEID = opo.INVENTSIZEID
@@ -390,8 +393,10 @@ backfill_joined as (
         on b.WarehouseId = wh.warehouse_id
     left join inventory_status st
         on b.inventory_status_code = st.inventory_status_code
+    -- EDW-94 A1: join on product_id -- fact_product_cost is item-grain; product_key
+    -- here is an arbitrary single UPC per item, not a relationship key.
     left join product_cost pc
-        on pr.product_key = pc.product_key
+        on pr.style_number = pc.product_id
     left join snapshot_date_dim dd
         on dd.Date = b.SnapshotDate
 

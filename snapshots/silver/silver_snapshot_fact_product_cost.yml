@@ -14,7 +14,7 @@ snapshots:
       schema: silver_history
       unique_key: product_cost_entity_key
       strategy: check
-      hard_deletes: ignore
+      hard_deletes: invalidate  # EDW-94 A3: a price leaving the D365 extract now closes its version instead of staying current forever
 
       check_cols:
         - cost_change_hash
