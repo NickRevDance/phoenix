@@ -16,8 +16,11 @@ with vendor_base as (
             when v.BLOCKED = 0 then 'Active'
             when v.BLOCKED = 1 then 'Suspended'
             when v.BLOCKED = 2 then 'Blocked'
-            else 'Prospective'
-          end as vendor_status -- best-effort mapping off VendTable.BLOCKED; full spec logic needs FACT_PURCHASE_ORDER activity + approval-workflow data not yet available, validate with Ops
+            when v.BLOCKED = 3 then 'Payment Blocked'
+            when v.BLOCKED = 4 then 'Requisition Blocked'
+            when v.BLOCKED = 5 then 'Never Blocked' -- D365 CustVendorBlocked=5 ("Never") -- exact business meaning unconfirmed with Ops, only 0/2 occur in live data today
+            else 'Unknown' -- catch-all for any BLOCKED value outside the 0-5 range mapped above, not a real vendor status
+          end as vendor_status -- EDW-25 remediation R3 (2026-09-16): every known D365 CustVendorBlocked value mapped deliberately; full spec logic (Inactive/Prospective via FACT_PURCHASE_ORDER activity + approval-workflow) still needs sourcing, validate with Ops
 
     from {{ ref('silver_d365_vendor_table') }} v
     left join {{ ref('silver_d365_dir_party') }} dp
@@ -37,7 +40,7 @@ final as (
 
         -- Surrogate PK: derived only from the business key so it stays
         -- stable across future SCD2 versions of the same vendor.
-          xxhash64(b.vendor_id, b.source_system) as vendor_key
+          {{ generate_surrogate_key(['b.vendor_id', 'b.source_system']) }} as vendor_key
 
         , b.vendor_id
         , b.source_system
@@ -93,21 +96,21 @@ final as (
         , b.vendor_group as d365_vendor_group_id
         , b.d365_party_number
 
+        , 'silver_d365_vendor_table + silver_d365_dir_party' as record_source_table -- EDW-25 remediation R1 (2026-09-16)
+
         /*, current_timestamp() as version_start_date -- initial load: treated as the first version for every vendor
         , cast(null as timestamp) as version_end_date -- NULL = current row
         , cast(1 as boolean) as is_current_row -- trivially true today -- becomes meaningful once SCD2 snapshot wiring lands
         , 'Initial load' as scd_change_reason*/
 
-        , sha2(
-            concat_ws('||',
-                coalesce(b.vendor_name, ''),
-                coalesce(b.vendor_group, ''),
-                coalesce(b.payment_terms, ''),
-                coalesce(b.default_currency_code, ''),
-                coalesce(b.default_incoterm_code, ''),
-                coalesce(b.vendor_status, '')
-            ), 256
-          ) as vendor_change_hash -- hashes the currently-populated Type 2 (history-tracked) attributes per the spec's SCD2 Tracking Plan; extend this list as null placeholders above get wired to real sources
+        , {{ generate_row_hash([
+              "coalesce(b.vendor_name, '')",
+              "coalesce(b.vendor_group, '')",
+              "coalesce(b.payment_terms, '')",
+              "coalesce(b.default_currency_code, '')",
+              "coalesce(b.default_incoterm_code, '')",
+              "coalesce(b.vendor_status, '')"
+          ]) }} as vendor_change_hash -- hashes the currently-populated Type 2 (history-tracked) attributes per the spec's SCD2 Tracking Plan; extend this list as null placeholders above get wired to real sources
 
         , current_timestamp() as etl_insert_datetime
 

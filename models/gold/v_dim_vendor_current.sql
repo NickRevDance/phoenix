@@ -9,6 +9,7 @@ SELECT
             , effective_end_datetime
             , version_number
             , is_current_row
+            , record_source_table
             , etl_update_datetime
         )
 FROM
