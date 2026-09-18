@@ -9,13 +9,6 @@ with deduped as (
             partition by snap.product_id, snap.cost_type, snap.source_system, snap.effective_date
             order by snap.effective_start_datetime desc
           ) as grain_dedup_rn
-        -- 2026-09-17 fix (EDW-7 is_valid_key finding): collapses same-day snapshot
-        -- restatements to the latest version -- e.g. a $0.00 D365 placeholder cost
-        -- corrected 2 days later, or a PLM landed cost's freight_cost_unit backfilled
-        -- from voyage cost hours later, both still dated the same effective_date.
-        -- Spec's literal grain is one row per product+cost_type+effective_date; without
-        -- this, both versions survived into the final table (1,101 duplicate keys found
-        -- in dev, split PLM/LANDED 823 + D365/STANDARD 278, always exactly 2 rows/group).
 
     from {{ ref('silver_snapshot_fact_product_cost') }} snap
 
