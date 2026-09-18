@@ -4,25 +4,39 @@ models:
   - name: dim_date
     description: >
       Gold Layer conformed date dimension per DIM_DATE Specification v2.0.
-      One row per calendar date, 2005-01-01 through 2036-12-31 (11,688 rows).
+      One row per calendar date, 2005-01-01 through 2036-12-31 (11,688 rows),
+      plus a reserved UNKNOWN member (date_key = -1) for fact rows whose
+      source date was a D365 unset-date placeholder rather than a real date.
       Calendar, fiscal (July 1 start), and NRF 4-5-4 retail calendars in one
       table. Dynamic flags are recomputed on every run and are excluded from
       the Type 0 guarantee.
     columns:
       - name: date_key
-        description: Surrogate integer key (YYYYMMDD). Primary key and FK target for all fact tables.
+        description: Surrogate integer key (YYYYMMDD, or -1 for the reserved UNKNOWN member). Primary key and FK target for all fact tables.
         tests: [unique, not_null]
       - name: date
         description: Calendar date. Natural / alternate key. Power BI date table key.
         tests: [unique, not_null]
       - name: retail_year
-        description: NRF 4-5-4 retail year from the authoritative seed.
-        tests: [not_null]
+        description: NRF 4-5-4 retail year from the authoritative seed. Null on the reserved UNKNOWN member.
+        tests:
+          - not_null:
+              config:
+                where: "date_key <> -1"
       - name: retail_week
-        tests: [not_null]
+        tests:
+          - not_null:
+              config:
+                where: "date_key <> -1"
       - name: retail_period
-        tests: [not_null]
+        tests:
+          - not_null:
+              config:
+                where: "date_key <> -1"
       - name: fiscal_year
-        tests: [not_null]
+        tests:
+          - not_null:
+              config:
+                where: "date_key <> -1"
       - name: is_working_day
         tests: [not_null]

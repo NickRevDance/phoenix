@@ -25,6 +25,15 @@ models:
         description: >
           Null where the D365 source's effective date was the 1900-01-01
           unset-date placeholder rather than a real date (EDW-94 A4).
+      - name: effective_date_key
+        description: >
+          FK to DIM_DATE. -1 (DIM_DATE's reserved UNKNOWN member) where
+          effective_date is null, instead of a literal 19000101 key
+          outside DIM_DATE (EDW-94 A4).
+      - name: vendor_key
+        description: >
+          FK to DIM_VENDOR. 0 (NO_VENDOR) on non-VENDOR cost_type rows,
+          -1 (UNKNOWN) if a VENDOR row's vendor_id has no DIM_VENDOR match.
       - name: freight_cost_unit
         description: >
           Lifetime average $/unit from voyage cost allocation history for
@@ -33,3 +42,31 @@ models:
         description: >
           Lifetime average $/unit from voyage cost allocation history for
           the item; re-versions whenever a new voyage lands (EDW-94 A6).
+      - name: fx_rate_to_usd
+        description: >
+          USD spot rate for cost_currency_code as of the row's effective_date
+          (D365's native ExchangeRate export, silver_d365_exchange_rate;
+          EDW-94 Phase 2). 1.0 for USD rows (100% of rows today) without a
+          lookup. Null where cost_currency_code has no D365 spot rate on
+          file (anything but CAD/GBP as of this build) -- not guessed. No
+          formal REF_FX_RATE / currency-normalization standard exists yet
+          (EDW-127, unspecced) -- this is an interim direct read of D365's
+          own rate, not a conformed FX dimension.
+      - name: standard_cost_unit_usd
+        description: >
+          standard_cost_unit * fx_rate_to_usd. Null wherever either input is
+          null (EDW-94 Phase 2).
+      - name: landed_cost_unit_usd
+        description: >
+          landed_cost_unit * fx_rate_to_usd. Null wherever either input is
+          null (EDW-94 Phase 2).
+      - name: vendor_cost_unit_usd
+        description: >
+          vendor_cost_unit * fx_rate_to_usd. Null wherever either input is
+          null (EDW-94 Phase 2).
+      - name: plm_estimated_cost_unit_usd
+        description: >
+          plm_estimated_cost_unit * fx_rate_to_usd. Null wherever either
+          input is null. Added 2026-09-18 to close the gap against EDW-94's
+          acceptance criterion that USD-normalized fields exist for all 4
+          cost_type values, not just STANDARD/LANDED/VENDOR.

@@ -7,6 +7,7 @@ select
     , c.sku
     , d.product_group
     , d.product_supplier
+    , d.summary_class
 
     , c.current_standard_cost_unit as standard_cost_unit
     , c.current_landed_cost_unit as landed_cost_unit
