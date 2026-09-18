@@ -137,8 +137,7 @@ sources:
 
       # Added 2026-09-18 for FACT_PRODUCT_COST USD normalization (EDW-94
       # Phase 2). Native D365 ExchangeRate export -- monthly spot rates,
-      # currently CAD->USD and GBP->USD only. See
-      # models/fact_product_cost/silver/silver_d365_exchange_rate.sql.
+      # currently CAD->USD and GBP->USD only
       - name: d365_exchange_rate
         identifier: Rev_ExchangeRateStaging
 
