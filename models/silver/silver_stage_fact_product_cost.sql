@@ -331,6 +331,45 @@ combined as (
     UNION ALL
     SELECT * FROM vendor_cost
 
+),
+
+fx_applied as (
+
+    -- EDW-94 Phase 2 USD normalization. Joins D365's own spot rate
+    -- (silver_d365_exchange_rate) by currency + the rate's valid date range,
+    -- keyed off this row's own effective_date (falling back to its D365
+    -- update timestamp, then today, when effective_date is null). USD rows
+    -- (100% of live data today) get an identity 1.0 rate without a lookup;
+    -- a currency with no exchange-rate row on file (anything but CAD/GBP
+    -- today) stays null rather than guessing. Deliberately NOT part of
+    -- cost_change_hash below -- a currency's rate drifting month to month
+    -- shouldn't version this row's cost history on its own.
+    SELECT
+
+          c.* EXCEPT (fx_rate_to_usd, standard_cost_unit_usd, landed_cost_unit_usd, vendor_cost_unit_usd)
+        , case
+            when c.cost_currency_code = 'USD' then cast(1 as decimal(19,8))
+            else fx.fx_rate_to_usd
+          end as fx_rate_to_usd
+        , case
+            when c.cost_currency_code = 'USD' then c.standard_cost_unit
+            when fx.fx_rate_to_usd is not null then c.standard_cost_unit * fx.fx_rate_to_usd
+          end as standard_cost_unit_usd
+        , case
+            when c.cost_currency_code = 'USD' then c.landed_cost_unit
+            when fx.fx_rate_to_usd is not null then c.landed_cost_unit * fx.fx_rate_to_usd
+          end as landed_cost_unit_usd
+        , case
+            when c.cost_currency_code = 'USD' then c.vendor_cost_unit
+            when fx.fx_rate_to_usd is not null then c.vendor_cost_unit * fx.fx_rate_to_usd
+          end as vendor_cost_unit_usd
+
+    FROM combined c
+    LEFT JOIN {{ ref('silver_d365_exchange_rate') }} fx
+        ON fx.from_currency_code = c.cost_currency_code
+        and coalesce(c.effective_date, cast(c.d365_cost_update_datetime as date), current_date())
+            between fx.valid_from_date and fx.valid_to_date
+
 )
 
 SELECT
@@ -356,4 +395,4 @@ SELECT
             coalesce(c.cost_currency_code, '')
         ), 256
       ) as cost_change_hash
-FROM combined c
+FROM fx_applied c
