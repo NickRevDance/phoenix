@@ -25,6 +25,15 @@ models:
         description: >
           Null where the D365 source's effective date was the 1900-01-01
           unset-date placeholder rather than a real date (EDW-94 A4).
+      - name: effective_date_key
+        description: >
+          FK to DIM_DATE. -1 (DIM_DATE's reserved UNKNOWN member) where
+          effective_date is null, instead of a literal 19000101 key
+          outside DIM_DATE (EDW-94 A4).
+      - name: vendor_key
+        description: >
+          FK to DIM_VENDOR. 0 (NO_VENDOR) on non-VENDOR cost_type rows,
+          -1 (UNKNOWN) if a VENDOR row's vendor_id has no DIM_VENDOR match.
       - name: freight_cost_unit
         description: >
           Lifetime average $/unit from voyage cost allocation history for

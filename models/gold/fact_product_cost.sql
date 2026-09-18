@@ -45,6 +45,25 @@ versioned as (
 
 ),
 
+vendor_keyed as (
+
+    select
+
+          v.*
+        , case
+            when v.vendor_id is null then cast({{ default_member_key() }} as bigint)
+            when dv.vendor_key is not null then dv.vendor_key
+            else cast({{ unknown_member_key() }} as bigint)
+          end as vendor_key
+
+    from versioned v
+    left join {{ ref('dim_vendor') }} dv
+        on dv.vendor_id = v.vendor_id
+        and dv.source_system = 'D365'
+        and dv.is_current_row = 1
+
+),
+
 final as (
 
     select
@@ -61,7 +80,10 @@ final as (
         , v.cost_method
 
         , v.effective_date
-        , cast(date_format(v.effective_date, 'yyyyMMdd') as int) as effective_date_key
+        , case
+            when v.effective_date is null then cast({{ unknown_member_key() }} as int)
+            else cast(date_format(v.effective_date, 'yyyyMMdd') as int)
+          end as effective_date_key  -- EDW-94 A4: 1900-01-01 D365 placeholder nulls out effective_date upstream; route to DIM_DATE's unknown member instead of a literal 19000101 key
         , cast(v.effective_end_datetime as date) as expiration_date
         , v.d365_cost_update_datetime
 
@@ -76,6 +98,7 @@ final as (
         , v.vendor_cost_unit
         , v.vendor_id
         , v.vendor_name
+        , v.vendor_key
 
         , v.plm_estimated_cost_unit
         , v.plm_estimated_freight_unit
@@ -128,7 +151,7 @@ final as (
         , v.etl_update_datetime
         , v.row_hash
 
-    from versioned v
+    from vendor_keyed v
 
 )
 
