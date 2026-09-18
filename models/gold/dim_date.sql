@@ -266,7 +266,7 @@ with_holidays as (
 -- Pending spec v2.1 (EDW-9 item 3): fiscal_year_total_days/fiscal_days_elapsed
 -- still derive from count(*) over the table, not true fiscal-year boundaries -
 -- only wrong for FY2005/FY2037, the two years truncated by the table range.
--- Do not change until Chris Mathis publishes v2.1
+-- Do not change until Chris Mathis publishes v2.1 Section 7.4.
 with_pacing as (
 
     select
@@ -295,7 +295,9 @@ with_pacing as (
                                                                           as working_days_elapsed_fm
     from with_holidays wh
 
-)
+),
+
+business_dates as (
 
 select
     -- Keys
@@ -416,3 +418,127 @@ select
     'dbt_generated'                                                       as source_system,
     current_timestamp()                                                   as gold_refresh_datetime
 from with_pacing
+
+),
+
+reserved_members as (
+
+    -- Reserved unknown member (EDW-94 A4 fast-follow): fact rows whose D365
+    -- source carried the 1900-01-01 unset-date placeholder route here
+    -- instead of a real calendar date. Hardcoded, not derived from the
+    -- date spine -- date_key uses unknown_member_key() per the
+    -- reserved_dimension_members convention (DIM_VENDOR/DIM_SALES_CHANNEL
+    -- precedent); date itself keeps a placeholder value only to satisfy
+    -- this table's NOT NULL constraint, it is not a real calendar date and
+    -- every derived attribute below is null/false accordingly.
+    select
+          cast({{ unknown_member_key() }} as int)    as date_key
+        , date('1900-01-01')                         as date
+        , cast(null as int)                          as day_of_month
+        , cast(null as string)                        as day_suffix
+        , cast(null as int)                          as day_of_year
+        , cast(null as bigint)                       as day_of_week
+        , cast(null as string)                        as week_day_name
+        , cast(null as bigint)                       as day_of_week_monday
+        , cast(null as bigint)                       as dow_in_month
+        , cast(null as boolean)                       as is_weekend
+        , cast(false as boolean)                      as is_us_holiday
+        , cast(null as string)                        as us_holiday_name
+        , cast(false as boolean)                      as is_canada_holiday
+        , cast(null as string)                        as canada_holiday_name
+        , cast(false as boolean)                      as is_working_day
+        , cast(null as bigint)                       as week_of_month
+        , cast(null as bigint)                       as week_of_year
+        , cast(null as int)                          as iso_week_of_year
+        , cast(null as int)                          as month_number
+        , cast(null as string)                        as month_name
+        , 'Unknown'                                   as month_year_short
+        , 'Unknown'                                   as month_year_long
+        , cast(null as int)                          as year_month_int
+        , cast(null as string)                        as mmyyyy
+        , cast(null as int)                          as quarter_number
+        , cast(null as string)                        as quarter_name
+        , cast(null as int)                          as calendar_year
+        , cast(null as date)                          as first_day_of_month
+        , cast(null as date)                          as last_day_of_month
+        , cast(null as date)                          as first_day_of_quarter
+        , cast(null as date)                          as last_day_of_quarter
+        , cast(null as date)                          as first_day_of_year
+        , cast(null as date)                          as last_day_of_year
+        , cast(null as date)                          as first_day_of_next_month
+        , cast(null as date)                          as first_day_of_next_year
+        , cast(null as int)                          as fiscal_year
+        , cast(null as int)                          as fiscal_quarter
+        , cast(null as string)                        as fiscal_quarter_name
+        , cast(null as int)                          as fiscal_month
+        , cast(null as string)                        as fiscal_month_name
+        , cast(null as bigint)                       as fiscal_year_week
+        , cast(null as bigint)                       as fiscal_year_day
+        , cast(null as int)                          as fiscal_year_month_int
+        , cast(null as string)                        as fiscal_year_month_label
+        , cast(null as int)                          as retail_year
+        , cast(null as int)                          as retail_quarter
+        , cast(null as string)                        as retail_quarter_name
+        , cast(null as int)                          as retail_period
+        , cast(null as string)                        as retail_period_name
+        , cast(null as int)                          as retail_week
+        , cast(null as int)                          as retail_week_in_period
+        , cast(null as int)                          as retail_day_of_week
+        , cast(null as bigint)                       as retail_day_of_year
+        , cast(null as bigint)                       as retail_weeks_in_year
+        , cast(null as boolean)                       as is_53_week_retail_year
+        , cast(null as boolean)                       as is_retail_week_53
+        , cast(null as date)                          as retail_year_start_date
+        , cast(null as date)                          as retail_year_end_date
+        , cast(null as date)                          as retail_quarter_start_date
+        , cast(null as date)                          as retail_quarter_end_date
+        , cast(null as date)                          as retail_period_start_date
+        , cast(null as date)                          as retail_period_end_date
+        , cast(null as date)                          as retail_week_start_date
+        , cast(null as date)                          as retail_week_end_date
+        , cast(null as int)                          as retail_year_period_int
+        , cast(null as int)                          as retail_year_week_int
+        , cast(null as string)                        as retail_year_period_label
+        , cast(null as date)                          as comparable_date_ly
+        , cast(null as date)                          as comparable_date_2ly
+        , cast(null as date)                          as comparable_date_3ly
+        , cast(null as bigint)                       as fiscal_year_total_days
+        , cast(null as bigint)                       as fiscal_days_elapsed
+        , cast(null as bigint)                       as fiscal_days_remaining
+        , cast(null as decimal(9,4))                  as fiscal_year_pct_complete
+        , cast(null as bigint)                       as fiscal_month_total_days
+        , cast(null as bigint)                       as fiscal_month_days_elapsed
+        , cast(null as bigint)                       as fiscal_month_days_remaining
+        , cast(null as decimal(9,4))                  as fiscal_month_pct_complete
+        , cast(null as bigint)                       as fiscal_quarter_total_days
+        , cast(null as bigint)                       as fiscal_quarter_days_elapsed
+        , cast(null as bigint)                       as fiscal_quarter_days_remaining
+        , cast(null as decimal(9,4))                  as fiscal_quarter_pct_complete
+        , cast(null as bigint)                       as working_days_in_fiscal_year
+        , cast(null as bigint)                       as working_days_elapsed_fy
+        , cast(null as bigint)                       as working_days_remaining_fy
+        , cast(null as bigint)                       as working_days_in_fiscal_month
+        , cast(null as bigint)                       as working_days_elapsed_fm
+        , cast(null as bigint)                       as working_days_remaining_fm
+        , cast(false as boolean)                      as is_today
+        , cast(false as boolean)                      as is_past
+        , cast(false as boolean)                      as is_past_or_today
+        , cast(false as boolean)                      as is_future
+        , cast(false as boolean)                      as is_current_calendar_month
+        , cast(false as boolean)                      as is_current_fiscal_month
+        , cast(false as boolean)                      as is_current_retail_period
+        , cast(false as boolean)                      as is_last_13_months
+        , 'Manual Seed'                                as source_system
+        , current_timestamp()                          as gold_refresh_datetime
+
+),
+
+unioned as (
+
+    select * from business_dates
+    union all
+    select * from reserved_members
+
+)
+
+select * from unioned
