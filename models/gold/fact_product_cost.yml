@@ -64,3 +64,9 @@ models:
         description: >
           vendor_cost_unit * fx_rate_to_usd. Null wherever either input is
           null (EDW-94 Phase 2).
+      - name: plm_estimated_cost_unit_usd
+        description: >
+          plm_estimated_cost_unit * fx_rate_to_usd. Null wherever either
+          input is null. Added 2026-09-18 to close the gap against EDW-94's
+          acceptance criterion that USD-normalized fields exist for all 4
+          cost_type values, not just STANDARD/LANDED/VENDOR.

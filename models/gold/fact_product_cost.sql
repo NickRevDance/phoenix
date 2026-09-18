@@ -110,6 +110,7 @@ final as (
         , v.standard_cost_unit_usd
         , v.landed_cost_unit_usd
         , v.vendor_cost_unit_usd
+        , v.plm_estimated_cost_unit_usd
 
         , case when v.version_number = 1 then cast(1 as boolean) else cast(0 as boolean) end as is_current
         , case when v.version_number = 1 then 'Active' else 'Superseded' end as cost_status

@@ -144,6 +144,7 @@ standard_cost as (
         , cast(null as decimal(19,4)) as standard_cost_unit_usd  -- Phase 2
         , cast(null as decimal(19,4)) as landed_cost_unit_usd  -- Phase 2
         , cast(null as decimal(19,4)) as vendor_cost_unit_usd  -- Phase 2
+        , cast(null as decimal(19,4)) as plm_estimated_cost_unit_usd  -- Phase 2
 
         , cast(null as string) as change_reason_code  -- Phase 2
         , cast(null as string) as d365_item_cost_id  -- Source once available: D365 InventCostPrice, not yet ingested via BYOD
@@ -194,6 +195,7 @@ landed_cost as (
         , cast(null as decimal(19,4)) as standard_cost_unit_usd
         , cast(null as decimal(19,4)) as landed_cost_unit_usd
         , cast(null as decimal(19,4)) as vendor_cost_unit_usd
+        , cast(null as decimal(19,4)) as plm_estimated_cost_unit_usd
 
         , cast(null as string) as change_reason_code
         , cast(null as string) as d365_item_cost_id
@@ -248,6 +250,7 @@ plm_estimated_cost as (
         , cast(null as decimal(19,4)) as standard_cost_unit_usd
         , cast(null as decimal(19,4)) as landed_cost_unit_usd
         , cast(null as decimal(19,4)) as vendor_cost_unit_usd
+        , cast(null as decimal(19,4)) as plm_estimated_cost_unit_usd
 
         , cast(null as string) as change_reason_code
         , cast(null as string) as d365_item_cost_id
@@ -300,6 +303,7 @@ vendor_cost as (
         , cast(null as decimal(19,4)) as standard_cost_unit_usd  -- Phase 2
         , cast(null as decimal(19,4)) as landed_cost_unit_usd  -- Phase 2
         , cast(null as decimal(19,4)) as vendor_cost_unit_usd  -- Phase 2
+        , cast(null as decimal(19,4)) as plm_estimated_cost_unit_usd  -- Phase 2
 
         , cast(null as string) as change_reason_code  -- Phase 2
         , cast(null as string) as d365_item_cost_id
@@ -335,18 +339,21 @@ combined as (
 
 fx_applied as (
 
-    -- EDW-94 Phase 2 USD normalization. Joins D365's own spot rate
-    -- (silver_d365_exchange_rate) by currency + the rate's valid date range,
-    -- keyed off this row's own effective_date (falling back to its D365
-    -- update timestamp, then today, when effective_date is null). USD rows
-    -- (100% of live data today) get an identity 1.0 rate without a lookup;
-    -- a currency with no exchange-rate row on file (anything but CAD/GBP
-    -- today) stays null rather than guessing. Deliberately NOT part of
-    -- cost_change_hash below -- a currency's rate drifting month to month
-    -- shouldn't version this row's cost history on its own.
+    -- EDW-94 Phase 2 USD normalization, covering all 4 cost_type values
+    -- (STANDARD/LANDED/VENDOR/PLM_ESTIMATED -- EDW-94's AC requires "all
+    -- cost types", so plm_estimated_cost_unit_usd is included even though
+    -- PLM_ESTIMATED rows are USD-only in practice today). Joins D365's own
+    -- spot rate (silver_d365_exchange_rate) by currency + the rate's valid
+    -- date range, keyed off this row's own effective_date (falling back to
+    -- its D365 update timestamp, then today, when effective_date is null).
+    -- USD rows (100% of live data today) get an identity 1.0 rate without a
+    -- lookup; a currency with no exchange-rate row on file (anything but
+    -- CAD/GBP today) stays null rather than guessing. Deliberately NOT part
+    -- of cost_change_hash below -- a currency's rate drifting month to
+    -- month shouldn't version this row's cost history on its own.
     SELECT
 
-          c.* EXCEPT (fx_rate_to_usd, standard_cost_unit_usd, landed_cost_unit_usd, vendor_cost_unit_usd)
+          c.* EXCEPT (fx_rate_to_usd, standard_cost_unit_usd, landed_cost_unit_usd, vendor_cost_unit_usd, plm_estimated_cost_unit_usd)
         , case
             when c.cost_currency_code = 'USD' then cast(1 as decimal(19,8))
             else fx.fx_rate_to_usd
@@ -363,6 +370,10 @@ fx_applied as (
             when c.cost_currency_code = 'USD' then c.vendor_cost_unit
             when fx.fx_rate_to_usd is not null then c.vendor_cost_unit * fx.fx_rate_to_usd
           end as vendor_cost_unit_usd
+        , case
+            when c.cost_currency_code = 'USD' then c.plm_estimated_cost_unit
+            when fx.fx_rate_to_usd is not null then c.plm_estimated_cost_unit * fx.fx_rate_to_usd
+          end as plm_estimated_cost_unit_usd
 
     FROM combined c
     LEFT JOIN {{ ref('silver_d365_exchange_rate') }} fx
