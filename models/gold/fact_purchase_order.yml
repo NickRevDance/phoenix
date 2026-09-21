@@ -38,6 +38,16 @@ models:
               config:
                 where: "receipt_status is not null"
 
+  - name: v_fact_purchase_order_current
+    description: >
+      Current-row view over fact_purchase_order (is_current_row = true)
+      with SCD2 and internal metadata columns stripped -- the object most
+      consumers should query instead of the full version history.
+    columns:
+      - name: purchase_order_key
+        tests:
+          - is_valid_key
+
 # Resolved 2026-09-17 (Rev_VendPackingSlipTransStaging / Rev_VendInvoiceTransStaging
 # landed in BYOD this session -- see silver_stage_fact_purchase_order.sql and README):
 #   - ordered_qty, expected_ship_date: PURCHQTY / REQUESTEDSHIPDATE, per Nick's
@@ -59,3 +69,15 @@ models:
 #     uniqueness within a single version_start_datetime: not tested
 #     directly -- is_valid_key on the surrogate key covers row-level
 #     uniqueness instead, same approach as fact_order_line/fact_product_cost.
+#
+# Resolved 2026-09-21 (EDW-68 review, Chris Mathis -- In Review -> In Progress,
+# 5 fixes requested):
+#   - standard_cost_unit now joins fact_product_cost on product_id, not
+#     product_key -- see gold/fact_purchase_order.sql's standard_cost CTE.
+#   - is_late_flag / days_early_late_to_receipt now guard against D365's
+#     1900-01-01 CONFIRMEDDLV placeholder.
+#   - tests/one_current_row_per_po_line.sql added -- exactly one
+#     is_current_row per PO line, auto-discovered from tests/.
+#   - ordered_qty (PURCHQTY) and received_qty now guard against a fat-
+#     fingered outlier and 780 negative-received-qty lines respectively --
+#     see silver_stage_fact_purchase_order.sql.

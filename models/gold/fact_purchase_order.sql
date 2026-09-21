@@ -55,9 +55,14 @@ standard_cost as (
 
     -- Current STANDARD cost only -- see dbt_build_conventions's fan-out
     -- warning on fact_product_cost (multiple cost_type/version rows per
-    -- product_key), filtered on both columns to avoid it.
+    -- product_id), filtered on both columns to avoid it.
+    -- Joined on product_id, not product_key (2026-09-21 review):
+    -- fact_product_cost's real grain is product_id -- its product_key is
+    -- one arbitrary UPC per item, not a reliable join key (same finding as
+    -- EDW-94's A1 fix on fact_inventory_snapshot_daily). Confirmed live:
+    -- product_key join resolved 8.91% of lines, product_id resolves 99.98%.
     select
-          product_key
+          product_id
         , standard_cost_unit
     from {{ ref('fact_product_cost') }}
     where cost_type = 'STANDARD'
@@ -93,7 +98,7 @@ joined as (
         and v.dim_inventsiteid = wh.d365_site_id
 
     left join standard_cost sc
-        on pr.product_key = sc.product_key
+        on v.ITEMID = sc.product_id
 
 ),
 
@@ -210,9 +215,10 @@ final as (
           end                                                         as receipt_status  -- Resolved 2026-09-17
         , case
             when j.last_receipt_date is not null and j.CONFIRMEDDLV is not null
+                 and j.CONFIRMEDDLV <> date('1900-01-01')
                  then j.last_receipt_date > j.CONFIRMEDDLV
             else cast(null as boolean)
-          end                                                         as is_late_flag  -- Resolved 2026-09-17 -- only populated where a packing-slip receipt date exists
+          end                                                         as is_late_flag  -- Resolved 2026-09-17 -- only populated where a packing-slip receipt date exists. 2026-09-21: guards against D365's 1900-01-01 CONFIRMEDDLV placeholder (2,193 of 2,195 receipt-covered lines had it)
         , cast(null as boolean) as is_closed_flag  -- D365's PurchStatus enum has no single value that cleanly means "closed" beyond Canceled -- NEEDS CONFIRMATION with Nick what "closed" should mean here (e.g. is Invoiced closed?)
         , j.PURCHSTATUS = 4                                            as is_cancelled_flag
         , cast(null as boolean) as is_drop_ship_flag  -- Source exists (PurchLine/PurchTable.MCRDROPSHIPMENT) but tagged Planned in the spec
@@ -228,9 +234,10 @@ final as (
     -- Derived operational metrics
         , case
             when j.last_receipt_date is not null and j.CONFIRMEDDLV is not null
+                 and j.CONFIRMEDDLV <> date('1900-01-01')
                  then datediff(cast(j.last_receipt_date as date), cast(j.CONFIRMEDDLV as date))
             else cast(null as int)
-          end                                                         as days_early_late_to_receipt  -- Resolved 2026-09-17. Positive = late (received after CONFIRMEDDLV), negative = early
+          end                                                         as days_early_late_to_receipt  -- Resolved 2026-09-17. Positive = late (received after CONFIRMEDDLV), negative = early. 2026-09-21: same 1900-01-01 placeholder guard as is_late_flag
         , case
             when j.first_receipt_date is not null and j.CREATEDDATE is not null
                  then datediff(cast(j.first_receipt_date as date), cast(j.CREATEDDATE as date))
