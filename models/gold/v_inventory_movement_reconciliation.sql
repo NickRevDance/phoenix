@@ -36,7 +36,7 @@ with native_snapshot as (
         , on_hand_qty
 
     from {{ ref('fact_inventory_snapshot_daily') }}
-    where record_source_table = 'silver_d365_inventory_sum + silver_d365_inventory_dim'
+    where record_source_table = {{ inventory_snapshot_branch_label('native') }}  -- EDW-117 item 5: branch constant via macro, never a literal (the Sep 1 2026 label drift silently excluded a day here)
 
 ),
 

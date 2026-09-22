@@ -74,4 +74,13 @@ seeds:
   phoenix:
     +schema: seeds
 flags:
-  manage_state: false 
+  manage_state: false
+
+vars:
+  # EDW-117 item 11 (Inventory spec v2.6, Section 2.1): D365 service items that carry a
+  # stock quantity but are not inventory positions and will never be in DIM_PRODUCT.
+  # Catalog items (CAT-*) are excluded by pattern in the model. Add here, not in SQL.
+  inventory_non_merchandise_items:
+    - 'Artwork Fee'
+    - 'Customization Fee'
+    - 'ACCESSREQ'
