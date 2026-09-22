@@ -1,10 +1,18 @@
 {{ config(materialized = 'view') }}
 
--- Latest position for partner-owned stock, by partner program (spec v2.1
--- Section 5.4, new in v2.1). Deliberately the inverse scope of the other
--- three views -- ownership_type = 'PARTNER_OWNED' instead of
--- include_in_std_metrics_flag = 1. Thin by design: no derived supply
--- metrics, partner stock has no demand-planning role.
+-- V_PARTNER_INVENTORY (Inventory Gold Layer spec v2.6, Section 5.4). Latest position for
+-- partner-owned stock, by partner program. Deliberately the inverse scope of the other
+-- three views -- ownership_type = 'PARTNER_OWNED' instead of include_in_std_metrics_flag
+-- = 1. Thin by design: no derived supply metrics, partner stock has no demand-planning
+-- role.
+-- SEAM AND COST BASIS (spec 2.5, EDW-117 item 7): fact_inventory_snapshot_daily has two
+-- source branches with different populations, told apart by record_source_table (a
+-- branch constant). Backfill rows (legacy f_KPI_InventoryValue) are the legacy KPI
+-- population, weekly cadence through 2025 and daily from 2026, with the legacy report's
+-- historical unit cost; native rows (D365 InventSum + InventDim) are all statuses and
+-- warehouses, daily from 2026-09-01, costed at FACT_PRODUCT_COST current STANDARD cost
+-- on product_id. This view reads the LATEST snapshot only, so it is always inside the
+-- native window; the note is here so anyone who parameterizes the date knows the seam.
 
 with latest_snapshot as (
 
