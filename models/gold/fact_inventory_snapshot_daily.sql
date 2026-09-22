@@ -4,14 +4,34 @@
     incremental_strategy = 'merge'
 ) }}
 
--- NEEDS CONFIRMATION: incremental/merge so this fact accumulates real daily history
--- (spec grain includes snapshot_date_key) instead of being overwritten every run.
--- Ongoing rows are always native InventSum/InventDim, stamped current_date().
--- History before the native pipeline existed (2024-06-30 through yesterday) is
--- backfilled from the legacy analytics.f_KPI_InventoryValue report, one time only,
--- via is_incremental() below -- it only runs on the first build or a --full-refresh,
--- never on normal incremental runs. A --full-refresh will re-scan and re-merge all
--- ~6.2M backfill rows again; that's correct but not free, budget for it.
+-- FACT_INVENTORY_SNAPSHOT_DAILY (Inventory Gold Layer spec v2.6, Section 2).
+-- Incremental/merge so this fact accumulates real daily history (spec grain
+-- includes snapshot_date_key). Ongoing rows are always native InventSum/InventDim,
+-- stamped current_date(). History before the native pipeline existed is backfilled
+-- from the legacy analytics.f_KPI_InventoryValue report via the is_incremental()
+-- branch below, which only runs on the first build or a --full-refresh.
+--
+-- *** NEVER --full-refresh THIS MODEL IN PROD (EDW-117, spec 2.7). ***
+-- The native branch can only produce today; a full refresh rebuilds backfill + today
+-- and destroys every accumulated native day (that is how Aug 21-31 2026 was lost).
+-- Corrections to history are applied in place (MERGE / INSERT / DELETE with a
+-- backup clone first), never by rebuilding. The two branches are different
+-- populations (spec 2.5): backfill rows are the legacy KPI population (weekly cadence
+-- before 2026, daily since; all statuses only from mid-2026), native rows are all
+-- statuses, all warehouses, daily. Every row states its branch in record_source_table,
+-- a constant per branch from the inventory_snapshot_branch_label() macro (item 5).
+--
+-- EDW-117 remediation applied in this revision (Sep 2026):
+--   item 1  product resolution via the D365 barcode path (variant -> UPC -> DIM_PRODUCT),
+--           the grain DIM_PRODUCT is keyed on; the style + size + colour text join is gone.
+--           Non-merchandise service items (fees, catalogs, access requests) filtered.
+--   item 2  backfill seam moved to the inventory_snapshot_native_start_date() macro.
+--   item 3  zero-position filter: a native row is kept only if any quantity measure
+--           (on hand, reserved, available, on order, in transit) is non-zero.
+--   item 4  dim_warehouse read at is_current_row = 1; inventsiteid added to the key.
+--   item 5  record_source_table via macro.
+--   dim_product read at is_current_row = 1 (was version_number = 1, which serves an
+--           invalidated row as current under hard_deletes: invalidate).
 
 with on_hand_raw as (
 
@@ -82,7 +102,35 @@ on_hand_agg as (
         , current_date()       as snapshot_date
 
     from on_hand_with_status
+    -- EDW-117 item 11: non-merchandise service items are not inventory positions.
+    -- D365 carries fee, catalog and request items with a stock quantity (Artwork Fee,
+    -- Customization Fee, CAT-*-27 catalogs, ACCESSREQ). They never resolve to DIM_PRODUCT
+    -- and must not be NULL-key rows. Maintained list in dbt_project.yml vars.
+    where ItemID not in ({{ "'" ~ var('inventory_non_merchandise_items') | join("','") ~ "'" }})
+      and ItemID not like 'CAT-%'
     group by 1, 2, 3, 4, 5, 6
+
+),
+
+product_barcode as (
+
+    -- EDW-117 item 1: the D365 variant (item + size + colour) resolves to its UPC through
+    -- the item barcode table (EA / Code 39 rows in silver), and the UPC is DIM_PRODUCT's
+    -- key (product_key = md5(UPC)). Verified on prod 2026-09-22: one barcode per variant,
+    -- one current DIM_PRODUCT row per UPC, zero cases the old text join resolved that this
+    -- path does not. Residual misses are UPCs absent from DIM_PRODUCT (EDW-134) and a
+    -- handful of hand-keyed variants with no barcode row; both reported, never dropped.
+    select
+
+          b.ITEMID
+        , d.INVENTSIZEID
+        , d.INVENTCOLORID
+        , min(b.ITEMBARCODE) as upc
+
+    from {{ ref('silver_d365_item_barcode') }} b
+    inner join inventory_dim d
+        on b.INVENTDIMID = d.InventDimID
+    group by 1, 2, 3
 
 ),
 
@@ -94,15 +142,13 @@ product as (
         , upc
         , sku
         , style_number
-        , size
-        , d365_color_code
         , erp_status
         , plm_status
         , Vintage
         , debut_date
 
     from {{ ref('dim_product') }}
-    where version_number = 1
+    where is_current_row = 1  -- EDW-117: not version_number = 1, which keeps serving a row invalidated by hard_deletes
 
 ),
 
@@ -115,6 +161,7 @@ warehouse as (
         , d365_site_id
 
     from {{ ref('dim_warehouse') }}
+    where cast(is_current_row as int) = 1  -- EDW-90 item 4 / EDW-117 item 4: no-op on the single-version dim today, required before SCD2 wiring lands; cast tolerates the boolean-today / int-later divergence (EDW-130)
 
 ),
 
@@ -257,7 +304,7 @@ joined as (
 
           oh.*
         , pr.product_key
-        , pr.upc
+        , coalesce(pr.upc, pb.upc)              as upc  -- EDW-117: the D365 barcode is carried even when DIM_PRODUCT lacks the UPC (EDW-134), so the miss is diagnosable from the fact
         , pr.sku
         , wh.warehouse_key
         , wh.warehouse_id
@@ -280,30 +327,33 @@ joined as (
             order by case when coalesce(st.availability_class, 'UNKNOWN') = 'AVAILABLE' then 0 else 1 end, oh.inventory_status_code
           ) as item_warehouse_supply_rank
 
-        -- lifecycle_status_code (sign-off fix, replaces the NEEDS CONFIRMATION null):
-        -- precedence CLEARANCE -> VINTAGE -> NEW -> CORE -> NULL, confirmed against
-        -- the live distribution 2026-08-27 (52,624 VINTAGE / 33,806 CLEARANCE / 8,165
-        -- NEW / 3,174 CORE / 10,576 NULL on the then-latest snapshot). NULL only when
-        -- the product join itself misses (dim_product's own inputs have 100% coverage
-        -- today, so the "all inputs null" branch is dead code in practice but kept for
-        -- when a future product genuinely has none of them populated).
+        -- lifecycle_status_code (spec 2.2, rule revised at EDW-117 item 10, v2.6):
+        -- precedence CLEARANCE -> NEW -> CORE -> NULL. DIM_PRODUCT.Vintage is the
+        -- product master's carryover flag (true on 8,867 of 20,497 current SKUs,
+        -- including 4,273 that debuted since July 2024, and on 7,461 Active / In
+        -- Production SKUs holding 55 percent of stocked units) -- that population is the
+        -- continuing line, i.e. CORE, not an aged tier. VINTAGE is retired from the
+        -- domain until Merchandising defines it; the v2.5 rule mislabelled 1.4M units.
+        -- NULL only when the product join itself misses.
         , case
             when pr.product_key is null then null
             when pr.erp_status = 'Sell_to_0' then 'CLEARANCE'
             when pr.plm_status = 'Dropped' and oh.on_hand_qty > 0 then 'CLEARANCE'
-            when pr.Vintage = true then 'VINTAGE'
             when pr.debut_date is not null
                 and pr.debut_date >= date_add(oh.snapshot_date, -365)
                 and pr.debut_date <= oh.snapshot_date then 'NEW'
-            when pr.erp_status is null and pr.plm_status is null and pr.Vintage is null and pr.debut_date is null then null
+            when pr.erp_status is null and pr.plm_status is null and pr.debut_date is null then null
             else 'CORE'
           end as lifecycle_status_code
 
     from on_hand_agg oh
+    -- EDW-117 item 1: barcode path. Variant -> UPC -> DIM_PRODUCT current row.
+    left join product_barcode pb
+        on oh.ItemID = pb.ITEMID
+        and oh.INVENTSIZEID = pb.INVENTSIZEID
+        and oh.INVENTCOLORID = pb.INVENTCOLORID
     left join product pr
-        on oh.ItemID = pr.style_number
-        and oh.INVENTSIZEID = pr.size
-        and oh.INVENTCOLORID = pr.d365_color_code
+        on pb.upc = pr.upc
     left join warehouse wh
         on oh.INVENTLOCATIONID = wh.warehouse_id
         and oh.inventsiteid = wh.d365_site_id
@@ -354,7 +404,7 @@ backfill_raw as (
 
     from {{ ref('silver_kpi_inventory_value') }}
     where SnapshotDate >= '2024-06-30'
-      and SnapshotDate < '2026-08-21'  -- sign-off fix: fixed literal, not a runtime bound. Confirmed live 2026-08-27: native branch's first date is 2026-08-21 (min(snapshot_date) where record_source_table = 'silver_d365_inventory_sum + silver_d365_inventory_dim'). Was previously bounded only by silver_kpi_inventory_value's own `< current_date()` filter, which drifts forward every day -- a --full-refresh run today would already pull 2026-08-21 through yesterday from both branches at once, double-counting those days. Update this literal only if the native pipeline's confirmed start date changes.
+      and SnapshotDate < {{ inventory_snapshot_native_start_date() }}  -- fixed seam (spec 2.5 rule 4), never a runtime bound. EDW-117 item 2: 2026-09-01, prod's first native day; Aug 21-31 were inserted in place from this source (see the EDW-117 runbook), which is why this literal and prod history agree.
 
 ),
 
@@ -408,7 +458,7 @@ final as (
     select
 
     -- Core ID
-          xxhash64(j.snapshot_date, j.ItemID, j.INVENTSIZEID, j.INVENTCOLORID, j.INVENTLOCATIONID, coalesce(j.inventory_status_code, '')) as inventory_snapshot_key
+          xxhash64(j.snapshot_date, j.ItemID, j.INVENTSIZEID, j.INVENTCOLORID, j.INVENTLOCATIONID, coalesce(j.inventsiteid, ''), coalesce(j.inventory_status_code, '')) as inventory_snapshot_key  -- EDW-117 item 4: inventsiteid added (spec grain carries site through warehouse_key); changes keys for new days only, history is never re-keyed
         , j.snapshot_date_key
         , j.snapshot_date
         , j.product_key
@@ -459,7 +509,7 @@ final as (
         , cast(null as date) as last_sale_date  -- Phase 2 per spec -- blocked on a certified sales fact (EDW-23); FACT_SALES_INVOICE not yet built -- not blocking the D365-sourced fields above on this per EDW-49 scope note
 
     -- Audit
-        , 'silver_d365_inventory_sum + silver_d365_inventory_dim' as record_source_table
+        , {{ inventory_snapshot_branch_label('native') }} as record_source_table  -- EDW-117 item 5: branch constant
         , current_timestamp()                   as etl_insert_datetime
         , current_timestamp()                   as etl_update_datetime
         , sha2(
@@ -472,6 +522,20 @@ final as (
           )                                      as row_hash
 
     from joined j
+    -- EDW-117 item 3 (spec 2.1 / 2.3 v2.6): a native row is a position only if some quantity
+    -- measure is non-zero. InventSum keeps every dimension combination ever touched (85
+    -- percent of rows all-zero on 2026-09-22). Supply-only positions (zero on hand, open PO
+    -- or in-transit quantity on the rank-1 status row) ARE kept: on 2026-09-22 they carried
+    -- 372,243 on-order and 105,662 in-transit units, 44 percent of all on-order, which the
+    -- narrower on-hand-only filter in the ticket text would have dropped.
+    where not (
+            coalesce(j.on_hand_qty, 0) = 0
+        and coalesce(j.reserved_qty, 0) = 0
+        and coalesce(j.available_qty, 0) = 0
+        and coalesce(case when j.item_warehouse_supply_rank = 1 then j.on_order_qty end, 0) = 0
+        and coalesce(case when j.item_warehouse_supply_rank = 1 then j.in_transit_inbound_qty end, 0) = 0
+        and coalesce(case when j.item_warehouse_supply_rank = 1 then j.in_transit_transfer_qty end, 0) = 0
+    )
 
     {% if not is_incremental() %}
     union all
@@ -530,7 +594,7 @@ final as (
         , cast(null as date) as last_sale_date  -- Phase 2 per spec -- blocked on a certified sales fact (EDW-23), see native branch note
 
     -- Audit
-        , 'silver_kpi_inventory_value'          as record_source_table
+        , {{ inventory_snapshot_branch_label('backfill') }} as record_source_table  -- EDW-117 item 5: branch constant
         , current_timestamp()                   as etl_insert_datetime
         , current_timestamp()                   as etl_update_datetime
         , sha2(

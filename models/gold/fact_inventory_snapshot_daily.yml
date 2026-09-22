@@ -1,114 +1,170 @@
 version: 2
 
+# EDW-117 item 9 (Inventory Gold Layer spec v2.6): description blocks for the snapshot fact
+# and its four certified companion views, the spec-grain test, and the branch / seam rules.
+# EDW-49 owns the retail_value_amount / last_sale_date wiring and their derivation tests;
+# the descriptions below are written to v2.6 and should survive that merge.
+
 models:
   - name: fact_inventory_snapshot_daily
     description: >
-      Daily inventory position at item/warehouse/status grain (v2.1/v2.3 spec).
-      Phase 2 planning/in-transit/landed-cost columns populated 2026-09-10 per
-      the EDW-46 sourcing investigation (see project memory / EDW-46 for the
-      full per-field mapping). retail_value_amount (EDW-20) and last_sale_date
-      (EDW-23) remain blocked on upstream facts that don't exist/aren't pushed
-      yet; reorder_point_qty/safety_stock_qty remain blocked on a missing D365
-      BYOD export (no source table found anywhere in the warehouse).
+      Daily point-in-time inventory position, one row per snapshot_date_key + product_key +
+      warehouse_key + inventory_status_code (spec v2.1 grain). Two source branches with
+      DIFFERENT POPULATIONS, told apart by record_source_table (a branch constant, spec 2.5):
+      backfill rows from the legacy f_KPI_InventoryValue report (2024-06-30 to 2026-08-31;
+      weekly cadence through 2025, daily from 2026; the legacy KPI population, status detail
+      only from mid-2026; legacy historical unit cost) and native rows from D365 InventSum +
+      InventDim (2026-09-01 forward; all statuses, all warehouses, daily; FACT_PRODUCT_COST
+      current STANDARD cost on product_id). A trend across the seam steps as an artefact of
+      population. Native rows are positions: a row exists only while some quantity measure
+      (on hand, reserved, available, on order, in transit) is non-zero (spec 2.1 v2.6).
+      Product resolution is the D365 barcode path (variant to UPC to DIM_PRODUCT); unresolved
+      rows keep their UPC, carry a NULL product_key, and are reported, never dropped.
+      Supply columns are item + warehouse grain on the rank-1 status row (spec 2.6).
+      NEVER --full-refresh in prod: the native branch can only produce today, so a full refresh
+      destroys accumulated native history. Corrections are applied in place. Known history
+      gaps and corrections are listed in spec Section 2.7.
+    tests:
+      # Spec grain (v2.4, 2.3): warn until EDW-117 item 1 and EDW-134 bring NULL product_key to
+      # zero on the native branch, then error. The surrogate-key unique test is not a substitute.
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - snapshot_date_key
+            - product_key
+            - warehouse_key
+            - inventory_status_code
+          config:
+            severity: warn
+            where: "product_key is not null"
     columns:
       - name: inventory_snapshot_key
         description: >
-          Surrogate grain key -- xxhash64(snapshot_date, item id, size, color,
-          warehouse location, inventory_status_code). This is the model's real
-          uniqueness grain (also the incremental merge's unique_key). Confirmed
-          live 2026-09-11: 100% unique, 6,825,507 distinct keys across
-          6,825,507 rows.
+          Surrogate grain key: xxhash64(snapshot_date, item id, size, colour, warehouse location,
+          site, inventory_status_code) on the native branch (site added under EDW-117 item 4, new
+          days only; history is never re-keyed), xxhash64(snapshot date, UPC, warehouse,
+          status) on the backfill branch. The incremental merge key.
         tests:
           - unique
           - not_null
+      - name: product_key
+        description: >
+          FK to DIM_PRODUCT (md5(UPC)), resolved through the D365 item barcode table: variant
+          (item + size + colour) to UPC to the current DIM_PRODUCT row. NULL where the UPC is
+          absent from DIM_PRODUCT (EDW-134) or the variant has no barcode row; the row is kept
+          and the UPC is still populated so the miss is diagnosable. Non-merchandise service
+          items (fees, catalogs, requests) are filtered at the native branch and never appear.
+      - name: upc
+        description: >
+          UPC from the barcode path (native) or the legacy report (backfill). Populated even when
+          product_key is NULL because DIM_PRODUCT lacks the UPC.
+      - name: record_source_table
+        description: >
+          Branch constant, not the physical staging name (spec 2.2 / 2.5): one value for the native
+          branch, one for the backfill branch, both minted by the inventory_snapshot_branch_label()
+          macro. Views filter on the macro, never on the string.
+        tests:
+          - accepted_values:
+              values:
+                - 'silver_d365_inventory_sum + silver_d365_inventory_dim'
+                - 'silver_kpi_inventory_value'
+      - name: lifecycle_status_code
+        description: >
+          Derived from the DIM_PRODUCT current row at load, first match wins: CLEARANCE (erp_status
+          Sell_to_0, or plm_status Dropped with on-hand remaining), NEW (debut_date within the
+          trailing 12 months), else CORE. VINTAGE retired at v2.6: the product master's Vintage
+          flag is a carryover flag, not an aged tier (EDW-117 item 10). NULL when the product
+          join misses.
+        tests:
+          - accepted_values:
+              values: ['CLEARANCE', 'NEW', 'CORE']
       - name: on_order_qty
         description: >
-          Open PO remaining-to-receive quantity, from native PurchLine
-          (PURCHSTATUS = 1), sourced 2026-09-10 per EDW-46. Zero when no open
-          PO exists for the item/warehouse -- that's a real zero, not unknown.
-          Attributed once per item+warehouse (not duplicated across status
-          rows) via a supply-rank window function -- see the model's comments.
-          Coalesced to 0 in the SQL, so every row computed under the current
-          logic is guaranteed non-null. Confirmed live 2026-09-11: nulls exist
-          only on rows that predate this column's sourcing and can never be
-          backfilled (PurchLine reflects today's live D365 state, not a
-          point-in-time history) -- 6,281,515 legacy backfill rows
-          (record_source_table = 'silver_kpi_inventory_value') and ~326K
-          native rows snapshotted before 2026-09-11 (including a stale
-          pre-rename 'silver_byod_...' batch). The not_null test below is
-          scoped to exclude exactly those permanently-null rows, so it never
-          fires on data that can't be fixed -- see the test's `where` clause.
+          Open PO remaining-to-receive quantity from native PurchLine (PURCHSTATUS = 1), item +
+          warehouse grain attributed to the rank-1 status row (supply-rank guard); zero on every
+          other status row and on rows with no open PO, so a zero is a real zero. Live from
+          2026-09-11; NULL on backfill rows and native rows before that date (live-state source,
+          not backfillable). Supply-only positions (zero on hand, open PO) are kept as rows.
         tests:
-          # where clause excludes the two permanently-null buckets (legacy
-          # backfill rows + native rows snapshotted before this column's
-          # 2026-09-11 go-live) entirely, rather than just muting them with
-          # severity: warn -- confirmed live every native row on/after
-          # 2026-09-11 is 100% non-null (coalesce(...,0) guarantees this
-          # going forward) and every row before it is 100% null and frozen
-          # (incremental models never rewrite past days). So this keeps the
-          # test a real regression check on exactly the rows where a good
-          # value is expected, with zero noise from rows that can never have
-          # one. Update the date only if this column is rebuilt/re-sourced
-          # again and needs a new go-live marker.
           - not_null:
               config:
                 where: "record_source_table = 'silver_d365_inventory_sum + silver_d365_inventory_dim' and snapshot_date >= '2026-09-11'"
       - name: in_transit_inbound_qty
         description: >
-          Vendor-PO goods-in-transit quantity, from native ItmGoodsInTransitOrder
-          (STATUS = 1), sourced 2026-09-10 per EDW-46. Confirmed live: 100%
-          vendor-PO (matches PurchTable via TRANSREFID), not inter-warehouse
-          transfer. ~5% of source quantity (6,216 of 125,485 units) has no
-          matching on-hand row yet -- items in transit for the first time,
-          with no prior warehouse presence -- and is legitimately excluded,
-          not a bug. Coalesced to 0 in the SQL -- same historical-only null
-          gap as on_order_qty above, same 2026-09-11 go-live date confirmed
-          live; see that column's description and this test's `where` clause.
+          Vendor-PO goods in transit from native ItmGoodsInTransitOrder (STATUS = 1), same grain,
+          attribution, go-live and NULL rules as on_order_qty. Ties to InventSum on hand at the
+          -GT locations to the unit (verified 2026-09-21).
         tests:
-          # same scoping as on_order_qty's test above -- see it for the full
-          # explanation.
           - not_null:
               config:
                 where: "record_source_table = 'silver_d365_inventory_sum + silver_d365_inventory_dim' and snapshot_date >= '2026-09-11'"
       - name: in_transit_transfer_qty
         description: >
-          Inter-warehouse transfer-in-transit quantity, from native
-          InventTransferLine, sourced 2026-09-10 per EDW-46. The source table
-          has 0 live rows as of 2026-09-10 (no transfer-order activity yet) --
-          will populate automatically once transfers start. Coalesced to 0 in
-          the SQL -- same historical-only null gap as on_order_qty above,
-          same 2026-09-11 go-live date confirmed live; see that column's
-          description and this test's `where` clause.
+          Inter-warehouse transfer quantity on the destination leg from native InventTransferLine;
+          source has no live rows yet, reads 0. Same grain, attribution and NULL rules as
+          on_order_qty.
         tests:
-          # same scoping as on_order_qty's test above -- see it for the full
-          # explanation.
           - not_null:
               config:
                 where: "record_source_table = 'silver_d365_inventory_sum + silver_d365_inventory_dim' and snapshot_date >= '2026-09-11'"
       - name: reorder_point_qty
         description: >
-          Phase 2, EDW-46 -- no D365 item-coverage BYOD export exists anywhere
-          in the warehouse (confirmed via a full dwhvisualnext table scan,
-          2026-09-10). Requires a new export from D365 admin before this can
-          be sourced; not buildable from existing data.
+          Phase 2. No D365 item-coverage export exists (EDW-126); treated as not maintained unless
+          EDW-126 finds otherwise. Stays NULL; reorder_flag is descoped while it is NULL.
       - name: safety_stock_qty
-        description: "Phase 2, EDW-46 -- same gap as reorder_point_qty."
+        description: >
+          Phase 2. Authoritative feed to be established under EDW-126 (the legacy
+          d365_reflection.inventory_onhand.SafetyStock is the known populated source). NULL until
+          then; item + warehouse grain when it lands.
+      - name: standard_cost_unit
+        description: >
+          Native rows: FACT_PRODUCT_COST current STANDARD cost joined on product_id (item grain,
+          EDW-94 A1). Backfill rows: the legacy report's own historical unit cost. Two cost bases
+          across the seam by design (D012).
       - name: landed_cost_unit
         description: >
-          From fact_product_cost (cost_type = 'LANDED', is_current = true),
-          sourced 2026-09-10. PLM-estimate coverage only today (EDW-12) -- null
-          for the ~26% of products fact_product_cost has no LANDED row for yet.
+          From FACT_PRODUCT_COST (cost_type LANDED, current row) on product_id; native rows only.
+          Coverage 70.7 percent of rows / 71.4 percent of units on 2026-09-21 (EDW-49).
       - name: landed_cost_amount
-        description: "on_hand_qty x landed_cost_unit -- null when landed_cost_unit is null."
+        description: "on_hand_qty x landed_cost_unit; NULL when landed_cost_unit is NULL."
       - name: cost_variance_amount
-        description: "landed_cost_amount - standard_cost_amount, per spec 2.3's derived rule."
+        description: "landed_cost_amount - standard_cost_amount (spec 2.3 derived rule; derivation test on EDW-49)."
       - name: retail_value_amount
         description: >
-          Phase 2 -- blocked on FACT_PRODUCT_PRICE (EDW-20), which is built
-          but not yet pushed to this repo. Not blocking the D365-sourced
-          fields above on this per EDW-49's scope note.
+          Phase 2, EDW-49 item 1: on_hand_qty x list_price_usd from v_product_price_current joined
+          on product_key (variant + currency grain since the EDW-20 rebuild). Native rows only.
       - name: last_sale_date
         description: >
-          Phase 2 -- blocked on a certified sales fact (EDW-23); FACT_SALES_INVOICE
-          does not exist yet. Not blocking the D365-sourced fields above on
-          this per EDW-49's scope note.
+          Phase 2, EDW-49 item 2: MAX(invoice_date) from FACT_SALES_INVOICE per product_key +
+          warehouse_key, excluding returns. Native rows only. NULL by construction for about two
+          thirds of product + warehouse pairs (never sold from that warehouse); populated from the
+          point the sales fact is in prod, which predates its EDW-23 certification.
+
+  - name: v_current_inventory
+    description: >
+      Latest snapshot per product + warehouse + status, company-owned scope
+      (REF_INVENTORY_STATUS include_in_std_metrics_flag = 1), with DIM_PRODUCT and DIM_WAREHOUSE
+      attributes (spec 5.1). Always inside the native window. Rows with a NULL product_key are
+      excluded by the dimension join and reported as a DQ exception. Supply columns are returned
+      unchanged at item + warehouse grain on the rank-1 status row (spec 2.6).
+
+  - name: v_metrics_inventory_daily
+    description: >
+      Primary certified inventory metric view (spec 5.2): DAILY grain, every snapshot date,
+      company-owned scope. Carries record_source_table as the seam label; the backfill window has
+      a different population and cadence (weekly through 2025) and a different cost basis, so a
+      trend across 2026-09-01 steps as an artefact. Sparse where spec 2.7 records a gap.
+      Demand-dependent metrics are NULL until EDW-51; below_safety_stock_flag and reorder_flag
+      are NULL (not computed) while their inputs are NULL, and compare against available_qty
+      summed to item + warehouse when they land.
+
+  - name: v_inventory_aging_summary
+    description: >
+      Pre-bucketed aging per product + warehouse on the latest snapshot, company-owned scope
+      (spec 5.3). age_bucket is NULL until the Aging field group is sourced from
+      FACT_INVENTORY_MOVEMENT receipts. Same seam and cost-basis rules as the fact.
+
+  - name: v_partner_inventory
+    description: >
+      Latest position for partner-owned stock by program (spec 5.4): the inverse scope of the
+      other three views (ownership_type = PARTNER_OWNED). Thin by design, no derived supply
+      metrics. Same seam and cost-basis rules as the fact.
