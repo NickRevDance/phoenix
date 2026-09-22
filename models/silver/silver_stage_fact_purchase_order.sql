@@ -15,7 +15,10 @@ WITH purch_line_raw AS (
         , INVENTDIMID
         , VENDACCOUNT
         , PURCHSTATUS
-        , PURCHQTY
+        -- DQ guard (2026-09-21 review): one line (O/UPO-001000) carries an
+        -- 821B-unit PURCHQTY vs. a real max of ~18K elsewhere -- nulled
+        -- rather than guessed.
+        , case when PURCHQTY > 1000000 then cast(null as decimal(32,6)) else PURCHQTY end as PURCHQTY
         , QTYORDERED
         , REMAINPURCHPHYSICAL
         , REMAININVENTPHYSICAL
@@ -137,13 +140,26 @@ joined AS (
         -- received") -- confirmed wrong in the one ground-truth Canceled
         -- case available. Left null rather than guessed for Canceled lines
         -- with no packing-slip row.
-        , coalesce(
-            vps.ps_received_qty,
-            case when l.PURCHSTATUS in (1,2,3)
-                 then l.PURCHQTY - l.REMAINPURCHPHYSICAL
-                 else cast(null as decimal(18,4))
-            end
-          ) as received_qty
+        -- DQ guard (2026-09-21 review): 780 lines land negative -- all from
+        -- a packing-slip QTY sum, not the formula -- meaning unclear
+        -- (return-to-vendor reversal?). Left null rather than guessed.
+        , case
+            when coalesce(
+                   vps.ps_received_qty,
+                   case when l.PURCHSTATUS in (1,2,3)
+                        then l.PURCHQTY - l.REMAINPURCHPHYSICAL
+                        else cast(null as decimal(18,4))
+                   end
+                 ) < 0
+              then cast(null as decimal(18,4))
+            else coalesce(
+                   vps.ps_received_qty,
+                   case when l.PURCHSTATUS in (1,2,3)
+                        then l.PURCHQTY - l.REMAINPURCHPHYSICAL
+                        else cast(null as decimal(18,4))
+                   end
+                 )
+          end as received_qty
         , vps.ps_cancelled_qty as cancelled_qty  -- packing-slip only, no formula fallback exists
         , vps.first_receipt_date
         , vps.last_receipt_date
