@@ -2,8 +2,7 @@ version: 2
 
 # EDW-117 item 9 (Inventory Gold Layer spec v2.6): description blocks for the snapshot fact
 # and its four certified companion views, the spec-grain test, and the branch / seam rules.
-# EDW-49 owns the retail_value_amount / last_sale_date wiring and their derivation tests;
-# the descriptions below are written to v2.6 and should survive that merge.
+# EDW-49: retail_value_amount / last_sale_date wiring and derivation tests.
 
 models:
   - name: fact_inventory_snapshot_daily
@@ -36,6 +35,15 @@ models:
           config:
             severity: warn
             where: "product_key is not null"
+      # EDW-49: a sale can't postdate the snapshot it is reported on
+      - dbt_utils.expression_is_true:
+          expression: "last_sale_date <= snapshot_date"
+          config:
+            where: "last_sale_date is not null"
+      - dbt_utils.expression_is_true:
+          expression: "retail_value_amount >= 0"
+          config:
+            where: "retail_value_amount is not null and on_hand_qty >= 0"
     columns:
       - name: inventory_snapshot_key
         description: >
@@ -131,13 +139,26 @@ models:
       - name: retail_value_amount
         description: >
           Phase 2, EDW-49 item 1: on_hand_qty x list_price_usd from v_product_price_current joined
-          on product_key (variant + currency grain since the EDW-20 rebuild). Native rows only.
+          on product_key (one row per variant, USD pivoted). Native rows only; NULL where the
+          variant has no current USD list price. On 2026-09-22: 95 percent of on-hand rows / 85
+          percent of on-hand units priced, about $78.9M at list.
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "is null"
+              config:
+                where: "record_source_table = 'silver_kpi_inventory_value'"
       - name: last_sale_date
         description: >
           Phase 2, EDW-49 item 2: MAX(invoice_date) from FACT_SALES_INVOICE per product_key +
-          warehouse_key, excluding returns. Native rows only. NULL by construction for about two
-          thirds of product + warehouse pairs (never sold from that warehouse); populated from the
-          point the sales fact is in prod, which predates its EDW-23 certification.
+          warehouse_key, excluding returns (is_return_flag). Current-state aggregate, native rows
+          only. NULL where the product has never sold from that warehouse (about 28 percent of
+          native rows on 2026-09-22); populated from the point the sales fact is in prod, which
+          predates its EDW-23 certification.
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "is null"
+              config:
+                where: "record_source_table = 'silver_kpi_inventory_value'"
 
   - name: v_current_inventory
     description: >

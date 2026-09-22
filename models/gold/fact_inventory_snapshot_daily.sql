@@ -298,6 +298,33 @@ snapshot_date_dim as (
 
 ),
 
+product_price as (
+
+    -- EDW-49: current USD list price, one row per product_key (variant)
+    select
+
+          product_key
+        , list_price_usd
+
+    from {{ ref('v_product_price_current') }}
+
+),
+
+last_sale_agg as (
+
+    -- EDW-49: current-state MAX, not point-in-time, so native branch only
+    select
+
+          product_key
+        , warehouse_key
+        , cast(max(invoice_date) as date) as last_sale_date
+
+    from {{ ref('fact_sales_invoice') }}
+    where not coalesce(is_return_flag, false)
+    group by 1, 2
+
+),
+
 joined as (
 
     select
@@ -316,6 +343,8 @@ joined as (
         , git.in_transit_inbound_qty
         , tit.in_transit_transfer_qty
         , dd.date_key as snapshot_date_key
+        , pp.list_price_usd
+        , ls.last_sale_date
 
         -- EDW-46 fan-out guard: on_order/in-transit are item+warehouse-level supply
         -- quantities, but 91% of item+warehouse combos carry >1 status row (confirmed
@@ -386,6 +415,11 @@ joined as (
         and oh.inventsiteid = tit.inventsiteid
     left join snapshot_date_dim dd
         on dd.Date = oh.snapshot_date
+    left join product_price pp
+        on pr.product_key = pp.product_key
+    left join last_sale_agg ls
+        on pr.product_key = ls.product_key
+        and wh.warehouse_key = ls.warehouse_key
 
 ),
 
@@ -422,17 +456,16 @@ backfill_joined as (
         , pc.cost_currency_code
         , dd.date_key as snapshot_date_key
 
-        -- lifecycle_status_code: same rule as the native branch above (fact-wide, not
-        -- native-only) -- "on-hand remaining" reads the backfill row's own quantity.
+        -- lifecycle_status_code: same v2.6 rule as the native branch (VINTAGE retired) --
+        -- "on-hand remaining" reads the backfill row's own quantity.
         , case
             when pr.product_key is null then null
             when pr.erp_status = 'Sell_to_0' then 'CLEARANCE'
             when pr.plm_status = 'Dropped' and b.InventoryQuantity > 0 then 'CLEARANCE'
-            when pr.Vintage = true then 'VINTAGE'
             when pr.debut_date is not null
                 and pr.debut_date >= date_add(b.SnapshotDate, -365)
                 and pr.debut_date <= b.SnapshotDate then 'NEW'
-            when pr.erp_status is null and pr.plm_status is null and pr.Vintage is null and pr.debut_date is null then null
+            when pr.erp_status is null and pr.plm_status is null and pr.debut_date is null then null
             else 'CORE'
           end as lifecycle_status_code
 
@@ -491,7 +524,7 @@ final as (
         , j.landed_cost_unit  -- Phase 2 per spec -- sourced 2026-09-10 from fact_product_cost (cost_type='LANDED', is_current=true), PLM-estimate coverage only today (EDW-12) -- null where fact_product_cost has no LANDED row yet (~26% of products)
         , j.on_hand_qty * j.landed_cost_unit as landed_cost_amount  -- Phase 2 per spec -- null when landed_cost_unit is null
         , (j.on_hand_qty * j.landed_cost_unit) - (j.on_hand_qty * j.standard_cost_unit) as cost_variance_amount  -- Phase 2 per spec -- spec 2.3 derived rule: landed_cost_amount - standard_cost_amount
-        , cast(null as decimal(19,4)) as retail_value_amount  -- Phase 2 per spec -- blocked on FACT_PRODUCT_PRICE (EDW-20), not pushed to the repo yet -- not blocking the D365-sourced fields above on this per EDW-49 scope note
+        , cast(j.on_hand_qty * j.list_price_usd as decimal(19,4)) as retail_value_amount  -- EDW-49: v_product_price_current.list_price_usd on product_key; null where the variant has no current USD list price
         , j.available_qty * j.standard_cost_unit as available_cost_amount
         , cast(null as decimal(19,4)) as damaged_cost_amount  -- = damaged_qty x standard_cost_unit once damaged_qty is sourced
         , j.cost_currency_code
@@ -506,7 +539,7 @@ final as (
         , cast(null as date) as last_receipt_date  -- Source once available: max(movement_datetime) from fact_inventory_movement where movement_type = 'RECEIPT'
         , cast(null as int) as days_on_hand_age  -- Source once available: depends on first/last_receipt_date above
         , cast(null as string) as age_bucket  -- Source once available: depends on days_on_hand_age above
-        , cast(null as date) as last_sale_date  -- Phase 2 per spec -- blocked on a certified sales fact (EDW-23); FACT_SALES_INVOICE not yet built -- not blocking the D365-sourced fields above on this per EDW-49 scope note
+        , j.last_sale_date  -- EDW-49: max non-return invoice_date per product_key + warehouse_key; null where never sold from this warehouse
 
     -- Audit
         , {{ inventory_snapshot_branch_label('native') }} as record_source_table  -- EDW-117 item 5: branch constant
@@ -576,7 +609,7 @@ final as (
         , cast(null as decimal(19,4)) as landed_cost_unit  -- Phase 2 per spec -- fact_product_cost is current-only, no historical landed cost to backfill against
         , cast(null as decimal(19,4)) as landed_cost_amount  -- Phase 2 per spec -- same reason as landed_cost_unit above
         , cast(null as decimal(19,4)) as cost_variance_amount  -- Phase 2 per spec -- same reason as landed_cost_unit above
-        , cast(null as decimal(19,4)) as retail_value_amount  -- Phase 2 per spec -- blocked on FACT_PRODUCT_PRICE (EDW-20), see native branch note
+        , cast(null as decimal(19,4)) as retail_value_amount  -- native branch only: current price, no historical price grain
         , cast(null as decimal(19,4)) as available_cost_amount  -- Source once available: depends on available_qty above
         , cast(null as decimal(19,4)) as damaged_cost_amount  -- Source once available: depends on damaged_qty above
         , b.cost_currency_code
@@ -591,7 +624,7 @@ final as (
         , cast(null as date) as last_receipt_date  -- Source once available: same plan as native rows
         , cast(null as int) as days_on_hand_age  -- Source once available: same plan as native rows
         , cast(null as string) as age_bucket  -- Source once available: same plan as native rows
-        , cast(null as date) as last_sale_date  -- Phase 2 per spec -- blocked on a certified sales fact (EDW-23), see native branch note
+        , cast(null as date) as last_sale_date  -- native branch only: current-state MAX, not point-in-time
 
     -- Audit
         , {{ inventory_snapshot_branch_label('backfill') }} as record_source_table  -- EDW-117 item 5: branch constant
