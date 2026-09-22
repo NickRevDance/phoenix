@@ -36,24 +36,23 @@ clean-targets:         # directories to be removed by `dbt clean`
 
 models:
   phoenix:
-    # Applies to all files under models/example/
-    +catalog: "{{ 'phoenix_dev_catalog' if target.name == 'dev' else 'phoenix_prod_catalog' }}"
-  
+    +catalog: "{{ 'phoenix_prod_catalog' if target.name | lower in ['prod', 'production'] else 'phoenix_dev_catalog' }}"
+
     staging:
-      +schema: staging  # Prevents dbt from appending custom schema prefixes to sources
+      +schema: staging
       +materialized: view
 
-    # 2. Folder-level overrides to map to your Medallion schemas
     bronze:
       +schema: bronze
-      +materialized: table      # Staging/Bronze is typically built as lightweight views
-      
+      +materialized: table
+
     silver:
       +schema: silver
-      +materialized: table     # Silver is materialized as physical Delta tables
-      
+      +materialized: table
+
     gold:
       +schema: gold
-      +materialized: table     # Gold is materialized as high-performance 
+      +materialized: table
+
 flags:
-  manage_state: false 
+  manage_state: false
