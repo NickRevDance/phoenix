@@ -4,7 +4,7 @@ with versioned as (
 
     select
 
-          {{ generate_surrogate_key(['snap.source_system', "coalesce(snap.source_storefront_code, 'NA')", 'snap.source_promotion_id']) }} as promotion_key
+          {{ generate_surrogate_key(['snap.source_system', "coalesce(snap.source_storefront_code, 'NA')", 'snap.source_promotion_id', 'snap.effective_start_datetime']) }} as promotion_key  -- version-distinct: spec gives each SCD2 version its own key
 
         , snap.source_system
         , snap.source_storefront_code
