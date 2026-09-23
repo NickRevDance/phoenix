@@ -15,4 +15,4 @@ SELECT
 FROM
     {{ref("dim_product")}} snap_p
 WHERE
-    version_number = 1
+    is_current_row = 1

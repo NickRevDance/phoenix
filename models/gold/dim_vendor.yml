@@ -27,9 +27,13 @@ models:
 
   - name: v_dim_vendor_current
     description: >
-      Current-row view over dim_vendor (version_number = 1) with SCD2
+      Current-row view over dim_vendor (is_current_row = 1, meaning
+      version_number = 1 with an open effective_end_datetime) with SCD2
       and internal metadata columns stripped -- the object most
-      consumers (Power BI, ad hoc analysts) should query.
+      consumers (Power BI, ad hoc analysts) should query. The open-end
+      test matters because silver_snapshot_dim_vendor runs
+      hard_deletes: invalidate, so a vendor removed from D365 keeps
+      version_number = 1 on a closed row (EDW-91).
     columns:
       - name: vendor_key
         tests:

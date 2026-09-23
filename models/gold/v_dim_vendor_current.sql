@@ -1,5 +1,12 @@
 {{ config(materialized = 'view') }}
 
+-- EDW-91: filters on is_current_row, not version_number. With
+-- hard_deletes: invalidate on silver_snapshot_dim_vendor, a vendor
+-- removed from D365 has its open version closed with no successor, so
+-- it still ranks version_number = 1 and a version-only filter would
+-- keep serving it as current. is_current_row carries the open-end test
+-- (scd2_is_current_row macro). Spec Section 9, DIM_VENDOR v1.1.
+
 SELECT
     dv.* EXCEPT
         (
@@ -15,4 +22,4 @@ SELECT
 FROM
     {{ref("dim_vendor")}} dv
 WHERE
-    version_number = 1
+    is_current_row = 1

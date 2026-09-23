@@ -9,7 +9,7 @@
 row_number() over (partition by {{ partition_by }} order by {{ order_by }} desc)
 {%- endmacro %}
 
-{% macro scd2_is_current_row(version_number_col='version_number') %}
+{% macro scd2_is_current_row(version_number_col='version_number', end_datetime_col='effective_end_datetime') %}
 {#-
     Project-standard is_current_row column: int 1/0 (NOT boolean --
     this was flagged as a live divergence between dim_product/dim_vendor
@@ -18,6 +18,15 @@ row_number() over (partition by {{ partition_by }} order by {{ order_by }} desc)
     Relies on Databricks/Spark's lateral column alias support to
     reference version_number in the same select list -- same pattern
     already live in dim_product.sql and dim_vendor.sql.
+
+    EDW-91 (2026-09-22): current means latest version AND an open end
+    date, not latest version alone. Every snapshot in the repo now runs
+    hard_deletes: invalidate (EDW-8 house default, 2026-09-17), which
+    closes the open version of a record that leaves the source without
+    inserting a successor. That record still ranks version_number = 1,
+    so a version-only test reports a deleted record as current. Rule per
+    DIM_WAREHOUSE v1.2 and DIM_CUSTOMER v1.3. Reserved members carry a
+    NULL effective_end_datetime and stay current, as intended.
 -#}
-case when {{ version_number_col }} = 1 then 1 else 0 end
+case when {{ version_number_col }} = 1 and {{ end_datetime_col }} is null then 1 else 0 end
 {%- endmacro %}

@@ -20,7 +20,7 @@ select
         partition by snap_c.customer_key
         order by snap_c.effective_start_datetime desc
     ) as version_number
-    , case when version_number = 1 then 1 else 0 end as is_current_row
+ , {{ scd2_is_current_row() }} as is_current_row
 from {{ref("silver_snapshot_dim_customer")}} snap_c
 left join segment_map sm
     on snap_c.customer_key = sm.customer_key
