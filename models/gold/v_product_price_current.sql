@@ -30,6 +30,6 @@ select
 from {{ ref('fact_product_price') }} f
 left join {{ ref('dim_product') }} d
     on d.product_key = f.product_key
-    and d.version_number = 1
+    and d.is_current_row = 1
 where f.is_current
 group by f.product_key

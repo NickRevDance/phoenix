@@ -32,4 +32,4 @@ LEFT JOIN
     {{ref("v_dim_customer_segment_current")}} seg
     ON dc.customer_segment_key = seg.customer_segment_key
 WHERE
-    dc.version_number = 1
+    dc.is_current_row = 1
