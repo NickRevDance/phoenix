@@ -18,7 +18,6 @@ with versioned as (
         , snap.discount_value
         , snap.promotion_start_date
         , snap.promotion_end_date
-        , snap.is_active_flag
         , snap.funding_source_default
         , snap.vendor_key
         , snap.promotion_group_code
@@ -67,7 +66,6 @@ reserved_members as (
         , cast(r.discount_value as decimal(38,6)) as discount_value
         , cast(nullif(r.promotion_start_date, '') as date) as promotion_start_date
         , cast(nullif(r.promotion_end_date, '') as date) as promotion_end_date
-        , cast(r.is_active_flag as boolean) as is_active_flag
         , r.funding_source_default
         , cast(r.vendor_key as bigint) as vendor_key
         , r.promotion_group_code
@@ -98,7 +96,6 @@ reserved_members as (
         , cast(r.discount_value as decimal(38,6)) as discount_value
         , cast(nullif(r.promotion_start_date, '') as date) as promotion_start_date
         , cast(nullif(r.promotion_end_date, '') as date) as promotion_end_date
-        , cast(r.is_active_flag as boolean) as is_active_flag
         , r.funding_source_default
         , cast(r.vendor_key as bigint) as vendor_key
         , r.promotion_group_code

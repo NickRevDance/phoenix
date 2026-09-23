@@ -9,49 +9,17 @@ with d365_contractual_pricing as (
         , cast(null as string) as promotion_description  -- Source once available: PriceDiscTable has no free-text description field
         , 'CONTRACTUAL_PRICING' as promotion_class
         , 'TRADE_AGREEMENT' as promotion_mechanism
-        , case
-            when p.PERCENT1 is not null and p.PERCENT1 != 0 then 'PERCENT'
-            when p.AMOUNT is not null and p.AMOUNT != 0 then 'FIXED_AMOUNT'
-            else 'FIXED_PRICE'
-          end as discount_type_default  -- confirmed live 2026-09-16: 219 percent rows, 149,899 amount rows, 0 markup rows out of 150,145 MODULE=1 rows
-        , {{ amount("case when p.PERCENT1 is not null and p.PERCENT1 != 0 then p.PERCENT1 when p.AMOUNT is not null and p.AMOUNT != 0 then p.AMOUNT else p.PRICEUNIT end") }} as discount_value
+        , 'PERCENT' as discount_type_default  -- customer-group agreements are percent-off only: 219 of 241 ACCOUNTCODE = 1 rows carry PERCENT1, the other 22 are 0% and none carry AMOUNT (2026-09-23)
+        , {{ amount('coalesce(p.PERCENT1, 0)') }} as discount_value
         , case when p.FROMDATE = date('1900-01-01') then cast(null as date) else cast(p.FROMDATE as date) end as promotion_start_date
         , case when p.TODATE = date('1900-01-01') then cast(null as date) else cast(p.TODATE as date) end as promotion_end_date
-        , cast(null as boolean) as is_active_flag_placeholder  -- computed below once dates are resolved, see is_active_flag
         , 'Company' as funding_source_default  -- NEEDS CONFIRMATION: assumes trade agreements are company-funded customer pricing, not a vendor rebate -- override via promotion_enrichment if Finance says otherwise
         , cast(null as bigint) as vendor_key
         , cast(null as string) as promotion_group_code  -- Open Decision D4: pending Marketing-maintained rollup
         , 'silver_d365_price_disc_table_sales' as record_source
 
     from {{ ref('silver_d365_price_disc_table_sales') }} p
-
-),
-
-d365_contractual_pricing_final as (
-
-    select
-          d.source_system
-        , d.source_storefront_code
-        , d.source_promotion_id
-        , d.promotion_code
-        , d.promotion_name
-        , d.promotion_description
-        , d.promotion_class
-        , d.promotion_mechanism
-        , d.discount_type_default
-        , d.discount_value
-        , d.promotion_start_date
-        , d.promotion_end_date
-        , case
-            when (d.promotion_end_date is null or d.promotion_end_date >= current_date())
-             and (d.promotion_start_date is null or d.promotion_start_date <= current_date())
-            then true else false
-          end as is_active_flag
-        , d.funding_source_default
-        , d.vendor_key
-        , d.promotion_group_code
-        , d.record_source
-    from d365_contractual_pricing d
+    where p.ACCOUNTCODE = 1  -- customer-group agreements only; ACCOUNTCODE = 2 rows are list price and belong to fact_product_price
 
 ),
 
@@ -70,7 +38,6 @@ manual_seed as (
         , {{ amount('m.discount_value') }} as discount_value
         , cast(nullif(m.promotion_start_date, '') as date) as promotion_start_date
         , cast(nullif(m.promotion_end_date, '') as date) as promotion_end_date
-        , cast(m.is_active_flag as boolean) as is_active_flag
         , m.funding_source_default
         , cast(m.vendor_key as bigint) as vendor_key
         , m.promotion_group_code
@@ -88,7 +55,7 @@ manual_seed as (
 
 unioned as (
 
-    select * from d365_contractual_pricing_final
+    select * from d365_contractual_pricing
     union all
     select * from manual_seed
 
@@ -109,7 +76,6 @@ enriched as (
         , u.discount_value
         , u.promotion_start_date
         , u.promotion_end_date
-        , u.is_active_flag
         , coalesce(e.funding_source_default_override, u.funding_source_default) as funding_source_default
         , coalesce(cast(e.vendor_key_override as bigint), u.vendor_key) as vendor_key
         , coalesce(e.promotion_group_code_override, u.promotion_group_code) as promotion_group_code
@@ -138,7 +104,6 @@ final as (
               "coalesce(cast(e.discount_value as string), '')",
               "coalesce(cast(e.promotion_start_date as string), '')",
               "coalesce(cast(e.promotion_end_date as string), '')",
-              "coalesce(cast(e.is_active_flag as string), '')",
               "coalesce(e.funding_source_default, '')",
               "coalesce(cast(e.vendor_key as string), '')",
               "coalesce(e.promotion_group_code, '')"

@@ -1,0 +1,27 @@
+version: 2
+
+snapshots:
+  - name: silver_snapshot_dim_promotion
+    relation: ref('silver_stage_dim_promotion')
+
+    description: >
+      Type 2 historical snapshot of DIM_PROMOTION. A new version is created
+      when any Type 2 attribute (name, description, class, mechanism,
+      discount type/value, promotion window dates, funding source,
+      vendor key, promotion group code) changes for a given natural key
+      (source_system + source_storefront_code + source_promotion_id).
+
+    config:
+      schema: silver_history
+      unique_key: promotion_business_key
+      strategy: check
+      hard_deletes: invalidate  # EDW-8 standardization (2026-09-17, Nick's decision) -- WATCH: D365 trade agreement rows can be superseded upstream with no clear tombstone signal in PriceDiscTable, so a superseded (not truly deleted) row could get wrongly closed; re-check once BigCommerce and real deletion behavior are observed
+
+      check_cols:
+        - promotion_change_hash
+
+      snapshot_meta_column_names:
+        dbt_valid_from: effective_start_datetime
+        dbt_valid_to: effective_end_datetime
+        dbt_scd_id: row_hash
+        dbt_updated_at: etl_update_datetime
