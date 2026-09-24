@@ -28,7 +28,7 @@
 --   item 2  backfill seam moved to the inventory_snapshot_native_start_date() macro.
 --   item 3  zero-position filter: a native row is kept only if any quantity measure
 --           (on hand, reserved, available, on order, in transit) is non-zero.
---   item 4  dim_warehouse read at is_current_row = 1; inventsiteid added to the key.
+--   item 4  inventsiteid added to the key. dim_warehouse read at version_number = 1 (EDW-90 item 4).
 --   item 5  record_source_table via macro.
 --   dim_product read at is_current_row = 1 (was version_number = 1, which serves an
 --           invalidated row as current under hard_deletes: invalidate).
@@ -161,7 +161,7 @@ warehouse as (
         , d365_site_id
 
     from {{ ref('dim_warehouse') }}
-    where cast(is_current_row as int) = 1  -- EDW-90 item 4 / EDW-117 item 4: no-op on the single-version dim today, required before SCD2 wiring lands; cast tolerates the boolean-today / int-later divergence (EDW-130)
+    where version_number = 1  -- EDW-90 item 4: fact key resolution resolves against the latest version, not is_current_row
 
 ),
 

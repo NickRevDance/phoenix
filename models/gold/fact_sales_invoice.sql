@@ -139,7 +139,7 @@ warehouse as (
         , d365_site_id
 
     from {{ ref('dim_warehouse') }}
-    where is_current_row = true
+    where version_number = 1  -- EDW-90 item 4: fact key resolution resolves against the latest version, not is_current_row
 
 ),
 

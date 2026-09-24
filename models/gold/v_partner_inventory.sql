@@ -60,7 +60,7 @@ warehouse_current as (
           warehouse_key
         , warehouse_name
     from {{ ref('dim_warehouse') }}
-    where is_current_row = true
+    where cast(is_current_row as int) = 1  -- works on boolean today and int after the EDW-90 rebuild
 
 ),
 
