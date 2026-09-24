@@ -18,7 +18,7 @@ snapshots:
       hard_deletes: invalidate  # EDW-8 standardization (2026-09-17, Nick's decision) -- WATCH: D365 trade agreement rows can be superseded upstream with no clear tombstone signal in PriceDiscTable, so a superseded (not truly deleted) row could get wrongly closed; re-check once BigCommerce and real deletion behavior are observed
 
       check_cols:
-        - promotion_change_hash
+        - promotion_change_hash 
 
       snapshot_meta_column_names:
         dbt_valid_from: effective_start_datetime
