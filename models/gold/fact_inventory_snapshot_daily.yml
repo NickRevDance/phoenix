@@ -27,21 +27,24 @@ models:
       # Spec grain (v2.4, 2.3): warn until EDW-117 item 1 and EDW-134 bring NULL product_key to
       # zero on the native branch, then error. The surrogate-key unique test is not a substitute.
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns:
-            - snapshot_date_key
-            - product_key
-            - warehouse_key
-            - inventory_status_code
+          arguments:
+            combination_of_columns:
+              - snapshot_date_key
+              - product_key
+              - warehouse_key
+              - inventory_status_code
           config:
             severity: warn
             where: "product_key is not null"
       # EDW-49: a sale can't postdate the snapshot it is reported on
       - dbt_utils.expression_is_true:
-          expression: "last_sale_date <= snapshot_date"
+          arguments:
+            expression: "last_sale_date <= snapshot_date"
           config:
             where: "last_sale_date is not null"
       - dbt_utils.expression_is_true:
-          expression: "retail_value_amount >= 0"
+          arguments:
+            expression: "retail_value_amount >= 0"
           config:
             where: "retail_value_amount is not null and on_hand_qty >= 0"
     columns:
@@ -72,9 +75,10 @@ models:
           macro. Views filter on the macro, never on the string.
         tests:
           - accepted_values:
-              values:
-                - 'silver_d365_inventory_sum + silver_d365_inventory_dim'
-                - 'silver_kpi_inventory_value'
+              arguments:
+                values:
+                  - 'silver_d365_inventory_sum + silver_d365_inventory_dim'
+                  - 'silver_kpi_inventory_value'
       - name: lifecycle_status_code
         description: >
           Derived from the DIM_PRODUCT current row at load, first match wins: CLEARANCE (erp_status
@@ -84,7 +88,8 @@ models:
           join misses.
         tests:
           - accepted_values:
-              values: ['CLEARANCE', 'NEW', 'CORE']
+              arguments:
+                values: ['CLEARANCE', 'NEW', 'CORE']
       - name: on_order_qty
         description: >
           Open PO remaining-to-receive quantity from native PurchLine (PURCHSTATUS = 1), item +
@@ -135,16 +140,32 @@ models:
       - name: landed_cost_amount
         description: "on_hand_qty x landed_cost_unit; NULL when landed_cost_unit is NULL."
       - name: cost_variance_amount
-        description: "landed_cost_amount - standard_cost_amount (spec 2.3 derived rule; derivation test on EDW-49)."
+        description: >
+          landed_cost_amount - standard_cost_amount (spec 2.3 derived rule). NULL when either
+          amount is NULL. Derivation test below (EDW-49).
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "= landed_cost_amount - standard_cost_amount"
+              config:
+                where: "cost_variance_amount is not null"
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "is not null"
+              config:
+                where: "landed_cost_amount is not null and standard_cost_amount is not null"
       - name: retail_value_amount
         description: >
           Phase 2, EDW-49 item 1: on_hand_qty x list_price_usd from v_product_price_current joined
-          on product_key (one row per variant, USD pivoted). Native rows only; NULL where the
-          variant has no current USD list price. On 2026-09-22: 95 percent of on-hand rows / 85
-          percent of on-hand units priced, about $78.9M at list.
+          on product_key (one row per variant, USD pivoted), priced at load. Native rows only; NULL
+          where the variant has no current USD list price. Live in prod from snapshot 2026-09-23;
+          native rows 2026-09-01 to 2026-09-22 stay NULL (the merge only writes today). Prod
+          coverage on 2026-09-23/24: 95.4 percent of on-hand rows, 84.5 percent of on-hand units,
+          about $79M at list. Derivation test: assert_snapshot_retail_value_derivation.
         tests:
           - dbt_utils.expression_is_true:
-              expression: "is null"
+              arguments:
+                expression: "is null"
               config:
                 where: "record_source_table = 'silver_kpi_inventory_value'"
       - name: last_sale_date
@@ -152,11 +173,12 @@ models:
           Phase 2, EDW-49 item 2: MAX(invoice_date) from FACT_SALES_INVOICE per product_key +
           warehouse_key, excluding returns (is_return_flag). Current-state aggregate, native rows
           only. NULL where the product has never sold from that warehouse (about 28 percent of
-          native rows on 2026-09-22); populated from the point the sales fact is in prod, which
-          predates its EDW-23 certification.
+          native rows in prod on 2026-09-23/24). Live in prod from snapshot 2026-09-23; native rows
+          2026-09-01 to 2026-09-22 stay NULL. Predates the sales fact's EDW-23 certification.
         tests:
           - dbt_utils.expression_is_true:
-              expression: "is null"
+              arguments:
+                expression: "is null"
               config:
                 where: "record_source_table = 'silver_kpi_inventory_value'"
 
