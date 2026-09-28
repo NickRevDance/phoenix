@@ -13,6 +13,11 @@ models:
       - name: product_cost_key
         tests:
           - is_valid_key
+      - name: product_key
+        description: >
+          Informational md5 of the item's representative UPC. -1 where the
+          item has no DIM_PRODUCT row (EDW-134 coverage gap). Consumers
+          join on product_id.
       - name: product_id
         tests:
           - not_null
@@ -20,7 +25,8 @@ models:
         tests:
           - not_null
           - accepted_values:
-              values: ['STANDARD', 'LANDED', 'VENDOR', 'PLM_ESTIMATED']
+              arguments:
+                values: ['STANDARD', 'LANDED', 'VENDOR', 'PLM_ESTIMATED']
       - name: effective_date
         description: >
           Null where the D365 source's effective date was the 1900-01-01
