@@ -1,5 +1,14 @@
 {{ config(materialized = 'table') }}
 
+{% if empty_extract_guard(source('byod', 'd365_exchange_rate'), 1) %}
+
+SELECT
+    *
+FROM
+    {{ this }}
+
+{% else %}
+
 -- EDW-94: one row per (from_currency, valid date range), USD-denominated
 -- spot rate. D365's native ExchangeRate export stores EXCHANGERATE as USD
 -- per 100 units of the from-currency (confirmed against live data: CAD rows
@@ -23,3 +32,5 @@ SELECT
 FROM {{ source('byod', 'd365_exchange_rate') }} r
 WHERE r.EXCHANGERATECURRENCYPAIR_TOCURRENCYCODE = 'USD'
     and r.EXCHANGERATETYPE_NAME = 'Spot'
+
+{% endif %}

@@ -40,7 +40,7 @@ with line as (
     and l.MODIFIEDDATE <= current_timestamp() - interval 30 minutes
 
     {% if is_incremental() %}
-    and l.MODIFIEDDATE > (select coalesce(max(etl_source_modified_datetime), timestamp('1900-01-01')) from {{ this }}) - interval 2 days
+    and l.MODIFIEDDATE > (select coalesce(max(etl_source_modified_datetime), timestamp('1900-01-01')) from {{ this }}) - interval {{ var('order_line_lookback_days', 2) }} days
     {% endif %}
 
 ),
