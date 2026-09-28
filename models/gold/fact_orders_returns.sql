@@ -20,6 +20,7 @@ with line as (
         , l.SALESPRICE
         , l.SALESUNIT
         , l.LINEDISC
+        , l.LINEAMOUNT
         , l.CURRENCYCODE
         , l.SALESSTATUS
         , l.SHIPPINGDATEREQUESTED
@@ -56,10 +57,9 @@ sales_table as (
 
 ),
 
--- New this build: D365's return-order extension table (McrReturnSalesTable),
--- one row per return sales order header, linked 1:1 to SalesTable via
--- SALESTABLE = SalesTable.REC (confirmed live: 138,758 rows in, 138,758
--- distinct SALESTABLE). Carries the return-to-original-order linkage.
+-- D365's return-order extension table (McrReturnSalesTable), one row per
+-- return sales order header, linked 1:1 to SalesTable via SALESTABLE =
+-- SalesTable.REC. Carries the return-to-original-order linkage.
 return_header as (
 
     select
@@ -86,17 +86,31 @@ inventory_dim as (
 
 ),
 
-product as (
+-- ITEMID + INVENTDIMID resolved through D365's item-barcode table to a UPC,
+-- hashed identically to DIM_PRODUCT's own product_key formula (same path
+-- as FACT_ORDER_LINE/FACT_SALES_INVOICE). item_barcode's own InventDimID is
+-- a reference-level dimension record, not the transactional one on
+-- SalesLine, so it's resolved through silver_d365_inventory_dim to
+-- size/color first, then matched on ITEMID + size + color -- 99.79%
+-- resolution confirmed live vs. 98.16% under the prior
+-- style+size+color-to-dim_product path.
+barcode as (
 
     select
 
-          product_key
-        , style_number
-        , size
-        , d365_color_code
+          b.ITEMID
+        , bd.INVENTSIZEID
+        , bd.INVENTCOLORID
+        , b.ITEMBARCODE
+        , row_number() over (
+            partition by b.ITEMID, bd.INVENTSIZEID, bd.INVENTCOLORID
+            order by b.MODIFIEDDATE desc
+          ) as rn
 
-    from {{ ref('dim_product') }}
-    where version_number = 1
+    from {{ ref('silver_d365_item_barcode') }} b
+
+    left join {{ ref('silver_d365_inventory_dim') }} bd
+        on b.INVENTDIMID = bd.InventDimID
 
 ),
 
@@ -122,7 +136,7 @@ warehouse as (
         , d365_site_id
 
     from {{ ref('dim_warehouse') }}
-    where is_current_row = true
+    where version_number = 1  -- EDW-90 item 4: fact key resolution uses the latest version, not is_current_row
 
 ),
 
@@ -180,6 +194,7 @@ joined as (
         , l.SALESPRICE
         , l.SALESUNIT
         , l.LINEDISC
+        , l.LINEAMOUNT
         , l.CURRENCYCODE
         , l.SALESSTATUS
         , l.SHIPPINGDATEREQUESTED
@@ -197,7 +212,10 @@ joined as (
         , rh.return_header_rec
 
         , d.INVENTLOCATIONID
-        , pr.product_key
+        , case when bar.ITEMBARCODE is not null
+               then md5(concat_ws('|', bar.ITEMBARCODE))
+               else '-1'
+          end                                     as product_key
         , cu.customer_key
         , wh.warehouse_key
         , coalesce(sc.sales_channel_key, -1)     as sales_channel_key
@@ -218,10 +236,11 @@ joined as (
     left join inventory_dim d
         on l.INVENTDIMID = d.InventDimID
 
-    left join product pr
-        on l.ITEMID = pr.style_number
-        and d.INVENTSIZEID = pr.size
-        and d.INVENTCOLORID = pr.d365_color_code
+    left join barcode bar
+        on l.ITEMID = bar.ITEMID
+        and d.INVENTSIZEID = bar.INVENTSIZEID
+        and d.INVENTCOLORID = bar.INVENTCOLORID
+        and bar.rn = 1
 
     left join customer cu
         on st.CUSTACCOUNT = cu.customer_id
@@ -253,7 +272,8 @@ final as (
     -- LINENUM has known live duplicates.
           xxhash64(l.REC, 'D365')                                     as orders_returns_key
         , l.SALESID                                                   as order_id
-        , cast(l.LINENUM as int)                                      as order_line_number
+        , cast(l.LINENUM as decimal(10,4))                            as order_line_number  -- DECIMAL(10,4) at source precision, not INT -- fractional LINENUM values and re-created lines make the line number non-unique/non-integer within an order (spec Section 3).
+        , cast(l.REC as bigint)                                       as d365_sales_line_rec_id  -- Grain component / join key to FACT_ORDER_LINE, spec Section 6.
         , 'D365'                                                      as source_system
         , cast(null as string) as bigcommerce_order_id  -- Source once available: no confirmed field -- SalesTable.REVINTEGRATIONID is 78.5% populated but not confirmed to be BigCommerce-specific; SUNECOMMORDERID (0% populated) ruled out. Same gap as FACT_ORDER_LINE.
         , case when l.SALESTYPE = 4 then cast(l.return_header_rec as string) end as rma_id  -- No dedicated RMA-number field found on McrReturnSalesTable or SalesLine -- using the return header's own row id (REC) as the traceable identifier. Only populated for return lines; null for forward-demand lines.
@@ -261,48 +281,51 @@ final as (
         , cast(null as int) as original_order_line_number  -- Source once available: McrReturnSalesTable links at the order-header level only, no original line number captured -- Open Decision 5
 
     -- Dim FKs
-        , cast(date_format(l.order_created_date, 'yyyyMMdd') as int)  as order_date_key
-        , case when l.SHIPPINGDATEREQUESTED is not null
+        , case when l.order_created_date is not null and l.order_created_date > timestamp('1901-01-01') and l.order_created_date < timestamp('2040-01-01')
+               then cast(date_format(l.order_created_date, 'yyyyMMdd') as int)
+               else null end                                          as order_date_key
+        , case when l.SHIPPINGDATEREQUESTED is not null and l.SHIPPINGDATEREQUESTED > timestamp('1901-01-01') and l.SHIPPINGDATEREQUESTED < timestamp('2040-01-01')
                then cast(date_format(l.SHIPPINGDATEREQUESTED, 'yyyyMMdd') as int)
-               else null end                                          as requested_ship_date_key
+               else null end                                          as requested_ship_date_key  -- Placeholder dates on/after 2040-01-01 or on/before 1901-01-01 null out with their key per spec 7.6 (152 rows live).
         , cast(null as int) as confirmed_ship_date_key  -- Source once available: no WMS-confirmed-ship-date source registered in this project
-        , cast(null as int) as actual_ship_date_key  -- Source once available: SalesLine.SALESDELIVERNOW/INVENTDELIVERNOW exist but are 0 for every row in live data (confirmed 2026-09-15) -- no usable shipment-quantity or actual-ship-date signal from D365 BYOD; needs a WMS source
+        , cast(null as int) as actual_ship_date_key  -- Source once available: SalesLine.SALESDELIVERNOW/INVENTDELIVERNOW exist but are 0 for every row in live data -- no usable shipment-quantity or actual-ship-date signal from D365 BYOD; needs a WMS source
         , cast(null as int) as delivery_date_key  -- Phase 2 per spec
-        , case when l.SALESTYPE = 4 and l.RETURNARRIVALDATE is not null and l.RETURNARRIVALDATE > timestamp('1900-01-01')
+        , case when l.SALESTYPE = 4 and l.RETURNARRIVALDATE is not null and l.RETURNARRIVALDATE > timestamp('1901-01-01') and l.RETURNARRIVALDATE < timestamp('2040-01-01')
                then cast(date_format(l.RETURNARRIVALDATE, 'yyyyMMdd') as int)
-               else null end                                          as return_date_key
+               else null end                                          as return_date_key  -- Same placeholder rule as requested_ship_date_key (spec 7.6) -- 1901 floor paired with a 2040 ceiling (25,020 rows live sit below the floor; none currently sit above the ceiling).
         , cast(null as int) as cancel_date_key  -- Source once available: no dedicated cancellation-date field found on SalesLine -- MODIFIEDDATE reflects the row's last change generally, not confirmed to be the cancellation event specifically
         , l.product_key
         , l.customer_key
         , cast(null as bigint) as ship_to_customer_key  -- Phase 2 per spec
         , l.sales_channel_key
         , l.warehouse_key
-        , cast(null as bigint) as employee_sales_hierarchy_key  -- Source once available: no worker/sales-rep table found in the warehouse scan -- shared gap with FACT_ORDER_LINE and FACT_SALES_INVOICE
+        , cast(-1 as bigint)                                          as employee_sales_hierarchy_key  -- Coalesced to the reserved -1 UNKNOWN member rather than left null (same as FACT_ORDER_LINE/FACT_SALES_INVOICE) -- no worker/sales-rep table found, shared gap until EDW-19.
         , cast(null as bigint) as campaign_key  -- Phase 2 per spec
         , cast(null as bigint) as promotion_key  -- Phase 2 per spec
         , cast(null as bigint) as customer_segment_key  -- Phase 2 per spec
 
     -- Dates
-        , cast(l.order_created_date as date)                          as order_date
-        , cast(l.SHIPPINGDATEREQUESTED as date)                       as requested_ship_date
+        , case when l.order_created_date is not null and l.order_created_date > timestamp('1901-01-01') and l.order_created_date < timestamp('2040-01-01')
+               then cast(l.order_created_date as date)
+               else null end                                          as order_date
+        , case when l.SHIPPINGDATEREQUESTED is not null and l.SHIPPINGDATEREQUESTED > timestamp('1901-01-01') and l.SHIPPINGDATEREQUESTED < timestamp('2040-01-01')
+               then cast(l.SHIPPINGDATEREQUESTED as date)
+               else null end                                          as requested_ship_date
         , cast(null as date) as confirmed_ship_date  -- Source once available: see confirmed_ship_date_key
         , cast(null as date) as actual_ship_date  -- Source once available: see actual_ship_date_key
         , cast(null as date) as delivery_date  -- Phase 2 per spec
         , cast(null as date) as cancel_date  -- Source once available: see cancel_date_key
-        , case when l.SALESTYPE = 4 and l.RETURNARRIVALDATE is not null and l.RETURNARRIVALDATE > timestamp('1900-01-01')
+        , case when l.SALESTYPE = 4 and l.RETURNARRIVALDATE is not null and l.RETURNARRIVALDATE > timestamp('1901-01-01') and l.RETURNARRIVALDATE < timestamp('2040-01-01')
                then cast(l.RETURNARRIVALDATE as date)
                else null end                                          as return_date
         , cast(null as date) as return_request_date  -- Phase 2 per spec
 
     -- Status
-    -- D365 SalesStatus enum (confirmed via FACT_ORDER_LINE build, 2026-09-11):
-    -- 0=None, 1=Backorder, 2=Delivered, 3=Invoiced, 4=Canceled. Mapped to the
-    -- spec's conformed status set as a best-effort reading, NOT yet validated
-    -- with Nick/Ops -- Business Rule 7.1 explicitly calls for this validation.
-    -- Backorder -> Confirmed (allocated, awaiting pick, per the spec's own
-    -- description of Confirmed) and Invoiced -> Shipped (no separate shipped
-    -- signal exists in this BYOD extract; invoicing is the closest available
-    -- proxy for "handed to carrier"). Picked/Packed have no source at all.
+    -- D365 SalesStatus enum: 0=None, 1=Backorder, 2=Delivered, 3=Invoiced,
+    -- 4=Canceled. Mapped to the spec's Phase 1 conformed status set per
+    -- Business Rule 7.1. Backorder -> Confirmed and Invoiced -> Shipped (no
+    -- separate shipped signal exists in this BYOD extract; invoicing is the
+    -- closest available proxy). Picked/Packed have no source at all.
         , case
             when l.SALESTYPE = 4 then 'Returned'
             when l.SALESSTATUS = 0 then 'Open'
@@ -312,7 +335,11 @@ final as (
             when l.SALESSTATUS = 4 then 'Cancelled'
             else cast(l.SALESSTATUS as string)
           end                                                         as order_line_status
-        , cast(null as string) as order_type  -- Source once available: D365 SalesType enum label mapping unconfirmed (Open Decision 2, same gap as FACT_ORDER_LINE) -- is_return_flag below is derived from the raw SALESTYPE value directly, not from this label
+        , case
+            when l.SALESTYPE = 3 then 'Sales Order'
+            when l.SALESTYPE = 4 then 'Return Order'
+            else 'Unknown'
+          end                                                         as order_type  -- D365 SalesType label mapping per spec 7.7/C6 -- 3 = Sales Order, 4 = Return Order, else Unknown. is_return_flag below still derives from the raw SALESTYPE value directly.
         , case when l.SALESTYPE = 4 then true else false end          as is_return_flag
         , case when l.SALESSTATUS = 4 or l.REVQTYCANCELLED > 0 then true else false end as is_cancelled_flag
         , case when l.SALESSTATUS = 1 then true else false end        as is_backordered_flag  -- Reflects SalesStatus = Backorder as of the current ETL run, not true backorder history -- same current-state caveat as FACT_ORDER_LINE's order_line_status_at_creation
@@ -325,10 +352,10 @@ final as (
         , l.QTYORDERED                                                 as ordered_qty
         , cast(null as decimal(18,4)) as confirmed_qty  -- Source once available: no confirmed-availability quantity field found separate from QTYORDERED
         , cast(null as decimal(18,4)) as picked_qty  -- Phase 2 per spec
-        , cast(null as decimal(18,4)) as shipped_qty  -- Source once available: SalesLine.SALESDELIVERNOW/INVENTDELIVERNOW exist but are 0 for every row in live data (confirmed 2026-09-15, both SalesType 3 and 4) -- no usable shipped-quantity signal in this BYOD extract; needs a WMS source. open_qty below is null as a direct consequence.
+        , cast(null as decimal(18,4)) as shipped_qty  -- Source once available: SalesLine.SALESDELIVERNOW/INVENTDELIVERNOW exist but are 0 for every row in live data -- no usable shipped-quantity signal in this BYOD extract; needs a WMS source. open_qty below is null as a direct consequence.
         , cast(null as decimal(18,4)) as delivered_qty  -- Phase 2 per spec
         , l.REVQTYCANCELLED                                            as cancelled_qty
-        , case when l.SALESTYPE = 4 then abs(l.QTYORDERED) end        as returned_qty  -- Return lines carry QTYORDERED negative in live data (191,916 of 216,723 return lines) -- abs() to express as a positive returned quantity per spec
+        , case when l.SALESTYPE = 4 then abs(l.QTYORDERED) end        as returned_qty  -- Return lines carry QTYORDERED negative in live data -- abs() to express as a positive returned quantity per spec
         , cast(null as decimal(18,4)) as backordered_qty  -- Source once available: is_backordered_flag exists but no separate backordered-quantity field found
         , cast(null as decimal(18,4)) as open_qty  -- Source once available: formula is ordered_qty - shipped_qty - cancelled_qty per spec 7.4, and shipped_qty has no source -- see above
         , coalesce(nullif(l.SALESUNIT, ''), 'ea')                     as qty_uom
@@ -336,9 +363,9 @@ final as (
     -- Amounts
         , l.SALESPRICE                                                 as unit_price
         , l.QTYORDERED * l.SALESPRICE                                  as line_amount
-        , l.LINEDISC                                                   as line_discount_amount
-        , (l.QTYORDERED * l.SALESPRICE) - l.LINEDISC                   as net_line_amount
-        , case when l.SALESTYPE = 4 then abs(l.QTYORDERED) * l.SALESPRICE end as return_amount
+        , {{ amount('l.QTYORDERED * l.LINEDISC') }}                    as line_discount_amount  -- LINEDISC is a per-unit amount, not a line total, per spec 7.5 (same as FACT_ORDER_LINE/FACT_SALES_INVOICE).
+        , {{ amount('l.LINEAMOUNT') }}                                 as net_line_amount  -- Sourced from SalesLine.LINEAMOUNT directly (source truth) instead of re-derived from QTYORDERED * SALESPRICE - LINEDISC -- the derived formula only ties on 2,676,078 of 2,838,957 lines (94.3%) live.
+        , case when l.SALESTYPE = 4 then {{ amount('abs(l.LINEAMOUNT)') }} end as return_amount  -- Net of discount per spec 7.5: abs(LINEAMOUNT) on return lines, not abs(QTYORDERED) * SALESPRICE, which ignores discount entirely.
         , l.CURRENCYCODE                                               as transaction_currency_code
         , cast(null as decimal(19,8)) as fx_rate_to_usd  -- Phase 2 per spec
         , cast(null as decimal(19,4)) as net_line_amount_usd  -- Phase 2 per spec
@@ -347,7 +374,7 @@ final as (
         , cast(null as string) as return_reason_code  -- Source once available: no return-reason-code field or reference table found anywhere in the BYOD extract -- Open Decision 4
         , cast(null as string) as return_reason_description  -- Source once available: see return_reason_code
         , cast(null as string) as return_reason_category  -- Source once available: see return_reason_code
-        , cast(null as string) as return_disposition_code  -- Phase 2 per spec, though the raw source (SalesLine.RETURNDISPOSITIONCODEID) is already available and 88.5% populated on return lines (191,966 of 216,723) -- left null-with-note per this project's phase-boundary convention, not a real data gap
+        , cast(null as string) as return_disposition_code  -- Phase 2 per spec, though the raw source (SalesLine.RETURNDISPOSITIONCODEID) is already available and 88.5% populated on return lines -- left null-with-note per this project's phase-boundary convention, not a real data gap
         , cast(null as string) as return_condition_code  -- Phase 2 per spec
         , cast(null as string) as refund_method  -- Phase 2 per spec
 
