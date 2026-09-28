@@ -1,5 +1,14 @@
 {{ config(materialized = 'table') }}
 
+{% if empty_extract_guard(ref('bronze_d365_price_disc_table'), 1) %}
+
+SELECT
+    *
+FROM
+    {{ this }}
+
+{% else %}
+
 -- MODULE = 2 (Purchase) per D365's PriceDiscTable module enum -- confirmed
 -- against live data via ACCOUNTRELATION overlap with VendTable (20 of 21
 -- accounts match; MODULE = 1 rows are Sales/customer agreements, 0 match).
@@ -9,3 +18,5 @@ FROM
     {{ ref('bronze_d365_price_disc_table') }}
 WHERE
     MODULE = 2
+
+{% endif %}
