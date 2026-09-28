@@ -1,6 +1,20 @@
 {{ config(materialized = 'table') }}
 
-with deduped as (
+with snap_clean as (
+
+    select
+
+          * except (effective_date)
+        , case
+            when effective_date = date'1900-01-01' then cast(null as date)
+            else effective_date
+          end as effective_date
+
+    from {{ ref('silver_snapshot_fact_product_cost') }}
+
+),
+
+deduped as (
 
     select
 
@@ -17,7 +31,7 @@ with deduped as (
         -- this, both versions survived into the final table (1,101 duplicate keys found
         -- in dev, split PLM/LANDED 823 + D365/STANDARD 278, always exactly 2 rows/group).
 
-    from {{ ref('silver_snapshot_fact_product_cost') }} snap
+    from snap_clean snap
 
 ),
 
@@ -60,7 +74,27 @@ vendor_keyed as (
     left join {{ ref('dim_vendor') }} dv
         on dv.vendor_id = v.vendor_id
         and dv.source_system = 'D365'
-        and dv.is_current_row = 1
+        and dv.version_number = 1
+
+),
+
+fx_applied as (
+
+    select
+
+          k.*
+        , case
+            when k.cost_currency_code = 'USD' then cast(1.0 as decimal(19, 8))
+            else fx.fx_rate_to_usd
+          end as fx_rate_to_usd_resolved
+
+    from vendor_keyed k
+    left join {{ ref('silver_d365_exchange_rate') }} fx
+        on k.cost_currency_code <> 'USD'
+        and fx.from_currency_code = k.cost_currency_code
+        and fx.to_currency_code = 'USD'
+        and coalesce(k.effective_date, cast(k.d365_cost_update_datetime as date), current_date())
+            between cast(fx.valid_from_date as date) and cast(fx.valid_to_date as date)
 
 ),
 
@@ -70,7 +104,7 @@ final as (
 
           xxhash64(v.product_id, v.cost_type, v.source_system, cast(v.effective_date as string)) as product_cost_key
 
-        , v.product_key
+        , coalesce(v.product_key, '-1') as product_key
         , v.product_id
         , v.sku
         , v.source_system
@@ -106,11 +140,11 @@ final as (
         , v.plm_estimated_tariff_pct
 
         , v.cost_currency_code
-        , v.fx_rate_to_usd
-        , v.standard_cost_unit_usd
-        , v.landed_cost_unit_usd
-        , v.vendor_cost_unit_usd
-        , v.plm_estimated_cost_unit_usd
+        , v.fx_rate_to_usd_resolved as fx_rate_to_usd
+        , v.standard_cost_unit * v.fx_rate_to_usd_resolved as standard_cost_unit_usd
+        , v.landed_cost_unit * v.fx_rate_to_usd_resolved as landed_cost_unit_usd
+        , v.vendor_cost_unit * v.fx_rate_to_usd_resolved as vendor_cost_unit_usd
+        , v.plm_estimated_cost_unit * v.fx_rate_to_usd_resolved as plm_estimated_cost_unit_usd
 
         , case when v.version_number = 1 and v.effective_end_datetime is null then cast(1 as boolean) else cast(0 as boolean) end as is_current
         -- EDW-94 A3: a row can be "most recent by start date" but still closed
@@ -158,7 +192,7 @@ final as (
         , v.etl_update_datetime
         , v.row_hash
 
-    from vendor_keyed v
+    from fx_applied v
 
 )
 
