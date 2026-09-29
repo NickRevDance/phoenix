@@ -69,6 +69,7 @@ date,calendar_type,event_name,is_working_day
 2007-11-22,US,Thanksgiving,1
 2007-11-23,Company,Day after Thanksgiving,0
 2007-11-23,US,Day after Thanksgiving,1
+2007-12-24,Company,Christmas Eve,0
 2007-12-25,Canada,Christmas Day,1
 2007-12-25,Company,Christmas Day,0
 2007-12-25,US,Christmas Day,1
@@ -94,6 +95,7 @@ date,calendar_type,event_name,is_working_day
 2008-11-27,US,Thanksgiving,1
 2008-11-28,Company,Day after Thanksgiving,0
 2008-11-28,US,Day after Thanksgiving,1
+2008-12-24,Company,Christmas Eve,0
 2008-12-25,Canada,Christmas Day,1
 2008-12-25,Company,Christmas Day,0
 2008-12-25,US,Christmas Day,1
@@ -119,6 +121,7 @@ date,calendar_type,event_name,is_working_day
 2009-11-26,US,Thanksgiving,1
 2009-11-27,Company,Day after Thanksgiving,0
 2009-11-27,US,Day after Thanksgiving,1
+2009-12-24,Company,Christmas Eve,0
 2009-12-25,Canada,Christmas Day,1
 2009-12-25,Company,Christmas Day,0
 2009-12-25,US,Christmas Day,1
@@ -194,6 +197,7 @@ date,calendar_type,event_name,is_working_day
 2012-11-22,US,Thanksgiving,1
 2012-11-23,Company,Day after Thanksgiving,0
 2012-11-23,US,Day after Thanksgiving,1
+2012-12-24,Company,Christmas Eve,0
 2012-12-25,Canada,Christmas Day,1
 2012-12-25,Company,Christmas Day,0
 2012-12-25,US,Christmas Day,1
@@ -219,6 +223,7 @@ date,calendar_type,event_name,is_working_day
 2013-11-28,US,Thanksgiving,1
 2013-11-29,Company,Day after Thanksgiving,0
 2013-11-29,US,Day after Thanksgiving,1
+2013-12-24,Company,Christmas Eve,0
 2013-12-25,Canada,Christmas Day,1
 2013-12-25,Company,Christmas Day,0
 2013-12-25,US,Christmas Day,1
@@ -244,6 +249,7 @@ date,calendar_type,event_name,is_working_day
 2014-11-27,US,Thanksgiving,1
 2014-11-28,Company,Day after Thanksgiving,0
 2014-11-28,US,Day after Thanksgiving,1
+2014-12-24,Company,Christmas Eve,0
 2014-12-25,Canada,Christmas Day,1
 2014-12-25,Company,Christmas Day,0
 2014-12-25,US,Christmas Day,1
@@ -269,6 +275,7 @@ date,calendar_type,event_name,is_working_day
 2015-11-26,US,Thanksgiving,1
 2015-11-27,Company,Day after Thanksgiving,0
 2015-11-27,US,Day after Thanksgiving,1
+2015-12-24,Company,Christmas Eve,0
 2015-12-25,Canada,Christmas Day,1
 2015-12-25,Company,Christmas Day,0
 2015-12-25,US,Christmas Day,1
@@ -344,6 +351,7 @@ date,calendar_type,event_name,is_working_day
 2018-11-22,US,Thanksgiving,1
 2018-11-23,Company,Day after Thanksgiving,0
 2018-11-23,US,Day after Thanksgiving,1
+2018-12-24,Company,Christmas Eve,0
 2018-12-25,Canada,Christmas Day,1
 2018-12-25,Company,Christmas Day,0
 2018-12-25,US,Christmas Day,1
@@ -369,6 +377,7 @@ date,calendar_type,event_name,is_working_day
 2019-11-28,US,Thanksgiving,1
 2019-11-29,Company,Day after Thanksgiving,0
 2019-11-29,US,Day after Thanksgiving,1
+2019-12-24,Company,Christmas Eve,0
 2019-12-25,Canada,Christmas Day,1
 2019-12-25,Company,Christmas Day,0
 2019-12-25,US,Christmas Day,1
@@ -394,6 +403,7 @@ date,calendar_type,event_name,is_working_day
 2020-11-26,US,Thanksgiving,1
 2020-11-27,Company,Day after Thanksgiving,0
 2020-11-27,US,Day after Thanksgiving,1
+2020-12-24,Company,Christmas Eve,0
 2020-12-25,Canada,Christmas Day,1
 2020-12-25,Company,Christmas Day,0
 2020-12-25,US,Christmas Day,1
@@ -407,6 +417,7 @@ date,calendar_type,event_name,is_working_day
 2021-05-24,Canada,Victoria Day,1
 2021-05-31,Company,Memorial Day,0
 2021-05-31,US,Memorial Day,1
+2021-06-18,Company,Juneteenth (Observed),0
 2021-06-19,US,Juneteenth,1
 2021-07-01,Canada,Canada Day,1
 2021-07-04,US,Independence Day,1
@@ -435,6 +446,7 @@ date,calendar_type,event_name,is_working_day
 2022-05-30,Company,Memorial Day,0
 2022-05-30,US,Memorial Day,1
 2022-06-19,US,Juneteenth,1
+2022-06-20,Company,Juneteenth (Observed),0
 2022-07-01,Canada,Canada Day,1
 2022-07-04,Company,Independence Day,0
 2022-07-04,US,Independence Day,1
@@ -461,10 +473,12 @@ date,calendar_type,event_name,is_working_day
 2023-05-22,Canada,Victoria Day,1
 2023-05-29,Company,Memorial Day,0
 2023-05-29,US,Memorial Day,1
+2023-06-19,Company,Juneteenth,0
 2023-06-19,US,Juneteenth,1
 2023-07-01,Canada,Canada Day,1
 2023-07-04,Company,Independence Day,0
 2023-07-04,US,Independence Day,1
+2023-07-05,Company,Independence Day (Bridge),0
 2023-08-07,Canada,Civic Holiday,1
 2023-09-04,Canada,Labour Day,1
 2023-09-04,Company,Labor Day,0
@@ -479,6 +493,7 @@ date,calendar_type,event_name,is_working_day
 2023-12-25,Company,Christmas Day,0
 2023-12-25,US,Christmas Day,1
 2023-12-26,Canada,Boxing Day,1
+2023-12-26,Company,Christmas Day (Bridge),0
 2024-01-01,Canada,New Year's Day,1
 2024-01-01,Company,New Year's Day,0
 2024-01-01,US,New Year's Day,1
@@ -488,10 +503,12 @@ date,calendar_type,event_name,is_working_day
 2024-05-20,Canada,Victoria Day,1
 2024-05-27,Company,Memorial Day,0
 2024-05-27,US,Memorial Day,1
+2024-06-19,Company,Juneteenth,0
 2024-06-19,US,Juneteenth,1
 2024-07-01,Canada,Canada Day,1
 2024-07-04,Company,Independence Day,0
 2024-07-04,US,Independence Day,1
+2024-07-05,Company,Independence Day (Bridge),0
 2024-08-05,Canada,Civic Holiday,1
 2024-09-02,Canada,Labour Day,1
 2024-09-02,Company,Labor Day,0
@@ -502,6 +519,7 @@ date,calendar_type,event_name,is_working_day
 2024-11-28,US,Thanksgiving,1
 2024-11-29,Company,Day after Thanksgiving,0
 2024-11-29,US,Day after Thanksgiving,1
+2024-12-24,Company,Christmas Eve,0
 2024-12-25,Canada,Christmas Day,1
 2024-12-25,Company,Christmas Day,0
 2024-12-25,US,Christmas Day,1
@@ -515,6 +533,7 @@ date,calendar_type,event_name,is_working_day
 2025-05-19,Canada,Victoria Day,1
 2025-05-26,Company,Memorial Day,0
 2025-05-26,US,Memorial Day,1
+2025-06-19,Company,Juneteenth,0
 2025-06-19,US,Juneteenth,1
 2025-07-01,Canada,Canada Day,1
 2025-07-04,Company,Independence Day,0
@@ -529,6 +548,7 @@ date,calendar_type,event_name,is_working_day
 2025-11-27,US,Thanksgiving,1
 2025-11-28,Company,Day after Thanksgiving,0
 2025-11-28,US,Day after Thanksgiving,1
+2025-12-24,Company,Christmas Eve,0
 2025-12-25,Canada,Christmas Day,1
 2025-12-25,Company,Christmas Day,0
 2025-12-25,US,Christmas Day,1
@@ -542,6 +562,7 @@ date,calendar_type,event_name,is_working_day
 2026-05-18,Canada,Victoria Day,1
 2026-05-25,Company,Memorial Day,0
 2026-05-25,US,Memorial Day,1
+2026-06-19,Company,Juneteenth,0
 2026-06-19,US,Juneteenth,1
 2026-07-01,Canada,Canada Day,1
 2026-07-03,Company,Independence Day (Observed),0
@@ -556,6 +577,7 @@ date,calendar_type,event_name,is_working_day
 2026-11-26,US,Thanksgiving,1
 2026-11-27,Company,Day after Thanksgiving,0
 2026-11-27,US,Day after Thanksgiving,1
+2026-12-24,Company,Christmas Eve,0
 2026-12-25,Canada,Christmas Day,1
 2026-12-25,Company,Christmas Day,0
 2026-12-25,US,Christmas Day,1
@@ -569,6 +591,7 @@ date,calendar_type,event_name,is_working_day
 2027-05-24,Canada,Victoria Day,1
 2027-05-31,Company,Memorial Day,0
 2027-05-31,US,Memorial Day,1
+2027-06-18,Company,Juneteenth (Observed),0
 2027-06-19,US,Juneteenth,1
 2027-07-01,Canada,Canada Day,1
 2027-07-04,US,Independence Day,1
@@ -596,6 +619,7 @@ date,calendar_type,event_name,is_working_day
 2028-05-22,Canada,Victoria Day,1
 2028-05-29,Company,Memorial Day,0
 2028-05-29,US,Memorial Day,1
+2028-06-19,Company,Juneteenth,0
 2028-06-19,US,Juneteenth,1
 2028-07-01,Canada,Canada Day,1
 2028-07-04,Company,Independence Day,0
@@ -623,6 +647,7 @@ date,calendar_type,event_name,is_working_day
 2029-05-21,Canada,Victoria Day,1
 2029-05-28,Company,Memorial Day,0
 2029-05-28,US,Memorial Day,1
+2029-06-19,Company,Juneteenth,0
 2029-06-19,US,Juneteenth,1
 2029-07-01,Canada,Canada Day,1
 2029-07-04,Company,Independence Day,0
@@ -637,6 +662,7 @@ date,calendar_type,event_name,is_working_day
 2029-11-22,US,Thanksgiving,1
 2029-11-23,Company,Day after Thanksgiving,0
 2029-11-23,US,Day after Thanksgiving,1
+2029-12-24,Company,Christmas Eve,0
 2029-12-25,Canada,Christmas Day,1
 2029-12-25,Company,Christmas Day,0
 2029-12-25,US,Christmas Day,1
@@ -650,6 +676,7 @@ date,calendar_type,event_name,is_working_day
 2030-05-20,Canada,Victoria Day,1
 2030-05-27,Company,Memorial Day,0
 2030-05-27,US,Memorial Day,1
+2030-06-19,Company,Juneteenth,0
 2030-06-19,US,Juneteenth,1
 2030-07-01,Canada,Canada Day,1
 2030-07-04,Company,Independence Day,0
@@ -664,6 +691,7 @@ date,calendar_type,event_name,is_working_day
 2030-11-28,US,Thanksgiving,1
 2030-11-29,Company,Day after Thanksgiving,0
 2030-11-29,US,Day after Thanksgiving,1
+2030-12-24,Company,Christmas Eve,0
 2030-12-25,Canada,Christmas Day,1
 2030-12-25,Company,Christmas Day,0
 2030-12-25,US,Christmas Day,1
@@ -677,6 +705,7 @@ date,calendar_type,event_name,is_working_day
 2031-05-19,Canada,Victoria Day,1
 2031-05-26,Company,Memorial Day,0
 2031-05-26,US,Memorial Day,1
+2031-06-19,Company,Juneteenth,0
 2031-06-19,US,Juneteenth,1
 2031-07-01,Canada,Canada Day,1
 2031-07-04,Company,Independence Day,0
@@ -691,6 +720,7 @@ date,calendar_type,event_name,is_working_day
 2031-11-27,US,Thanksgiving,1
 2031-11-28,Company,Day after Thanksgiving,0
 2031-11-28,US,Day after Thanksgiving,1
+2031-12-24,Company,Christmas Eve,0
 2031-12-25,Canada,Christmas Day,1
 2031-12-25,Company,Christmas Day,0
 2031-12-25,US,Christmas Day,1
@@ -704,6 +734,7 @@ date,calendar_type,event_name,is_working_day
 2032-05-24,Canada,Victoria Day,1
 2032-05-31,Company,Memorial Day,0
 2032-05-31,US,Memorial Day,1
+2032-06-18,Company,Juneteenth (Observed),0
 2032-06-19,US,Juneteenth,1
 2032-07-01,Canada,Canada Day,1
 2032-07-04,US,Independence Day,1
@@ -732,6 +763,7 @@ date,calendar_type,event_name,is_working_day
 2033-05-30,Company,Memorial Day,0
 2033-05-30,US,Memorial Day,1
 2033-06-19,US,Juneteenth,1
+2033-06-20,Company,Juneteenth (Observed),0
 2033-07-01,Canada,Canada Day,1
 2033-07-04,Company,Independence Day,0
 2033-07-04,US,Independence Day,1
@@ -758,6 +790,7 @@ date,calendar_type,event_name,is_working_day
 2034-05-22,Canada,Victoria Day,1
 2034-05-29,Company,Memorial Day,0
 2034-05-29,US,Memorial Day,1
+2034-06-19,Company,Juneteenth,0
 2034-06-19,US,Juneteenth,1
 2034-07-01,Canada,Canada Day,1
 2034-07-04,Company,Independence Day,0
@@ -785,6 +818,7 @@ date,calendar_type,event_name,is_working_day
 2035-05-21,Canada,Victoria Day,1
 2035-05-28,Company,Memorial Day,0
 2035-05-28,US,Memorial Day,1
+2035-06-19,Company,Juneteenth,0
 2035-06-19,US,Juneteenth,1
 2035-07-01,Canada,Canada Day,1
 2035-07-04,Company,Independence Day,0
@@ -799,6 +833,7 @@ date,calendar_type,event_name,is_working_day
 2035-11-22,US,Thanksgiving,1
 2035-11-23,Company,Day after Thanksgiving,0
 2035-11-23,US,Day after Thanksgiving,1
+2035-12-24,Company,Christmas Eve,0
 2035-12-25,Canada,Christmas Day,1
 2035-12-25,Company,Christmas Day,0
 2035-12-25,US,Christmas Day,1
@@ -812,6 +847,7 @@ date,calendar_type,event_name,is_working_day
 2036-05-19,Canada,Victoria Day,1
 2036-05-26,Company,Memorial Day,0
 2036-05-26,US,Memorial Day,1
+2036-06-19,Company,Juneteenth,0
 2036-06-19,US,Juneteenth,1
 2036-07-01,Canada,Canada Day,1
 2036-07-04,Company,Independence Day,0
@@ -826,6 +862,7 @@ date,calendar_type,event_name,is_working_day
 2036-11-27,US,Thanksgiving,1
 2036-11-28,Company,Day after Thanksgiving,0
 2036-11-28,US,Day after Thanksgiving,1
+2036-12-24,Company,Christmas Eve,0
 2036-12-25,Canada,Christmas Day,1
 2036-12-25,Company,Christmas Day,0
 2036-12-25,US,Christmas Day,1
