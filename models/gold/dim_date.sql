@@ -9,19 +9,32 @@
 -- =============================================================================
 -- DIM_DATE - Gold Layer conformed date dimension
 -- Revolution Dancewear - AI/BI Data Gold Layer
--- Implements: DIM_DATE Gold Layer Specification v2.0 (Sections 3, 7, 8)
+-- Implements: DIM_DATE Gold Layer Specification v2.1 (Sections 2.6, 3, 7, 8)
 -- Grain: one row per calendar date, 2005-01-01 through 2036-12-31 (11,688 rows)
+--        plus the reserved UNKNOWN member (date_key = -1)
 --
 -- Day-of-week fields use deterministic anchor-date arithmetic instead of
 -- dialect week functions, per spec Section 7.2 ("must NOT rely on default
 -- SQL Server or Databricks week functions"):
 --   2005-01-02 was a Sunday; 2005-01-03 was a Monday.
 --
--- EDW-9 sign-off remediation (items 1, 2, 4 - item 3 blocked on spec v2.1):
+-- EDW-9 sign-off remediation (EDW-88 items 1, 2, 4):
 --   1. date/timestamp boundary columns cast to DATE - dateadd()/quarter-end
 --      arithmetic return TIMESTAMP in Databricks, spec Section 3 wants DATE.
 --   2. date_key/date enforced NOT NULL via post_hook (Delta ALTER COLUMN).
+--
+-- EDW-143 (spec v2.1 Section 7.4): calendar-day pacing derives from true
+-- fiscal period boundaries, not from a count over the table. Only FY2005 and
+-- FY2037, the two years truncated by the table range, change value.
+--
+-- Run date for the dynamic flags (spec v2.1 Section 2.6): computed explicitly
+-- in America/Chicago rather than with current_date(), which follows the SQL
+-- warehouse session timezone (UTC on this workspace). Without this, a build
+-- between 7 PM and midnight Chicago stamps is_today on tomorrow's row. The
+-- to_utc/from_utc pair makes the expression correct under any session zone.
 -- =============================================================================
+
+{% set run_date = "to_date(from_utc_timestamp(to_utc_timestamp(current_timestamp(), current_timezone()), 'America/Chicago'))" %}
 
 with date_spine as (
 
@@ -263,25 +276,28 @@ with_holidays as (
 
 ),
 
--- Pending spec v2.1 (EDW-9 item 3): fiscal_year_total_days/fiscal_days_elapsed
--- still derive from count(*) over the table, not true fiscal-year boundaries -
--- only wrong for FY2005/FY2037, the two years truncated by the table range.
--- Do not change until Chris Mathis publishes v2.1 Section 7.4.
+-- Calendar-day pacing from true period boundaries (spec v2.1 Section 7.4).
+-- A count(*) over the table understates FY2005 (begins 2004-07-01) and
+-- FY2037 (ends 2037-06-30), which the 2005-2036 spine truncates. Fiscal
+-- months are calendar months and fiscal quarters are calendar quarters, so
+-- those boundaries come straight from the calendar columns. Cast to bigint
+-- to keep the column types the count(*) version produced.
+-- Working-day pacing stays table-bounded by design (spec v2.1 Section 7.4).
 with_pacing as (
 
     select
         wh.*,
-        -- Pacing - FY (calendar days)
-        count(*)      over (partition by wh.fiscal_year)                  as fiscal_year_total_days,
-        count(*)      over (partition by wh.fiscal_year order by wh.date) as fiscal_days_elapsed,
+        -- Pacing - FY (calendar days): FY runs Jul 1 (fiscal_year - 1) to Jun 30 (fiscal_year)
+        cast(datediff(day, make_date(wh.fiscal_year - 1, 7, 1), make_date(wh.fiscal_year, 6, 30)) + 1 as bigint)
+                                                                          as fiscal_year_total_days,
+        cast(wh.fiscal_year_day as bigint)                                as fiscal_days_elapsed,
         -- Pacing - FM
-        count(*)      over (partition by wh.fiscal_year, wh.fiscal_month) as fiscal_month_total_days,
-        count(*)      over (partition by wh.fiscal_year, wh.fiscal_month order by wh.date)
-                                                                          as fiscal_month_days_elapsed,
+        cast(day(wh.last_day_of_month) as bigint)                         as fiscal_month_total_days,
+        cast(wh.day_of_month as bigint)                                   as fiscal_month_days_elapsed,
         -- Pacing - FQ
-        count(*)      over (partition by wh.fiscal_year, wh.fiscal_quarter)
+        cast(datediff(day, wh.first_day_of_quarter, wh.last_day_of_quarter) + 1 as bigint)
                                                                           as fiscal_quarter_total_days,
-        count(*)      over (partition by wh.fiscal_year, wh.fiscal_quarter order by wh.date)
+        cast(datediff(day, wh.first_day_of_quarter, wh.date) + 1 as bigint)
                                                                           as fiscal_quarter_days_elapsed,
         -- Pacing - WD (working days)
         sum(case when wh.is_working_day then 1 else 0 end)
@@ -403,17 +419,18 @@ select
     working_days_in_fiscal_month,
     working_days_elapsed_fm,
     working_days_in_fiscal_month - working_days_elapsed_fm                as working_days_remaining_fm,
-    -- Dynamic flags: recomputed on every dbt run (spec 2.6)
-    date =  current_date()                                                as is_today,
-    date <  current_date()                                                as is_past,
-    date <= current_date()                                                as is_past_or_today,
-    date >  current_date()                                                as is_future,
-    current_date() between first_day_of_month and last_day_of_month       as is_current_calendar_month,
-    current_date() between first_day_of_month and last_day_of_month       as is_current_fiscal_month,
-    current_date() between retail_period_start_date and retail_period_end_date
+    -- Dynamic flags: recomputed on every dbt run against the America/Chicago
+    -- run date (spec 2.6), never the session-zone current_date().
+    date =  {{ run_date }}                                                as is_today,
+    date <  {{ run_date }}                                                as is_past,
+    date <= {{ run_date }}                                                as is_past_or_today,
+    date >  {{ run_date }}                                                as is_future,
+    {{ run_date }} between first_day_of_month and last_day_of_month       as is_current_calendar_month,
+    {{ run_date }} between first_day_of_month and last_day_of_month       as is_current_fiscal_month,
+    {{ run_date }} between retail_period_start_date and retail_period_end_date
                                                                           as is_current_retail_period,
-    date >= add_months(trunc(current_date(), 'MM'), -13)
-        and date <= current_date()                                        as is_last_13_months,
+    date >= add_months(trunc({{ run_date }}, 'MM'), -13)
+        and date <= {{ run_date }}                                        as is_last_13_months,
     -- Audit
     'dbt_generated'                                                       as source_system,
     current_timestamp()                                                   as gold_refresh_datetime
