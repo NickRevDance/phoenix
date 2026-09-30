@@ -3,13 +3,15 @@ version: 2
 models:
   - name: dim_date
     description: >
-      Gold Layer conformed date dimension per DIM_DATE Specification v2.0.
+      Gold Layer conformed date dimension per DIM_DATE Specification v2.1.
       One row per calendar date, 2005-01-01 through 2036-12-31 (11,688 rows),
       plus a reserved UNKNOWN member (date_key = -1) for fact rows whose
       source date was a D365 unset-date placeholder rather than a real date.
       Calendar, fiscal (July 1 start), and NRF 4-5-4 retail calendars in one
-      table. Dynamic flags are recomputed on every run and are excluded from
-      the Type 0 guarantee.
+      table. Dynamic flags are recomputed on every run against the
+      America/Chicago run date and are excluded from the Type 0 guarantee.
+      Calendar-day pacing derives from true fiscal period boundaries (v2.1);
+      working-day pacing is table-bounded and short for FY2005 and FY2037.
     columns:
       - name: date_key
         description: Surrogate integer key (YYYYMMDD, or -1 for the reserved UNKNOWN member). Primary key and FK target for all fact tables.
