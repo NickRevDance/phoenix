@@ -1,0 +1,33 @@
+version: 2
+
+models:
+  - name: ref_return_reason_category
+    description: >
+      REF_RETURN_REASON_CATEGORY (FACT_ORDERS_RETURNS spec 7.8, EDW-149) --
+      BI-maintained map of D365 SalesTable.RETURNREASONCODEID to a conformed
+      return_reason_category, built straight from the return_reason_category
+      seed (a classification, not history: no effective dating, no snapshot).
+      33 codes plus the blank-code row. Feeds return_reason_category on
+      FACT_ORDERS_RETURNS (EDW-58): a return row takes the category of its
+      code, a blank code reads Other through the blank-code row, and a code
+      with no row here lands in Other and shows on
+      return_reason_codes_all_mapped until it is added to the seed.
+    columns:
+      - name: return_reason_code
+        description: >
+          D365 return reason code exactly as sourced (case and spacing
+          kept, for example 'Lost Retur', 'Extra Item'). The blank-code row
+          carries an empty string, which is what D365 stores on a return
+          order with no reason; a consumer that nulls blank codes joins on
+          coalesce(return_reason_code, '').
+        tests: [is_valid_key]
+      - name: return_reason_category
+        description: One of six conformed categories.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Fit', 'Preference', 'Quality', 'Fulfillment', 'Customer', 'Other']
+      - name: classification_owner
+        description: Business role that owns the mapping (role, never a person).
+      - name: classified_date
+        description: Date the row's category was ratified.
