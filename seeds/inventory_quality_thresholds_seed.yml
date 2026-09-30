@@ -4,8 +4,11 @@ seeds:
   - name: inventory_quality_thresholds_seed
     description: >
       Business-maintained source of record for REF_INVENTORY_QUALITY_THRESHOLDS
-      (spec 8.2). Loaded as-is from the EDW-48 attachment (13 active settings,
-      scope ALL, effective 2026-09-16). All columns loaded as string;
+      (spec 8.2). 25 active settings: the 13 scope ALL rows from the EDW-48
+      attachment (effective 2026-09-16) plus twelve sub-group season-window
+      rows for Costume, Bodywear, Shoes and Tights (effective 2026-09-29,
+      Inventory Quality Season Windows Decision Record v1.0, decision I3;
+      EDW-168). All columns loaded as string;
       silver_stage_ref_inventory_quality_thresholds casts real types.
     config:
       column_types:
