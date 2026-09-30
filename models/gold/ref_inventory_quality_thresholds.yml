@@ -9,9 +9,10 @@ models:
       pattern: threshold_key hashes setting_name + scope_product_subgroup +
       effective_start_date (version-distinct, not stable across versions);
       is_active (seed-maintained) is the current-row indicator -- no
-      version_number, no row_hash, no separate current-row view; filter
-      ref_inventory_quality_thresholds directly. See README.md for the
-      sub-group-then-ALL consumption pattern.
+      version_number, no row_hash. v_ref_inventory_quality_thresholds_current
+      is the active-row view. Consumers read the active row for the product's
+      sub-group and fall back to the scope ALL row when the sub-group has
+      none (season windows have sub-group rows from 2026-09-29, decision I3).
     columns:
       - name: threshold_key
         tests: [not_null, unique]
