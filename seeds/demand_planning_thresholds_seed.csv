@@ -1,0 +1,5 @@
+parameter_name,parameter_value,unit,is_active,effective_start_date,effective_end_date,notes
+trend_increasing_pct,0.15,percentage,1,2026-09-23,9999-12-31,"Increasing when demand_30d is at or above this change against the comparison window; stored as a fraction, 0.15 = +15 percent (O9)"
+trend_declining_pct,-0.15,percentage,1,2026-09-23,9999-12-31,"Declining when demand_30d is at or below this change against the comparison window; stored as a fraction, -0.15 = -15 percent (O9)"
+insufficient_units_60d,10,units,1,2026-09-23,9999-12-31,demand_trend_flag = Insufficient when the 60-day total is under this many units (O9)
+comparison_window_days,30,days,1,2026-09-23,9999-12-31,Window length in days for demand_trend_flag and demand_yoy_flag (O9)

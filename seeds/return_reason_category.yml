@@ -1,0 +1,18 @@
+version: 2
+
+seeds:
+  - name: return_reason_category
+    description: >
+      Business-maintained source of record for REF_RETURN_REASON_CATEGORY
+      (FACT_ORDERS_RETURNS spec 7.8, EDW-149). 33 D365 return reason codes
+      plus one blank-code row, each mapped to one of six categories (Customer
+      Service and Operations decision CS5, ratified 2026-09-25). A
+      correction is a row edit here, not a rebuild. All columns loaded as
+      string; ref_return_reason_category casts real types.
+    config:
+      column_types:
+        return_reason_code: string
+        return_reason_category: string
+        classification_owner: string
+        classified_date: string
+        notes: string
