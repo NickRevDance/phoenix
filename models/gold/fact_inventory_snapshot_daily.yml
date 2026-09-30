@@ -196,9 +196,34 @@ models:
       company-owned scope. Carries record_source_table as the seam label; the backfill window has
       a different population and cadence (weekly through 2025) and a different cost basis, so a
       trend across 2026-09-01 steps as an artefact. Sparse where spec 2.7 records a gap.
-      Demand-dependent metrics are NULL until EDW-51; below_safety_stock_flag and reorder_flag
-      are NULL (not computed) while their inputs are NULL, and compare against available_qty
-      summed to item + warehouse when they land.
+      Demand metrics (EDW-51) use the trailing 90 days before snapshot_date (var
+      inventory_demand_window_days) of FACT_SALES_INVOICE, net of returns, on product_key +
+      warehouse_key; NULL where either key is unresolved. Item + warehouse metrics repeat on each
+      status row, so do not sum them across status rows. below_safety_stock_flag is NULL while
+      safety_stock_qty is NULL (EDW-126); has_safety_stock_flag is 0 until then. reorder_flag is
+      out of scope (I2c).
+    columns:
+      - name: stockout_flag
+        tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+      - name: excess_inventory_flag
+        tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+      - name: below_safety_stock_flag
+        tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+      - name: has_safety_stock_flag
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [0, 1]
 
   - name: v_inventory_aging_summary
     description: >
