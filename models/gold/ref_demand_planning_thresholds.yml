@@ -1,0 +1,39 @@
+version: 2
+
+models:
+  - name: ref_demand_planning_thresholds
+    description: >
+      REF_DEMAND_PLANNING_THRESHOLDS (FACT_ORDER_LINE spec 9.2, EDW-150) --
+      externalized demand-planning configuration, effective-dated straight
+      from the business-maintained seed (no dbt snapshot). Follows the
+      ref_inventory_quality_thresholds pattern: threshold_key hashes
+      parameter_name + effective_start_date (version-distinct, not stable
+      across versions); is_active (seed-maintained) is the current-row
+      indicator. V_DEMAND_PLANNING (EDW-61) reads the active row per
+      parameter and never hardcodes a threshold, so changing a row changes
+      the flags on the next run with no model change.
+    columns:
+      - name: threshold_key
+        tests: [is_valid_key]
+      - name: parameter_name
+        description: >
+          trend_increasing_pct, trend_declining_pct, insufficient_units_60d
+          or comparison_window_days.
+        tests: [not_null]
+      - name: parameter_value
+        description: >
+          The threshold. Percentages are stored as fractions (0.15 = +15
+          percent), the same convention as ref_inventory_quality_thresholds.
+        tests: [not_null]
+      - name: unit
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['percentage', 'units', 'days']
+      - name: is_active
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+      - name: effective_start_date
+        tests: [not_null]
