@@ -10,8 +10,13 @@
 -- Demand: trailing {{ demand_window_days }} days before snapshot_date, FACT_SALES_INVOICE net of returns, all channels,
 -- attributed on product_key + warehouse_key (same join as last_sale_date). NULL when the
 -- snapshot row has no resolved product_key or warehouse_key.
--- NEEDS CONFIRMATION: excess_inventory_flag = 1 for stock with no demand in the window
--- (days_of_supply is undefined there), which goes beyond the literal "days_of_supply > 180".
+-- Excess (confirmed 2026-10-01, EDW-51): excess_inventory_flag = 1 for stock with no demand in
+-- the window (days_of_supply is undefined there). The 180-day test compares available x window
+-- against 180 x units, never a rounded daily rate, so an item at exactly 180 days is not flagged.
+-- Turnover: average on-hand standard cost uses snapshot points from the row's own branch only
+-- (native rows average native days, backfill rows average backfill days), because the two
+-- branches carry different cost bases; a point where stock has no cost is left out rather than
+-- averaged in as zero. Early native days therefore average over fewer than {{ demand_window_days }} days.
 -- NEEDS CONFIRMATION: the MADE_TO_ORDER exclusion (v2.7) is not applied; DIM_PRODUCT has no
 -- stocking_policy yet (EDW-144).
 
@@ -48,6 +53,7 @@ item_warehouse as (
         , sum(s.on_hand_qty)            as on_hand_qty_iw
         , sum(s.standard_cost_amount)   as inventory_cost_iw
         , max(s.safety_stock_qty)       as safety_stock_qty_iw
+        , max(case when s.record_source_table = {{ inventory_snapshot_branch_label('native') }} then 1 else 0 end) as is_native_branch  -- a snapshot date is one branch (seam 2026-09-01)
     from snapshot_scoped s
     group by 1, 2, 3
 
@@ -61,8 +67,13 @@ demand_points as (
         , datediff(iw.snapshot_date, date'1970-01-01') as day_num
         , cast(null as decimal(18,4))   as units_sold
         , cast(null as decimal(19,4))   as cogs_amount
-        , cast(iw.inventory_cost_iw as decimal(19,4)) as inventory_cost
+        , case
+            when iw.on_hand_qty_iw <> 0 and coalesce(iw.inventory_cost_iw, 0) = 0
+                then cast(null as decimal(19,4))  -- stock with no cost: the cost is missing, not zero
+            else cast(iw.inventory_cost_iw as decimal(19,4))
+          end                           as inventory_cost
         , 1                             as is_snapshot_point
+        , iw.is_native_branch
     from item_warehouse iw
     where iw.product_key is not null
       and cast(iw.product_key as string) <> '-1'
@@ -80,6 +91,7 @@ demand_events as (
         , cast(si.standard_cost_amount as decimal(19,4)) as cogs_amount
         , cast(null as decimal(19,4))   as inventory_cost
         , 0                             as is_snapshot_point
+        , cast(null as int)             as is_native_branch
     from {{ ref('fact_sales_invoice') }} si
     where si.product_key is not null
       and cast(si.product_key as string) <> '-1'
@@ -97,6 +109,7 @@ demand_windowed as (
         , u.warehouse_key
         , u.day_num
         , u.is_snapshot_point
+        , u.is_native_branch
         , sum(u.units_sold) over (
             partition by u.product_key, u.warehouse_key
             order by u.day_num
@@ -107,11 +120,17 @@ demand_windowed as (
             order by u.day_num
             range between {{ demand_window_days }} preceding and 1 preceding
           ) as cogs_window
-        , avg(u.inventory_cost) over (
+        -- one average per branch; the snapshot point picks its own branch in demand_calc
+        , avg(case when u.is_native_branch = 1 then u.inventory_cost end) over (
             partition by u.product_key, u.warehouse_key
             order by u.day_num
             range between {{ demand_window_days - 1 }} preceding and current row
-          ) as avg_inventory_cost_window
+          ) as avg_inventory_cost_native
+        , avg(case when u.is_native_branch = 0 then u.inventory_cost end) over (
+            partition by u.product_key, u.warehouse_key
+            order by u.day_num
+            range between {{ demand_window_days - 1 }} preceding and current row
+          ) as avg_inventory_cost_backfill
     from (
         select * from demand_points
         union all
@@ -128,7 +147,10 @@ demand_calc as (
         , w.day_num
         , greatest(coalesce(w.units_sold_window, 0), 0) as units_sold_window
         , greatest(coalesce(w.cogs_window, 0), 0)       as cogs_window
-        , w.avg_inventory_cost_window
+        , case
+            when w.is_native_branch = 1 then w.avg_inventory_cost_native
+            else w.avg_inventory_cost_backfill
+          end as avg_inventory_cost_window
     from demand_windowed w
     where w.is_snapshot_point = 1
 
@@ -144,8 +166,6 @@ metrics_base as (
         , dc.units_sold_window
         , dc.cogs_window
         , dc.avg_inventory_cost_window
-        , case when dc.units_sold_window is not null
-               then dc.units_sold_window / {{ demand_window_days }} end as avg_daily_demand
     from snapshot_scoped s
     inner join item_warehouse iw
         on s.snapshot_date = iw.snapshot_date
@@ -187,17 +207,17 @@ final as (
 
     -- Certified metrics
         , case
-            when m.avg_daily_demand > 0 and m.available_qty_iw is not null
-                then cast(greatest(m.available_qty_iw, 0) / m.avg_daily_demand as decimal(18,4))
-          end as days_of_supply  -- NULL = no demand in the window or not computable
+            when m.units_sold_window > 0 and m.available_qty_iw is not null
+                then cast(greatest(m.available_qty_iw, 0) * {{ demand_window_days }} / m.units_sold_window as decimal(18,4))
+          end as days_of_supply  -- available / (units / window), multiplied through so no rounded daily rate; NULL = no demand in the window or not computable
         , case
-            when m.avg_daily_demand > 0 and m.available_qty_iw is not null
-                then cast(greatest(m.available_qty_iw, 0) / (m.avg_daily_demand * 7) as decimal(18,4))
+            when m.units_sold_window > 0 and m.available_qty_iw is not null
+                then cast(greatest(m.available_qty_iw, 0) * {{ demand_window_days }} / (m.units_sold_window * 7) as decimal(18,4))
           end as weeks_of_cover
         , case
             when m.cogs_window is not null and m.avg_inventory_cost_window > 0
                 then cast((m.cogs_window * 365.0 / {{ demand_window_days }}) / m.avg_inventory_cost_window as decimal(18,4))
-          end as inventory_turnover  -- annualized trailing COGS (standard cost) / average on-hand standard cost over the window
+          end as inventory_turnover  -- annualized trailing COGS (standard cost) / average on-hand standard cost over the window, same-branch costed points only
         , case
             when m.units_sold_window is null or m.available_qty_iw is null then cast(null as int)
             when m.available_qty_iw <= 0 and m.units_sold_window > 0 then 1
@@ -212,8 +232,8 @@ final as (
         , case
             when m.units_sold_window is null or m.available_qty_iw is null then cast(null as int)
             when m.available_qty_iw <= 0 then 0
-            when m.avg_daily_demand = 0 then 1
-            when m.available_qty_iw / m.avg_daily_demand > 180 then 1
+            when m.units_sold_window = 0 then 1  -- stock with no demand in the window (confirmed 2026-10-01)
+            when m.available_qty_iw * {{ demand_window_days }} > 180 * m.units_sold_window then 1  -- days_of_supply > 180, with no division
             else 0
           end as excess_inventory_flag
         , case

@@ -199,9 +199,12 @@ models:
       Demand metrics (EDW-51) use the trailing 90 days before snapshot_date (var
       inventory_demand_window_days) of FACT_SALES_INVOICE, net of returns, on product_key +
       warehouse_key; NULL where either key is unresolved. Item + warehouse metrics repeat on each
-      status row, so do not sum them across status rows. below_safety_stock_flag is NULL while
-      safety_stock_qty is NULL (EDW-126); has_safety_stock_flag is 0 until then. reorder_flag is
-      out of scope (I2c).
+      status row, so do not sum them across status rows. excess_inventory_flag is 1 for stock
+      with no demand in the window and for days_of_supply strictly over 180 (compared without a
+      rounded daily rate). inventory_turnover averages on-hand standard cost over snapshot points
+      from the row's own branch only (the branches carry different cost bases), leaving out points
+      where stock has no cost. below_safety_stock_flag is NULL while safety_stock_qty is NULL
+      (EDW-126); has_safety_stock_flag is 0 until then. reorder_flag is out of scope (I2c).
     columns:
       - name: stockout_flag
         tests:
@@ -213,6 +216,13 @@ models:
           - accepted_values:
               arguments:
                 values: [0, 1]
+          # EDW-51: nothing at or under 180 days of supply is flagged (guards the boundary)
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "= 0"
+              config:
+                where: "days_of_supply <= 180"
+                severity: warn
       - name: below_safety_stock_flag
         tests:
           - accepted_values:
