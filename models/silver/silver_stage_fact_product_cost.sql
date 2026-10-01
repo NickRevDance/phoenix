@@ -21,6 +21,11 @@ WITH dim_product_by_item as (
         , cp.FOBFullPrice as plm_fob_full_price
         , dp.effective_start_datetime
         , row_number() over (partition by dp.product_id order by dp.product_key) as rn
+        , row_number() over (
+            partition by dp.product_id
+            order by case when dp.plm_estimated_landed_cost is not null or dp.duty_percentage is not null or dp.tariff_percent is not null then 0 else 1 end
+                   , dp.product_key
+          ) as plm_rn  -- PLM data sits on some variants only, so the PLM_ESTIMATED row takes the first variant that has it
 
     FROM {{ ref('dim_product') }} dp
     LEFT JOIN {{ ref('silver_dwh_centric_product_current') }} cp
@@ -329,7 +334,7 @@ plm_estimated_cost as (
         , p.sku
 
     FROM dim_product_by_item p
-    WHERE p.rn = 1
+    WHERE p.plm_rn = 1
         and (p.plm_estimated_landed_cost is not null or p.duty_percentage is not null or p.tariff_percent is not null)  -- only emit a PLM_ESTIMATED row where PLM gave us something to track
 
 ),
