@@ -17,7 +17,7 @@ select
 
     , c.current_landed_cost_unit - c.current_standard_cost_unit as standard_vs_landed_variance
     , c.current_vendor_cost_unit - c.current_standard_cost_unit as standard_vs_vendor_variance
-    , c.current_plm_estimated_cost_unit - c.current_standard_cost_unit as plm_vs_actual_variance
+    , c.current_landed_cost_unit - c.current_plm_estimated_landed_cost_unit as plm_vs_actual_variance
 
 from {{ ref('v_product_cost_current') }} c
 left join {{ ref('dim_product') }} d
