@@ -8,19 +8,42 @@
 -- branch has no movement counterpart (spec 2.5). Scope is ALL statuses and
 -- warehouses on purpose; include_in_std_metrics_flag does NOT apply here --
 -- this is physical accounting, not a certified metric view.
+-- MOVEMENT WINDOW (EDW-93, 2026-10-01): a snapshot holds movement up to the
+-- moment it was captured, and movement is date-grain. The nightly run
+-- captures the snapshot dated D at about 1 AM Chicago, so it holds movement
+-- through D - 1; a snapshot captured in the afternoon or evening of D (a
+-- failed nightly run, or a second prod build the same day) holds D as well.
+-- Each snapshot therefore gets a movement cutoff date from its own capture
+-- time (the latest etl_insert_datetime on its rows, Chicago time): the capture
+-- date when captured at or after noon, otherwise the day before. A pair is
+-- explained by movement dated after the start cutoff, through the end cutoff.
+-- The earlier window, (s0, s1] on the snapshot dates themselves, was one day
+-- late for every 1 AM capture and turned each weekday pair into variance that
+-- reversed in the next pair. Sep 1 to Oct 1 2026, 24 pairs: 43,412 variance
+-- groups on that window, 11,627 on this one, never more on any pair.
+-- A hand-made correction that INSERTs snapshot rows must keep the original
+-- etl_insert_datetime, or the day's cutoff moves.
+-- WHAT STILL SHOWS AS VARIANCE, by design or by timing:
+--   1. -GT locations: goods in transit sit at the -GT location and the ITMGIT
+--      layer (ReferenceCategory 110) is excluded from the movement fact, so a
+--      voyage receipt shows as movement at the warehouse and as a snapshot
+--      change at its -GT location. The two cancel across the pair of locations.
+--   2. Back-dated postings: a voyage receipt is dated at the ship date but can
+--      post days later. The movement lands in an earlier period than the
+--      snapshot change and the two variances cancel across periods.
+--   3. Mid-day captures: a snapshot captured during the working day holds
+--      part of that day's movement, and no date cutoff can split a day.
 -- Grain note: spec's "activity on either side" is read here as either the
 -- snapshot or the movement side, not snapshot alone -- a movement-only combo
 -- with no snapshot footprint at either end is exactly the kind of gap this
 -- view exists to surface, so it's included (as a non-zero variance) rather
 -- than silently dropped.
--- DQ flag: as of 2026-09-01, ~10% of native snapshot rows carry a null
--- product_key (no dim_product match) and a meaningful share carry a null
--- inventory_status_code (a stale pre-fix merge, not a live join miss --
--- silver_d365_inventory_sum/_dim join clean at the source). Both are
--- coalesced to a single bucket ('UNMATCHED_PRODUCT' / 'UNKNOWN') per
--- warehouse so this view reconciles in total rather than fanning out on the
--- missing keys; this collapses distinct unmatched SKUs together and is a
--- real precision loss, not a fix for the underlying gaps
+-- Unresolved products: both facts resolve product_key through the D365
+-- barcode path and leave it NULL where the UPC is not in DIM_PRODUCT
+-- (EDW-134). NULL keys are coalesced to one 'UNMATCHED_PRODUCT' bucket per
+-- warehouse and status so the view reconciles in total rather than fanning
+-- out on the missing keys; distinct unmatched variants are collapsed together
+-- there, which is a precision loss, not a fix.
 
 with native_snapshot as (
 
@@ -34,6 +57,7 @@ with native_snapshot as (
         , warehouse_id
         , inventory_status_code
         , on_hand_qty
+        , etl_insert_datetime
 
     from {{ ref('fact_inventory_snapshot_daily') }}
     where record_source_table = {{ inventory_snapshot_branch_label('native') }}  -- EDW-117 item 5: branch constant via macro, never a literal (the Sep 1 2026 label drift silently excluded a day here)
@@ -65,8 +89,23 @@ snapshot_agg as (
 
 distinct_dates as (
 
-    select distinct snapshot_date_key, snapshot_date
-    from snapshot_agg
+    -- One row per native snapshot date, with the last movement date that
+    -- snapshot holds (see MOVEMENT WINDOW in the header).
+
+    select
+
+          snapshot_date_key
+        , snapshot_date
+        , cast(date_format(
+            case
+                when hour(from_utc_timestamp(max(etl_insert_datetime), 'America/Chicago')) >= 12
+                    then cast(from_utc_timestamp(max(etl_insert_datetime), 'America/Chicago') as date)
+                else date_sub(cast(from_utc_timestamp(max(etl_insert_datetime), 'America/Chicago') as date), 1)
+            end
+          , 'yyyyMMdd') as int) as movement_cutoff_date_key
+
+    from native_snapshot
+    group by 1, 2
 
 ),
 
@@ -80,8 +119,10 @@ snapshot_dates as (
 
           snapshot_date_key
         , snapshot_date
+        , movement_cutoff_date_key
         , lag(snapshot_date_key) over (order by snapshot_date) as period_start_date_key
         , lag(snapshot_date)     over (order by snapshot_date) as period_start_date
+        , lag(movement_cutoff_date_key) over (order by snapshot_date) as period_start_movement_cutoff_date_key
 
     from distinct_dates
 
@@ -98,6 +139,8 @@ date_pairs as (
         , period_start_date
         , snapshot_date_key as period_end_date_key
         , snapshot_date     as period_end_date
+        , period_start_movement_cutoff_date_key
+        , movement_cutoff_date_key as period_end_movement_cutoff_date_key
 
     from snapshot_dates
     where period_start_date_key is not null  -- the earliest native date has no prior pair
@@ -171,10 +214,10 @@ snapshot_combined as (
 
 movement_net as (
 
-    -- (s0, s1]: exclusive of period start, inclusive of period end -- matches
-    -- spec 5.7's delta method exactly. Same 'UNMATCHED_PRODUCT'/'UNKNOWN'
-    -- sentinel keying as snapshot_agg so the two sides can join without a
-    -- null mismatch.
+    -- Movement dated after the start snapshot's cutoff, through the end
+    -- snapshot's cutoff (see MOVEMENT WINDOW in the header). Same
+    -- 'UNMATCHED_PRODUCT'/'UNKNOWN' sentinel keying as snapshot_agg so the two
+    -- sides can join without a null mismatch.
 
     select
 
@@ -196,8 +239,8 @@ movement_net as (
 
     from date_pairs dp
     inner join {{ ref('fact_inventory_movement') }} m
-        on  m.movement_date_key >  dp.period_start_date_key
-        and m.movement_date_key <= dp.period_end_date_key
+        on  m.movement_date_key >  dp.period_start_movement_cutoff_date_key
+        and m.movement_date_key <= dp.period_end_movement_cutoff_date_key
 
     group by 1, 2, 3, 5, 7
 
@@ -241,6 +284,8 @@ final as (
 
           c.period_start_date_key
         , c.period_end_date_key
+        , dp.period_start_movement_cutoff_date_key  -- movement is counted after this date ...
+        , dp.period_end_movement_cutoff_date_key    -- ... through this date
         , nullif(c.product_key, 'UNMATCHED_PRODUCT') as product_key  -- sentinel marks the "no dim_product match" bucket, see header note
         , c.product_id
         , c.warehouse_key
@@ -264,6 +309,9 @@ final as (
           end as reconciliation_status
 
     from combined c
+    inner join date_pairs dp
+        on  c.period_start_date_key = dp.period_start_date_key
+        and c.period_end_date_key   = dp.period_end_date_key
 
 )
 

@@ -84,3 +84,13 @@ vars:
     - 'Artwork Fee'
     - 'Customization Fee'
     - 'ACCESSREQ'
+    # EDW-93 (2026-10-01): catalogs, welcome packets, price lists and a refund service item
+    # that the CAT-% pattern does not catch. All zero cost, none in DIM_PRODUCT, none on hand.
+    - '2026CATPKG'
+    - 'REVWELCOMEPK'
+    - 'CNDWELCOMEPK'
+    - 'CST'
+    - 'CST10'
+    - 'PRICELIST'
+    - 'CAT'
+    - 'ShipRefund'

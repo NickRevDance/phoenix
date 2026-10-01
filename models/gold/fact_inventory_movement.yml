@@ -3,23 +3,79 @@ version: 2
 models:
   - name: fact_inventory_movement
     description: >
-      FACT_INVENTORY_MOVEMENT -- incremental/merge accumulating fact of
-      D365 inventory transaction movements (spec 3.4). See project
-      memory fact_inventory_movement_rebuild.md for build history, known
-      reconciliation caveats, and the transfer-pair / status-change
-      pairing logic.
+      FACT_INVENTORY_MOVEMENT (Inventory Gold Layer spec, Section 3) -- one row per posted
+      D365 inventory transaction leg, the certified record of business movement from
+      2023-07-01 (D365 go-live). Incremental merge on inventory_movement_key. Excluded at
+      source (spec 3.4): warehouse work (201, 203), the ITMGIT goods-in-transit layer (110),
+      unposted legs (26, NULL, placeholder dates), transfer-order legs at a -T transit
+      location, and the non-merchandise service items the snapshot fact also leaves out. The
+      fact reconciles to InventTrans on net movement, not row for row. Product resolves
+      through the D365 barcode path (variant to UPC to DIM_PRODUCT), the same path as
+      FACT_INVENTORY_SNAPSHOT_DAILY; unresolved rows keep a NULL product_key and are reported,
+      never dropped. Transfer and status-change legs carry their counterparty; those legs are
+      re-read on every run so a pair completes even when its legs post days apart. Vendor
+      receipts on a voyage are dated at the ship date and land in the -GT location first; the
+      arrival at the warehouse is an ITMGIT leg and is not in this fact. The model header
+      carries the full rules.
+    tests:
+      # EDW-93 item A: a paired leg never keeps a NULL counterparty
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "from_warehouse_key is not null and to_warehouse_key is not null"
+          config:
+            where: "movement_type in ('TRANSFER_IN', 'TRANSFER_OUT')"
+            severity: warn
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "counterparty_inventory_status_code is not null"
+          config:
+            where: "movement_type = 'STATUS_CHANGE'"
+            severity: warn
     columns:
       - name: inventory_movement_key
+        description: "Surrogate key: xxhash64 of the D365 InventTrans RECID. The incremental merge key."
         tests:
           - is_valid_key
       - name: movement_datetime
+        description: "Physical movement date (D365 DATEPHYSICAL). Date grain in the source: midnight on every row."
         tests:
           - not_null
+      - name: product_key
+        description: >
+          FK to DIM_PRODUCT (md5(UPC)), resolved through the D365 item barcode table: variant
+          (item + size + colour) to UPC to the latest DIM_PRODUCT version. NULL where the UPC is
+          not in DIM_PRODUCT (EDW-134), the variant has no barcode row, or the item is the
+          made-to-order studio apparel family (EDW-144).
       - name: movement_type
         tests:
           - not_null
           - accepted_values:
               values: ['RECEIPT', 'SHIPMENT', 'RETURN', 'TRANSFER_OUT', 'TRANSFER_IN', 'STATUS_CHANGE', 'ADJUSTMENT', 'UNKNOWN']
+      - name: receipt_document_id
+        description: >
+          D365 packing slip id. On vendor receipts about 4 percent carry one; the rest post
+          through the landed-cost voyage process, which raises no product receipt. NULL, never
+          an empty string, when the leg posted without one.
       - name: quantity_change
         tests:
           - not_null
+      - name: unit_cost_at_movement
+        description: >
+          Posted physical cost per unit (COSTAMOUNTPHYSICAL / QTY). A zero is a posted zero
+          (made-to-order and other zero-cost items), not a missing value.
+      - name: is_quantity_anomaly_flag
+        description: >
+          True when the leg's quantity is at or over the anomaly threshold (var
+          inventory_movement_anomaly_qty_threshold, default 1,000,000 units): D365 keying
+          errors that were reversed the same day. Four rows today (about 821 billion units
+          each, RC23947 on 2024-12-26 and RD70000 on 2025-06-13). The rows stay in the fact
+          and net to one unit; a gross total by movement type should filter the flag.
+        tests:
+          # warn: the column is NULL on history until the fact is full-refreshed once
+          - not_null:
+              config:
+                severity: warn
+      - name: counterparty_inventory_status_code
+        description: >
+          STATUS_CHANGE legs only: the other side's status on the same voucher (the to-status
+          on the issue leg, the from-status on the receipt leg). NULL on every other type.
