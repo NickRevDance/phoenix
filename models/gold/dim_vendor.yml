@@ -27,11 +27,13 @@ models:
         tests:
           - not_null
           - accepted_values:
-              values: ['Merchandise Supplier', 'Intercompany', 'Service Provider', 'Unclassified', 'Reserved']
+              arguments:
+                values: ['Merchandise Supplier', 'Intercompany', 'Service Provider', 'Unclassified', 'Reserved']
       - name: vendor_status
         tests:
           - accepted_values:
-              values: ['Active', 'Suspended', 'Blocked', 'Payment Blocked', 'Requisition Blocked', 'Never Blocked', 'Unknown']
+              arguments:
+                values: ['Active', 'Suspended', 'Blocked', 'Payment Blocked', 'Requisition Blocked', 'Never Blocked', 'Unknown']
 
   - name: v_dim_vendor_current
     description: >
