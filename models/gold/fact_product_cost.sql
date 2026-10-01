@@ -123,6 +123,7 @@ final as (
 
         , v.standard_cost_unit
         , v.landed_cost_unit
+        , v.goods_cost_unit
         , v.freight_cost_unit
         , v.duty_cost_unit
         , v.tariff_cost_unit

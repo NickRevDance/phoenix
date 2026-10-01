@@ -40,14 +40,46 @@ models:
         description: >
           FK to DIM_VENDOR. 0 (NO_VENDOR) on non-VENDOR cost_type rows,
           -1 (UNKNOWN) if a VENDOR row's vendor_id has no DIM_VENDOR match.
+      - name: cost_subtype
+        description: >
+          PURCHASE_TRADE_AGREEMENT (STANDARD), VENDOR_TRADE_AGREEMENT
+          (VENDOR), VOYAGE_ACTUAL (LANDED), PLM_ESTIMATE (PLM_ESTIMATED).
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['PURCHASE_TRADE_AGREEMENT', 'VENDOR_TRADE_AGREEMENT', 'VOYAGE_ACTUAL', 'PLM_ESTIMATE']
+      - name: standard_cost_unit
+        description: >
+          Purchase price per unit from the D365 purchase trade agreement.
+          Where variants carry different open prices, the modal price
+          across variants, ties to the lower (Decision Record v1.0, B).
+      - name: landed_cost_unit
+        description: >
+          LANDED rows: goods_cost_unit plus the actual components, exactly
+          (D365 voyage actuals). PLM_ESTIMATED rows: the Centric landed-cost
+          estimate.
+      - name: goods_cost_unit
+        description: >
+          PO line value per unit at the voyage (LINEAMOUNTMST / SHIPQTY,
+          from the Duty row, any row otherwise). The goods base for landed
+          cost. LANDED rows only.
       - name: freight_cost_unit
         description: >
-          Lifetime average $/unit from voyage cost allocation history for
-          the item; re-versions whenever a new voyage lands (EDW-94 A6).
+          Ocean, Air and Land voyage cost per unit, quantity-weighted over
+          the 365 days ending at the item's latest allocation. LANDED rows
+          only; re-versions only when a new voyage lands.
+      - name: duty_cost_unit
+        description: >
+          All-in customs charge per unit from D365 voyage cost type Duty.
+          Includes tariffs; D365 does not split them. LANDED rows only.
+      - name: tariff_cost_unit
+        description: >
+          NULL on LANDED rows; see duty_cost_unit. The estimated split is
+          on the PLM_ESTIMATED row.
       - name: brokerage_cost_unit
         description: >
-          Lifetime average $/unit from voyage cost allocation history for
-          the item; re-versions whenever a new voyage lands (EDW-94 A6).
+          Commission voyage cost per unit, same window as freight_cost_unit.
+          Last allocation 2023, so NULL or zero on most items.
       - name: fx_rate_to_usd
         description: >
           USD spot rate for cost_currency_code as of the row's effective_date
