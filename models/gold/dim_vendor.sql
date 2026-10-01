@@ -8,14 +8,19 @@ with business_vendors as (
         , snap_v.vendor_id
         , snap_v.source_system
         , snap_v.vendor_name
-        , snap_v.vendor_short_name
-        , snap_v.vendor_type
+        , coalesce(stg.vendor_short_name, snap_v.vendor_short_name) as vendor_short_name
+        , case
+            when snap_v.vendor_group = 'Inventory' then 'Merchandise Supplier'
+            when snap_v.vendor_group = 'Interco' then 'Intercompany'
+            when snap_v.vendor_group is null or trim(snap_v.vendor_group) = '' then 'Unclassified'
+            else 'Service Provider'
+          end as vendor_type
         , snap_v.vendor_subtype
         , snap_v.vendor_group
         , snap_v.vendor_category
         , snap_v.primary_contact_name
-        , snap_v.primary_contact_email
-        , snap_v.primary_contact_phone
+        , coalesce(stg.primary_contact_email, snap_v.primary_contact_email) as primary_contact_email
+        , coalesce(stg.primary_contact_phone, snap_v.primary_contact_phone) as primary_contact_phone
         , snap_v.vendor_website
         , snap_v.address_line_1
         , snap_v.address_line_2
@@ -39,11 +44,11 @@ with business_vendors as (
         , snap_v.country_of_origin_primary
         , snap_v.vendor_status
         , snap_v.active_flag
-        , snap_v.effective_start_date
-        , snap_v.effective_end_date
-        , snap_v.d365_vendor_account
-        , snap_v.d365_vendor_group_id
-        , snap_v.d365_party_number
+        , snap_v.effective_start_date as vendor_start_date
+        , snap_v.effective_end_date as vendor_end_date
+        , coalesce(stg.d365_vendor_account, snap_v.d365_vendor_account) as d365_vendor_account
+        , coalesce(stg.d365_vendor_group_id, snap_v.d365_vendor_group_id) as d365_vendor_group_id
+        , coalesce(stg.d365_party_number, snap_v.d365_party_number) as d365_party_number
         , snap_v.record_source_table
         , snap_v.vendor_change_hash
         , snap_v.etl_insert_datetime
@@ -54,6 +59,9 @@ with business_vendors as (
         , {{ scd2_version_number('snap_v.vendor_key') }} as version_number
 
     from {{ ref('silver_snapshot_dim_vendor') }} snap_v
+    left join {{ ref('silver_stage_dim_vendor') }} stg
+        on snap_v.vendor_id = stg.vendor_id
+        and snap_v.source_system = stg.source_system
 
 ),
 
@@ -105,8 +113,8 @@ reserved_members as (
         , cast(null as string)                         as country_of_origin_primary
         , 'Active'                                     as vendor_status
         , 1                                            as active_flag
-        , cast(null as date)                           as effective_start_date
-        , cast(null as date)                           as effective_end_date
+        , cast(null as date)                           as vendor_start_date
+        , cast(null as date)                           as vendor_end_date
         , 'UNKNOWN'                                    as d365_vendor_account
         , cast(null as string)                         as d365_vendor_group_id
         , cast(null as string)                         as d365_party_number
@@ -157,8 +165,8 @@ reserved_members as (
         , cast(null as string)                         as country_of_origin_primary
         , 'Active'                                     as vendor_status
         , 1                                            as active_flag
-        , cast(null as date)                           as effective_start_date
-        , cast(null as date)                           as effective_end_date
+        , cast(null as date)                           as vendor_start_date
+        , cast(null as date)                           as vendor_end_date
         , 'NO_VENDOR'                                  as d365_vendor_account
         , cast(null as string)                         as d365_vendor_group_id
         , cast(null as string)                         as d365_party_number
