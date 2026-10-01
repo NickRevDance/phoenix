@@ -19,22 +19,26 @@ models:
       - name: vendor_key
         tests:
           - relationships:
-              to: ref('dim_vendor')
-              field: vendor_key
+              arguments:
+                to: ref('dim_vendor')
+                field: vendor_key
       - name: product_key
         tests:
           - relationships:
-              to: ref('dim_product')
-              field: product_key
+              arguments:
+                to: ref('dim_product')
+                field: product_key
       - name: warehouse_key
         tests:
           - relationships:
-              to: ref('dim_warehouse')
-              field: warehouse_key
+              arguments:
+                to: ref('dim_warehouse')
+                field: warehouse_key
       - name: receipt_status
         tests:
           - accepted_values:
-              values: ['Not Received', 'Partially Received', 'Fully Received']
+              arguments:
+                values: ['Not Received', 'Partially Received', 'Fully Received']
               config:
                 where: "receipt_status is not null"
 
@@ -81,3 +85,9 @@ models:
 #   - ordered_qty (PURCHQTY) and received_qty now guard against a fat-
 #     fingered outlier and 780 negative-received-qty lines respectively --
 #     see silver_stage_fact_purchase_order.sql.
+#   - v_fact_purchase_order_current now has its own `models:` entry above
+#     (description + is_valid_key test on purchase_order_key), matching
+#     the v_dim_vendor_current / v_metrics_order_fulfillment precedent --
+#     corrected 2026-09-21 after Nick confirmed the file itself was
+#     already live in the repo/dbt docs; the gap was the missing yml
+#     documentation entry, not a missing file.

@@ -31,6 +31,7 @@ WITH dim_product_by_item as (
     LEFT JOIN {{ ref('silver_dwh_centric_product_current') }} cp
         ON cp.UPC = dp.UPC
     WHERE dp.version_number = 1
+      AND dp.product_key <> '{{ unknown_member_key() }}'
 
 ),
 
