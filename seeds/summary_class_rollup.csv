@@ -1,0 +1,12 @@
+summary_class,reporting_category_group,reporting_category_group_sort,reporting_subcategory,reporting_subcategory_sort,loyalty_reporting_category,loyalty_reporting_category_sort,classification_owner,classified_date,notes
+2Die4 Costume,Costumes,1,2Die4,11,Costumes,1,Marketing,2026-09-03,Costume line; tier-qualifying spend
+Art Stone Costumes,Costumes,1,Art Stone Costumes,12,Costumes,1,Marketing,2026-09-03,Costume line; tier-qualifying spend
+Revolution Costume,Costumes,1,Revolution Costumes,13,Costumes,1,Marketing,2026-09-03,Costume line; tier-qualifying spend
+Tenth House Costume,Costumes,1,Tenth House Costumes,14,Costumes,1,Marketing,2026-09-03,Costume line; tier-qualifying spend
+Bags & Accessories,Dancewear,2,Bags and Accessories,21,Dancewear (excl. Tights),2,Marketing,2026-09-03,Dancewear in both views
+Revolution Bodywear,Dancewear,2,Bodywear,22,Dancewear (excl. Tights),2,Marketing,2026-09-03,Dancewear in both views
+Conventionwear,Dancewear,2,Convention Wear,23,Dancewear (excl. Tights),2,Marketing,2026-09-03,Dancewear in both views
+Revolution Shoes,Dancewear,2,Footwear,24,Dancewear (excl. Tights),2,Marketing,2026-09-03,Shoes are Footwear under Dancewear (Marketing decision Sep 3)
+Revolution Tights,Dancewear,2,Tights,25,Tights,3,Marketing,2026-09-03,Under Dancewear in the daily sales view; its own bucket in the loyalty view because tights earn at a different rate
+2Die4 DTC,2Die4 DTC,3,2Die4 DTC,31,Costumes,1,Marketing,2026-09-03,Its own top-level row in the daily sales view (Marketing decision Sep 3); counted with Costumes in the loyalty view as in the interim model
+Revolution Apparel,Revolution Apparel,4,Revolution Apparel,41,Branded Apparel,4,Marketing,2026-09-03,No DIM_PRODUCT row carries this class today (the studio apparel items are not in the dimension); kept so the reference matches the daily sales view
