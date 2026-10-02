@@ -17,8 +17,11 @@
 -- (native rows average native days, backfill rows average backfill days), because the two
 -- branches carry different cost bases; a point where stock has no cost is left out rather than
 -- averaged in as zero. Early native days therefore average over fewer than {{ demand_window_days }} days.
--- NEEDS CONFIRMATION: the MADE_TO_ORDER exclusion (v2.7) is not applied; DIM_PRODUCT has no
--- stocking_policy yet (EDW-144).
+-- Stocking policy (EDW-144, Merchandising decision M2): items marked MADE_TO_ORDER in
+-- ref_stocking_policy carry a seeded placeholder quantity that is not stock, and are left out
+-- on every date. The rule is keyed on product_id because the family is not in DIM_PRODUCT.
+-- Backfill rows of such an item have no product_id, only the UPC, so those are matched on the
+-- UPCs the item's native rows carry (every backfill UPC of the family has native rows).
 
 with status_scope as (
 
@@ -26,6 +29,24 @@ with status_scope as (
     from {{ ref('ref_inventory_status') }} st
     where st.is_current_row = 1
       and st.include_in_std_metrics_flag
+
+),
+
+made_to_order as (
+
+    select product_id
+    from {{ ref('ref_stocking_policy') }}
+    where stocking_policy = 'MADE_TO_ORDER'
+
+),
+
+made_to_order_upc as (
+
+    select distinct f.upc
+    from {{ ref('fact_inventory_snapshot_daily') }} f
+    inner join made_to_order mto
+        on f.product_id = mto.product_id
+    where f.upc is not null
 
 ),
 
@@ -37,6 +58,11 @@ snapshot_scoped as (
     from {{ ref('fact_inventory_snapshot_daily') }} f
     inner join status_scope st
         on f.inventory_status_code = st.inventory_status_code
+    -- EDW-144: stocked items only
+    left anti join made_to_order mto
+        on f.product_id = mto.product_id
+    left anti join made_to_order_upc mtu
+        on f.upc = mtu.upc
 
 ),
 
