@@ -3,21 +3,53 @@ version: 2
 models:
   - name: dim_product
     description: >
-      DIM_PRODUCT -- SCD Type 2 gold-layer product dimension, versioned
-      history via silver_snapshot_dim_product (one row per product_key
-      version, latest flagged version_number = 1 / is_current_row). See
-      v_dim_product_current for the current-row-only view most consumers
+      DIM_PRODUCT -- SCD Type 2 gold-layer product dimension at UPC grain (spec v1.3), versioned
+      history via silver_snapshot_dim_product (one row per product_key version, latest flagged
+      version_number = 1; is_current_row = 1 when that version is also open). Type 2 attributes
+      and the SCD2 controls come from the snapshot; Type 1 attributes are read from the current
+      silver_stage_dim_product row and apply to every version. A row requires a D365 item
+      (population rule, spec 3.5). Two reserved members are unioned in: product_key '-1'
+      (UNKNOWN, a product that could not be resolved) and '0' (NO_PRODUCT, no product by
+      design). All column names are snake_case. reporting_category_group,
+      reporting_subcategory and loyalty_reporting_category (EDW-125) come from
+      ref_summary_class_rollup on summary_class and read Other when the class is NULL or has
+      no rollup row. See v_dim_product_current for the current-row-only view most consumers
       should query, and README.md in this folder for build status.
+    tests:
+      # Grain: one row per product_key version
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - product_key
+              - version_number
     columns:
       - name: product_id
         tests:
           - not_null
+      - name: reporting_category_group
+        description: Daily sales view top level (Costumes, Dancewear, 2Die4 DTC, Revolution Apparel, Other).
+        tests:
+          - not_null
+      - name: reporting_subcategory
+        description: Daily sales view second level, one label per summary class; Other when unmapped.
+        tests:
+          - not_null
+      - name: loyalty_reporting_category
+        description: >
+          Revolution Rewards reporting category (Costumes, Dancewear (excl. Tights), Tights,
+          Branded Apparel, Other). Follows the earn rules, so Tights is its own bucket.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Costumes', 'Dancewear (excl. Tights)', 'Tights', 'Branded Apparel', 'Other']
 
   - name: v_dim_product_current
     description: >
-      Current-row view over dim_product (version_number = 1) with SCD2
+      Current-row view over dim_product (is_current_row = 1) with SCD2
       and internal metadata columns stripped -- the object most
-      consumers should query.
+      consumers should query. Includes the two reserved members so fact
+      relationships resolve.
     columns:
       - name: product_key
         tests:
