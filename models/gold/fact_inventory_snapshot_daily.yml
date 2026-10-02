@@ -185,10 +185,21 @@ models:
   - name: v_current_inventory
     description: >
       Latest snapshot per product + warehouse + status, company-owned scope
-      (REF_INVENTORY_STATUS include_in_std_metrics_flag = 1), with DIM_PRODUCT and DIM_WAREHOUSE
-      attributes (spec 5.1). Always inside the native window. Rows with a NULL product_key are
-      excluded by the dimension join and reported as a DQ exception. Supply columns are returned
-      unchanged at item + warehouse grain on the rank-1 status row (spec 2.6).
+      (REF_INVENTORY_STATUS include_in_std_metrics_flag = 1) and stocked items only
+      (REF_STOCKING_POLICY: MADE_TO_ORDER items carry a seeded placeholder quantity that is not
+      stock and are left out, EDW-144), with DIM_PRODUCT and DIM_WAREHOUSE attributes (spec 5.1).
+      Always inside the native window. Rows with a NULL product_key are kept with NULL product
+      attributes and reported as a DQ exception. Supply columns are returned unchanged at item +
+      warehouse grain on the rank-1 status row (spec 2.6).
+    columns:
+      - name: stocking_policy
+        description: >
+          From REF_STOCKING_POLICY on product_id, STOCKED when the item has no row there. Always
+          STOCKED in this view; exposed so the scope is visible to the consumer.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['STOCKED']
 
   - name: v_metrics_inventory_daily
     description: >
@@ -196,6 +207,8 @@ models:
       company-owned scope. Carries record_source_table as the seam label; the backfill window has
       a different population and cadence (weekly through 2025) and a different cost basis, so a
       trend across 2026-09-01 steps as an artefact. Sparse where spec 2.7 records a gap.
+      Stocked items only: MADE_TO_ORDER items (REF_STOCKING_POLICY, EDW-144) are left out on
+      every date, matched on product_id and, for backfill rows that carry no product_id, on UPC.
       Demand metrics (EDW-51) use the trailing 90 days before snapshot_date (var
       inventory_demand_window_days) of FACT_SALES_INVOICE, net of returns, on product_key +
       warehouse_key; NULL where either key is unresolved. Item + warehouse metrics repeat on each
@@ -237,8 +250,8 @@ models:
 
   - name: v_inventory_aging_summary
     description: >
-      Pre-bucketed aging per product + warehouse on the latest snapshot, company-owned scope
-      (spec 5.3). age_bucket is NULL until the Aging field group is sourced from
+      Pre-bucketed aging per product + warehouse on the latest snapshot, company-owned scope and
+      stocked items only (MADE_TO_ORDER left out, EDW-144; spec 5.3). age_bucket is NULL until the Aging field group is sourced from
       FACT_INVENTORY_MOVEMENT receipts. Same seam and cost-basis rules as the fact.
 
   - name: v_partner_inventory

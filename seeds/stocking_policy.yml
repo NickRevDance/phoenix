@@ -1,0 +1,19 @@
+version: 2
+
+seeds:
+  - name: stocking_policy
+    description: >
+      Business-maintained source of record for REF_STOCKING_POLICY (DIM_PRODUCT spec
+      v1.3 Section 8, Inventory spec Section 5, EDW-144). One row per D365 item whose
+      stocking policy is not the default: an item with no row here is STOCKED. Today the
+      six made-to-order studio apparel items (266400 to 266405, Merchandising decision
+      M2, 2026-09-25), whose D365 on-hand quantity is a seeded placeholder so orders are
+      never blocked. A change is a row edit here, not a rebuild. All columns loaded as
+      string; ref_stocking_policy casts real types.
+    config:
+      column_types:
+        product_id: string
+        stocking_policy: string
+        classification_owner: string
+        classified_date: string
+        notes: string

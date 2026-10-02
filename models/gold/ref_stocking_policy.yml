@@ -1,0 +1,27 @@
+version: 2
+
+models:
+  - name: ref_stocking_policy
+    description: >
+      REF_STOCKING_POLICY (EDW-144) -- BI-maintained stocking policy by D365 item, built
+      straight from the stocking_policy seed (a classification, not history: no effective
+      dating, no snapshot). One row per item whose policy is not the default; an item with
+      no row is STOCKED. Six rows today, the made-to-order studio apparel items 266400 to
+      266405. The certified inventory views (v_current_inventory, v_metrics_inventory_daily,
+      v_inventory_aging_summary) leave MADE_TO_ORDER items out; the snapshot fact keeps
+      their rows so the exclusion stays visible and reversible.
+    columns:
+      - name: product_id
+        description: D365 item number (ITEMID), the item-grain key the inventory facts carry.
+        tests: [is_valid_key]
+      - name: stocking_policy
+        description: STOCKED or MADE_TO_ORDER. Only non-default items need a row.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['STOCKED', 'MADE_TO_ORDER']
+      - name: classification_owner
+        description: Business role that owns the classification (role, never a person).
+      - name: classified_date
+        description: Date the row's policy was ratified.
