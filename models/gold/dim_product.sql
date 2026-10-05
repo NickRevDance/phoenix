@@ -354,8 +354,8 @@ reserved_members as (
         , cast(null as varchar(50)) as product_sprint
         , cast(null as date) as debut_date
         , cast(null as int) as debut_year
-        , cast(null as timestamp) as retirement_date
-        , cast(null as timestamp) as inactive_date
+        , cast(null as date) as retirement_date
+        , cast(null as date) as inactive_date
         , cast(null as boolean) as vintage
         , cast(null as varchar(20)) as holiday
         , cast(null as varchar(30)) as plm_status

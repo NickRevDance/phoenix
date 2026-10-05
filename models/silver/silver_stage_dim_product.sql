@@ -53,12 +53,12 @@ SELECT
     ,CPM.ProductSprint as product_sprint
     ,CPM.DebutDate as debut_date
     ,CPM.DebutYear as debut_year
-    ,IDC.REVRETIREMENTDATE AS retirement_date
+    ,CAST(IDC.REVRETIREMENTDATE AS DATE) AS retirement_date
     , CASE
         WHEN IDC.REVRETIREMENTDATE IS NULL OR IDC.REVRETIREMENTDATE = DATE'1900-01-01' THEN NULL
         ELSE YEAR(IDC.REVRETIREMENTDATE)
       END AS retirement_year -- 1900-01-01 is a placeholder for "no retirement date," not a real year
-    ,IDC.REVINACTIVEDATE AS inactive_date
+    ,CAST(IDC.REVINACTIVEDATE AS DATE) AS inactive_date
     ,CPM.Vintage
     ,CPM.Holiday
 -- Status
@@ -116,7 +116,7 @@ SELECT
     ,HTS.HTSCodeDutyComposition as hts_code_duty_composition
     ,CPM.HeroImageAWSLink as hero_image_aws_link
     ,CPM.WebsiteURL as website_url
-    ,cast(null as string) as is_bc_upload_done -- No source yet; typed NULL. Kept string to match the snapshot column; gold emits the boolean.
+    ,cast(null as boolean) as is_bc_upload_done -- No source yet; typed NULL.
 -- Colorway Dates
     ,CPM.MarketIntroDate AS colorways_market_entry_date
     ,CPM.MarketExitDate AS colorways_market_exit_date
@@ -224,3 +224,5 @@ LEFT JOIN
     ON REF_SC.brand = CPM.Brand
     AND REF_SC.product_group = CPM.ProductGroup
     AND REF_SC.product_sub_group = CPM.ProductSubGroup
+WHERE
+    BAR.ItemID IS NOT NULL -- population gate (spec 3.5): only variants whose UPC resolves to a D365 item barcode
