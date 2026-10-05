@@ -17,6 +17,11 @@
 -- snapshot values. product_id keeps the snapshot value when the stage has none, so a row that
 -- passed the population rule never loses its item.
 --
+-- Placeholder columns (EDW-118, spec 3.6): d365_product_color, d365_product_color_size,
+-- code_color_style_name, original_season_fy, incoterm_code and is_bc_upload_done have no source.
+-- They are typed NULLs written here, not read from the stage or the snapshot, so every version
+-- row is NULL whatever the older snapshot rows hold ('') and is_bc_upload_done is boolean.
+--
 -- Population rule (spec 3.5, Sep 28 2026): a dimension row requires a D365 item. A Centric
 -- variant flagged Completed before D365 has its barcode lands in the snapshot with a NULL
 -- product_id; that version stays out of gold.
@@ -80,17 +85,13 @@
     'd365_color_code',
     'code_color',
     'rgb_hex',
-    'd365_product_color',
-    'd365_product_color_size',
     'size',
     'size_range',
     'sales_size_chart',
     'module_type',
     'product_class',
-    'code_color_style_name',
     'division_season',
     'original_season',
-    'original_season_fy',
     'sprint',
     'product_sprint',
     'debut_date',
@@ -101,7 +102,6 @@
     'planning_flag',
     'product_ownership',
     'shipping_vendor_id',
-    'incoterm_code',
     'currency_code',
     'product_weight',
     'product_weight_uom',
@@ -126,7 +126,6 @@
     'hts_code_duty_composition',
     'hero_image_aws_link',
     'website_url',
-    'is_bc_upload_done',
     'colorways_market_entry_date',
     'colorways_market_exit_date',
     'case_id',
@@ -265,6 +264,12 @@ with business_products as (
         {%- for c in type2_columns %}
         , snap_p.{{ c }} as {{ c }}
         {%- endfor %}
+        , cast(null as string) as d365_product_color
+        , cast(null as string) as d365_product_color_size
+        , cast(null as string) as code_color_style_name
+        , cast(null as string) as original_season_fy
+        , cast(null as string) as incoterm_code
+        , cast(null as boolean) as is_bc_upload_done
         , coalesce(rc.reporting_category_group, 'Other') as reporting_category_group
         , coalesce(rc.reporting_category_group_sort, 9) as reporting_category_group_sort
         , coalesce(rc.reporting_subcategory, 'Other') as reporting_subcategory
@@ -393,7 +398,7 @@ reserved_members as (
         , cast(null as string) as hts_code_duty_composition
         , cast(null as varchar(2083)) as hero_image_aws_link
         , cast(null as varchar(2083)) as website_url
-        , cast(null as string) as is_bc_upload_done
+        , cast(null as boolean) as is_bc_upload_done
         , cast(null as date) as colorways_market_entry_date
         , cast(null as date) as colorways_market_exit_date
         , cast(null as varchar(200)) as case_id
