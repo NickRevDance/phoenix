@@ -1,7 +1,10 @@
 {{ config(
     materialized = 'incremental',
     unique_key = 'inventory_snapshot_key',
-    incremental_strategy = 'merge'
+    incremental_strategy = 'merge',
+    post_hook = [
+        "update {{ this }} set product_key = '-1', etl_update_datetime = current_timestamp() where product_key is null"
+    ]
 ) }}
 
 -- FACT_INVENTORY_SNAPSHOT_DAILY (Inventory Gold Layer spec v2.6, Section 2).
@@ -32,6 +35,16 @@
 --   item 5  record_source_table via macro.
 --   dim_product read at is_current_row = 1 (was version_number = 1, which serves an
 --           invalidated row as current under hard_deletes: invalidate).
+--
+-- EDW-151 (Oct 2026): an unresolved product is the DIM_PRODUCT unknown member, product_key
+-- '-1' (DIM_PRODUCT spec v1.4, Section 3.4), never NULL. The key is resolved exactly as before
+-- and only the final select routes a miss to '-1', so the price, last-sale and lifecycle logic
+-- still reads the resolved key: the sales and price facts carry '-1' rows of their own, and
+-- those are not this row's product. The row keeps its UPC and product_id, so the miss stays
+-- diagnosable. History is corrected in place by the post-hook, in line with the rule above:
+-- it sets NULL keys to '-1' once and matches no row after that. It does not touch
+-- etl_insert_datetime, which the reconciliation view reads as the capture time.
+-- To reverse: update ... set product_key = null where product_key = '-1'.
 
 with on_hand_raw as (
 
@@ -494,7 +507,7 @@ final as (
           xxhash64(j.snapshot_date, j.ItemID, j.INVENTSIZEID, j.INVENTCOLORID, j.INVENTLOCATIONID, coalesce(j.inventsiteid, ''), coalesce(j.inventory_status_code, '')) as inventory_snapshot_key  -- EDW-117 item 4: inventsiteid added (spec grain carries site through warehouse_key); changes keys for new days only, history is never re-keyed
         , j.snapshot_date_key
         , j.snapshot_date
-        , j.product_key
+        , coalesce(j.product_key, '-1')         as product_key  -- EDW-151: an unresolved product is the unknown member, never NULL
         , j.ItemID                              as product_id
         , j.upc
         , j.sku
@@ -579,7 +592,7 @@ final as (
           xxhash64(b.SnapshotDate, b.UPC, b.WarehouseId, coalesce(b.inventory_status_code, '')) as inventory_snapshot_key
         , b.snapshot_date_key
         , b.SnapshotDate                        as snapshot_date
-        , b.product_key
+        , coalesce(b.product_key, '-1')         as product_key  -- EDW-151: same rule as the native branch
         , b.style_number                        as product_id
         , b.UPC                                 as upc
         , b.sku

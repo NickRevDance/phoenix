@@ -39,11 +39,13 @@
 -- view exists to surface, so it's included (as a non-zero variance) rather
 -- than silently dropped.
 -- Unresolved products: both facts resolve product_key through the D365
--- barcode path and leave it NULL where the UPC is not in DIM_PRODUCT
--- (EDW-134). NULL keys are coalesced to one 'UNMATCHED_PRODUCT' bucket per
--- warehouse and status so the view reconciles in total rather than fanning
--- out on the missing keys; distinct unmatched variants are collapsed together
--- there, which is a precision loss, not a fix.
+-- barcode path and carry the DIM_PRODUCT unknown member, product_key '-1',
+-- where the UPC is not in DIM_PRODUCT (EDW-134, EDW-151). Those rows form one
+-- '-1' bucket per warehouse and status, so the view reconciles in total
+-- rather than fanning out on the missing keys; distinct unmatched variants
+-- are collapsed together there, which is a precision loss, not a fix. A NULL
+-- key is read as '-1' on both sides, so the bucket holds even if one fact
+-- still carries NULLs.
 
 with native_snapshot as (
 
@@ -75,7 +77,7 @@ snapshot_agg as (
 
           snapshot_date_key
         , snapshot_date
-        , coalesce(product_key, 'UNMATCHED_PRODUCT') as product_key
+        , coalesce(product_key, '-1')            as product_key
         , max(product_id)                        as product_id
         , warehouse_key
         , max(warehouse_id)                      as warehouse_id
@@ -188,8 +190,8 @@ snapshot_end as (
 snapshot_combined as (
 
     -- One row per date on each side after snapshot_agg's pre-aggregation, so
-    -- this join can't fan out even on the 'UNMATCHED_PRODUCT'/'UNKNOWN'
-    -- sentinel buckets.
+    -- this join can't fan out even on the '-1' product / 'UNKNOWN' status
+    -- buckets.
 
     select
 
@@ -215,15 +217,15 @@ snapshot_combined as (
 movement_net as (
 
     -- Movement dated after the start snapshot's cutoff, through the end
-    -- snapshot's cutoff (see MOVEMENT WINDOW in the header). Same
-    -- 'UNMATCHED_PRODUCT'/'UNKNOWN' sentinel keying as snapshot_agg so the two
-    -- sides can join without a null mismatch.
+    -- snapshot's cutoff (see MOVEMENT WINDOW in the header). Same '-1' product
+    -- / 'UNKNOWN' status keying as snapshot_agg so the two sides can join
+    -- without a null mismatch.
 
     select
 
           dp.period_start_date_key
         , dp.period_end_date_key
-        , coalesce(m.product_key, 'UNMATCHED_PRODUCT') as product_key
+        , coalesce(m.product_key, '-1')             as product_key
         , max(m.product_id)                         as product_id
         , m.warehouse_key
         , max(m.warehouse_id)                        as warehouse_id
@@ -286,7 +288,7 @@ final as (
         , c.period_end_date_key
         , dp.period_start_movement_cutoff_date_key  -- movement is counted after this date ...
         , dp.period_end_movement_cutoff_date_key    -- ... through this date
-        , nullif(c.product_key, 'UNMATCHED_PRODUCT') as product_key  -- sentinel marks the "no dim_product match" bucket, see header note
+        , c.product_key  -- '-1' is the "no dim_product match" bucket (the DIM_PRODUCT unknown member), see header note
         , c.product_id
         , c.warehouse_key
         , c.warehouse_id

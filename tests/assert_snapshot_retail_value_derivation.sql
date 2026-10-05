@@ -1,5 +1,8 @@
 -- EDW-49: retail_value_amount = on_hand_qty x current USD list price (spec 2.3 derivation test).
 -- Checked on the latest native snapshot only: earlier days were priced at their own load.
+-- EDW-151: a snapshot row at the unknown product member ('-1') has no price, by rule. The price
+-- view has a '-1' row of its own (unresolved price rows collapsed together), which is not this
+-- row's product, so the unknown member is kept out of the price join here as it is in the fact.
 
 with latest as (
 
@@ -24,6 +27,7 @@ checked as (
         on f.snapshot_date = l.snapshot_date
     left join {{ ref('v_product_price_current') }} p
         on f.product_key = p.product_key
+        and f.product_key <> '-1'
     where f.record_source_table = {{ inventory_snapshot_branch_label('native') }}
 
 )

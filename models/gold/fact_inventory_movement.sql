@@ -2,7 +2,10 @@
     materialized = 'incremental',
     unique_key = 'inventory_movement_key',
     incremental_strategy = 'merge',
-    on_schema_change = 'sync_all_columns'
+    on_schema_change = 'sync_all_columns',
+    post_hook = [
+        "update {{ this }} set product_key = '-1', etl_update_datetime = current_timestamp() where product_key is null"
+    ]
 ) }}
 
 {% set lookback_days = var('inventory_movement_lookback_days', 2) %}
@@ -37,8 +40,11 @@
 --   Resolved through the D365 item barcode: variant (item + size + colour) to UPC to DIM_PRODUCT,
 --   the same path as FACT_INVENTORY_SNAPSHOT_DAILY, so the reconciliation view joins the two
 --   facts on one key. The style + size + colour text join is retired. A variant whose UPC is not
---   in DIM_PRODUCT (EDW-134), or that has no barcode row, keeps a NULL product_key and is
---   reported, never dropped.
+--   in DIM_PRODUCT (EDW-134), or that has no barcode row, is carried at the DIM_PRODUCT unknown
+--   member, product_key '-1' (EDW-151, the same rule as the snapshot fact), and is reported,
+--   never dropped. Rows loaded before that rule are set to '-1' by the post-hook, which matches
+--   no row once history is corrected. row_hash is still computed on the resolved key, so the
+--   rule changes no hash.
 --
 -- PAIRING (EDW-93 item A)
 --   Transfer counterparty: the other warehouse on the same transfer order (ReferenceId), read
@@ -341,7 +347,7 @@ final as (
         , c.DATEPHYSICAL                         as movement_datetime
         , c.movement_date_key
         , c.DATEFINANCIAL                        as posted_datetime
-        , c.product_key
+        , coalesce(c.product_key, '-1')          as product_key  -- EDW-151: an unresolved product is the unknown member, never NULL
         , c.ITEMID                               as product_id
         , c.warehouse_key
         , c.warehouse_id
