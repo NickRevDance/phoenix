@@ -18,14 +18,17 @@ models:
       population. Native rows are positions: a row exists only while some quantity measure
       (on hand, reserved, available, on order, in transit) is non-zero (spec 2.1 v2.6).
       Product resolution is the D365 barcode path (variant to UPC to DIM_PRODUCT); unresolved
-      rows keep their UPC, carry a NULL product_key, and are reported, never dropped.
+      rows keep their UPC, carry the unknown member (product_key '-1', EDW-151), and are
+      reported, never dropped.
       Supply columns are item + warehouse grain on the rank-1 status row (spec 2.6).
       NEVER --full-refresh in prod: the native branch can only produce today, so a full refresh
       destroys accumulated native history. Corrections are applied in place. Known history
       gaps and corrections are listed in spec Section 2.7.
     tests:
-      # Spec grain (v2.4, 2.3): warn until EDW-117 item 1 and EDW-134 bring NULL product_key to
-      # zero on the native branch, then error. The surrogate-key unique test is not a substitute.
+      # Spec grain (v2.4, 2.3), checked on resolved products. Rows at the unknown member ('-1',
+      # EDW-151) are many variants on one key by design and are told apart by UPC, so they are
+      # left out. Warn until EDW-134 brings that population down, then error. The surrogate-key
+      # unique test is not a substitute.
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns:
@@ -35,7 +38,7 @@ models:
               - inventory_status_code
           config:
             severity: warn
-            where: "product_key is not null"
+            where: "product_key <> '-1'"
       # EDW-49: a sale can't postdate the snapshot it is reported on
       - dbt_utils.expression_is_true:
           arguments:
@@ -60,14 +63,17 @@ models:
       - name: product_key
         description: >
           FK to DIM_PRODUCT (md5(UPC)), resolved through the D365 item barcode table: variant
-          (item + size + colour) to UPC to the current DIM_PRODUCT row. NULL where the UPC is
-          absent from DIM_PRODUCT (EDW-134) or the variant has no barcode row; the row is kept
-          and the UPC is still populated so the miss is diagnosable. Non-merchandise service
-          items (fees, catalogs, requests) are filtered at the native branch and never appear.
+          (item + size + colour) to UPC to the current DIM_PRODUCT row. Never NULL: where the UPC
+          is absent from DIM_PRODUCT (EDW-134) or the variant has no barcode row, the row is kept
+          at the unknown member, product_key '-1' (EDW-151), and the UPC and product_id are still
+          populated so the miss is diagnosable. Non-merchandise service items (fees, catalogs,
+          requests) are filtered at the native branch and never appear.
+        tests:
+          - not_null
       - name: upc
         description: >
           UPC from the barcode path (native) or the legacy report (backfill). Populated even when
-          product_key is NULL because DIM_PRODUCT lacks the UPC.
+          product_key is the unknown member ('-1') because DIM_PRODUCT lacks the UPC.
       - name: record_source_table
         description: >
           Branch constant, not the physical staging name (spec 2.2 / 2.5): one value for the native
@@ -188,9 +194,10 @@ models:
       (REF_INVENTORY_STATUS include_in_std_metrics_flag = 1) and stocked items only
       (REF_STOCKING_POLICY: MADE_TO_ORDER items carry a seeded placeholder quantity that is not
       stock and are left out, EDW-144), with DIM_PRODUCT and DIM_WAREHOUSE attributes (spec 5.1).
-      Always inside the native window. Rows with a NULL product_key are kept with NULL product
-      attributes and reported as a DQ exception. Supply columns are returned unchanged at item +
-      warehouse grain on the rank-1 status row (spec 2.6).
+      Always inside the native window. Rows at the unknown product member (product_key '-1',
+      EDW-151) are kept, read that member's attributes from DIM_PRODUCT, and are reported as a DQ
+      exception. Supply columns are returned unchanged at item + warehouse grain on the rank-1
+      status row (spec 2.6).
     columns:
       - name: stocking_policy
         description: >
@@ -211,7 +218,7 @@ models:
       every date, matched on product_id and, for backfill rows that carry no product_id, on UPC.
       Demand metrics (EDW-51) use the trailing 90 days before snapshot_date (var
       inventory_demand_window_days) of FACT_SALES_INVOICE, net of returns, on product_key +
-      warehouse_key; NULL where either key is unresolved. Item + warehouse metrics repeat on each
+      warehouse_key; NULL where either key is unresolved (product_key '-1' counts as unresolved). Item + warehouse metrics repeat on each
       status row, so do not sum them across status rows. excess_inventory_flag is 1 for stock
       with no demand in the window and for days_of_supply strictly over 180 (compared without a
       rounded daily rate). inventory_turnover averages on-hand standard cost over snapshot points

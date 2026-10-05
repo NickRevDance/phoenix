@@ -11,8 +11,8 @@ models:
       location, and the non-merchandise service items the snapshot fact also leaves out. The
       fact reconciles to InventTrans on net movement, not row for row. Product resolves
       through the D365 barcode path (variant to UPC to DIM_PRODUCT), the same path as
-      FACT_INVENTORY_SNAPSHOT_DAILY; unresolved rows keep a NULL product_key and are reported,
-      never dropped. Transfer and status-change legs carry their counterparty; those legs are
+      FACT_INVENTORY_SNAPSHOT_DAILY; unresolved rows carry the unknown member (product_key '-1',
+      EDW-151) and are reported, never dropped. Transfer and status-change legs carry their counterparty; those legs are
       re-read on every run so a pair completes even when its legs post days apart. Vendor
       receipts on a voyage are dated at the ship date and land in the -GT location first; the
       arrival at the warehouse is an ITMGIT leg and is not in this fact. The model header
@@ -43,9 +43,12 @@ models:
       - name: product_key
         description: >
           FK to DIM_PRODUCT (md5(UPC)), resolved through the D365 item barcode table: variant
-          (item + size + colour) to UPC to the latest DIM_PRODUCT version. NULL where the UPC is
-          not in DIM_PRODUCT (EDW-134), the variant has no barcode row, or the item is the
-          made-to-order studio apparel family (EDW-144).
+          (item + size + colour) to UPC to the latest DIM_PRODUCT version. Never NULL: the unknown
+          member, product_key '-1' (EDW-151), where the UPC is not in DIM_PRODUCT (EDW-134), the
+          variant has no barcode row, or the item is the made-to-order studio apparel family
+          (EDW-144). product_id is still populated on those rows.
+        tests:
+          - not_null
       - name: movement_type
         tests:
           - not_null

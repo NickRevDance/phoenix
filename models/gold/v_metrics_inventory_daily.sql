@@ -9,7 +9,7 @@
 -- rows are told apart by record_source_table; a trend across 2026-09-01 steps as an artefact.
 -- Demand: trailing {{ demand_window_days }} days before snapshot_date, FACT_SALES_INVOICE net of returns, all channels,
 -- attributed on product_key + warehouse_key (same join as last_sale_date). NULL when the
--- snapshot row has no resolved product_key or warehouse_key.
+-- snapshot row has no resolved product_key (the unknown member, '-1', EDW-151) or warehouse_key.
 -- Excess (confirmed 2026-10-01, EDW-51): excess_inventory_flag = 1 for stock with no demand in
 -- the window (days_of_supply is undefined there). The 180-day test compares available x window
 -- against 180 x units, never a rounded daily rate, so an item at exactly 180 days is not flagged.
@@ -54,7 +54,10 @@ snapshot_scoped as (
 
     select
           f.*
-        , coalesce(cast(f.product_key as string), f.upc) as variant_key
+        , case
+            when f.product_key is null or cast(f.product_key as string) = '-1' then f.upc  -- EDW-151: unresolved variants share the unknown member, so the UPC tells them apart
+            else cast(f.product_key as string)
+          end as variant_key
     from {{ ref('fact_inventory_snapshot_daily') }} f
     inner join status_scope st
         on f.inventory_status_code = st.inventory_status_code

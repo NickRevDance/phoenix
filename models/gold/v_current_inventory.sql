@@ -5,8 +5,8 @@
 -- partner-owned stock is served by v_partner_inventory. Latest snapshot_date per the
 -- certified default scope rule (spec Section 5). Supply columns (on_order_qty,
 -- in_transit_*) are item + warehouse grain on the rank-1 status row (spec 2.6) and are
--- returned unchanged. Rows with a NULL product_key are KEPT (the DIM_PRODUCT join is a
--- left join) with NULL product attributes, and are reported as a DQ exception (spec 2.1);
+-- returned unchanged. Rows at the unknown product member (product_key '-1', EDW-151) are
+-- KEPT, read that member's attributes from DIM_PRODUCT, and are reported as a DQ exception (spec 2.1);
 -- supply-only positions (zero on hand, open PO or in-transit quantity) are real rows in
 -- the fact from spec v2.6.
 -- STOCKING POLICY (EDW-144, Merchandising decision M2): made-to-order items carry a seeded
