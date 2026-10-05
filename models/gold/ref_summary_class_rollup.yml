@@ -1,0 +1,44 @@
+version: 2
+
+models:
+  - name: ref_summary_class_rollup
+    description: >
+      REF_SUMMARY_CLASS_ROLLUP (EDW-125) -- BI-maintained rollup of the Finance summary class
+      to the daily sales view (reporting_category_group, reporting_subcategory) and to the
+      loyalty view (loyalty_reporting_category), built straight from the summary_class_rollup
+      seed (a classification, not history: no effective dating, no snapshot). One row per
+      summary class. DIM_PRODUCT joins it on summary_class; a class with no row reads Other.
+    columns:
+      - name: summary_class
+        description: Finance summary class, as produced by ref_product_summary_class.
+        tests: [is_valid_key]
+      - name: reporting_category_group
+        description: Daily sales view top level - Costumes, Dancewear, 2Die4 DTC, Revolution Apparel.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Costumes', 'Dancewear', '2Die4 DTC', 'Revolution Apparel']
+      - name: reporting_category_group_sort
+        description: Display order of reporting_category_group (Other sorts at 9 on the dimension).
+        tests: [not_null]
+      - name: reporting_subcategory
+        description: Daily sales view second level, one label per summary class (for example Footwear for Revolution Shoes).
+        tests: [is_valid_key]
+      - name: reporting_subcategory_sort
+        description: Display order of reporting_subcategory - tens digit is the group (Other sorts at 99 on the dimension).
+        tests: [not_null]
+      - name: loyalty_reporting_category
+        description: Revolution Rewards reporting category, following the earn rules - Tights is its own bucket.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Costumes', 'Dancewear (excl. Tights)', 'Tights', 'Branded Apparel']
+      - name: loyalty_reporting_category_sort
+        description: Display order of loyalty_reporting_category (Other sorts at 9 on the dimension).
+        tests: [not_null]
+      - name: classification_owner
+        description: Business role that owns the classification (role, never a person).
+      - name: classified_date
+        description: Date the row's rollup was decided.

@@ -1,0 +1,25 @@
+version: 2
+
+seeds:
+  - name: summary_class_rollup
+    description: >
+      Business-maintained source of record for REF_SUMMARY_CLASS_ROLLUP (EDW-125). One row
+      per Finance summary class, carrying the two reporting rollups that sit above it: the
+      daily sales view (reporting_category_group and reporting_subcategory, the SummaryClass
+      High Level grouping Marketing uses) and the loyalty view (loyalty_reporting_category,
+      which follows the Revolution Rewards earn rules, so Tights is its own bucket). The
+      sort columns carry the display order used in the reports. A summary class with no row
+      here rolls up to Other. A change is a row edit here, not a model change. All columns
+      loaded as string; ref_summary_class_rollup casts real types.
+    config:
+      column_types:
+        summary_class: string
+        reporting_category_group: string
+        reporting_category_group_sort: string
+        reporting_subcategory: string
+        reporting_subcategory_sort: string
+        loyalty_reporting_category: string
+        loyalty_reporting_category_sort: string
+        classification_owner: string
+        classified_date: string
+        notes: string
