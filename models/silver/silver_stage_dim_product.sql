@@ -19,8 +19,8 @@ SELECT
     ,CPM.D365ColorCode as d365_color_code
     ,CPM.CodeColor as code_color
     ,CPM.RGBHex as rgb_hex
-    , '' as d365_product_color -- D365 product color composite. From view.
-    , '' as d365_product_color_size -- D365 product+color+size composite. From view.
+    , cast(null as string) as d365_product_color -- No source yet; typed NULL.
+    , cast(null as string) as d365_product_color_size -- No source yet; typed NULL.
 -- Size
     ,CPM.Size as size
     ,CPM.SizeRange as size_range
@@ -35,7 +35,7 @@ SELECT
     ,MODU.ModuleType as module_type
     ,PV.ProductClass as product_class
     ,CPM.Classifier3 as classifier_3
-    , '' as code_color_style_name -- Composite: code_color + style_name for display. From view.
+    , cast(null as string) as code_color_style_name -- No source yet; typed NULL.
 -- Brand and Genre
     ,CPM.Brand as brand
     ,CPM.Genre as genre
@@ -48,17 +48,17 @@ SELECT
 -- Season and Lifestyle
     ,CPM.ParentSeason AS division_season
     ,CPM.OriginalSeason as original_season
-    , '' as original_season_fy -- Original season as fiscal year (e.g., FY27). From view.
+    , cast(null as string) as original_season_fy -- No source yet; typed NULL.
     ,CPM.SprintOperations AS sprint
     ,CPM.ProductSprint as product_sprint
     ,CPM.DebutDate as debut_date
     ,CPM.DebutYear as debut_year
-    ,IDC.REVRETIREMENTDATE AS retirement_date
+    ,CAST(IDC.REVRETIREMENTDATE AS DATE) AS retirement_date
     , CASE
         WHEN IDC.REVRETIREMENTDATE IS NULL OR IDC.REVRETIREMENTDATE = DATE'1900-01-01' THEN NULL
         ELSE YEAR(IDC.REVRETIREMENTDATE)
       END AS retirement_year -- 1900-01-01 is a placeholder for "no retirement date," not a real year
-    ,IDC.REVINACTIVEDATE AS inactive_date
+    ,CAST(IDC.REVINACTIVEDATE AS DATE) AS inactive_date
     ,CPM.Vintage
     ,CPM.Holiday
 -- Status
@@ -81,7 +81,7 @@ SELECT
     ,CPM.ProductOwnership as product_ownership
     ,CPM.ShippingVendorID as shipping_vendor_id
     ,CPM.CountryOfOrigin as country_of_origin
-    , '' as incoterm_code -- Incoterm if maintained at product level. Phase 2
+    , cast(null as string) as incoterm_code -- No source yet; typed NULL.
 -- Cost Reference
     ,CPM.EstimatedLandedCost AS plm_estimated_landed_cost
     ,CPM.FreightRate AS plm_estimated_freight_rate
@@ -116,7 +116,7 @@ SELECT
     ,HTS.HTSCodeDutyComposition as hts_code_duty_composition
     ,CPM.HeroImageAWSLink as hero_image_aws_link
     ,CPM.WebsiteURL as website_url
-    ,'' as is_bc_upload_done -- BigCommerce upload completion flag.
+    ,cast(null as boolean) as is_bc_upload_done -- No source yet; typed NULL.
 -- Colorway Dates
     ,CPM.MarketIntroDate AS colorways_market_entry_date
     ,CPM.MarketExitDate AS colorways_market_exit_date
@@ -224,3 +224,5 @@ LEFT JOIN
     ON REF_SC.brand = CPM.Brand
     AND REF_SC.product_group = CPM.ProductGroup
     AND REF_SC.product_sub_group = CPM.ProductSubGroup
+WHERE
+    BAR.ItemID IS NOT NULL -- population gate (spec 3.5): only variants whose UPC resolves to a D365 item barcode
