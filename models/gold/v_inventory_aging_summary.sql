@@ -1,7 +1,9 @@
 {{ config(materialized = 'view') }}
 
--- V_INVENTORY_AGING_SUMMARY (Inventory Gold Layer spec v2.6, Section 5.3). Pre-bucketed
--- aging at product/warehouse level. Company-owned scope, same as v_current_inventory.
+-- V_INVENTORY_AGING_SUMMARY (Inventory Gold Layer spec, Section 5.3). Pre-bucketed
+-- aging at product/warehouse level. Company-owned scope and stocked items only, same as
+-- v_current_inventory: items marked MADE_TO_ORDER in ref_stocking_policy carry a seeded
+-- placeholder quantity that is not stock and are left out (EDW-144).
 -- age_bucket is NULL on every row until fact_inventory_snapshot_daily's Aging field group
 -- is sourced from FACT_INVENTORY_MOVEMENT receipts (first_receipt_date / last_receipt_date,
 -- see fact_inventory_snapshot_daily.sql) -- ready to populate once that lands.
@@ -37,6 +39,14 @@ status_scope as (
     from {{ ref('ref_inventory_status') }}
     where is_current_row = 1
       and include_in_std_metrics_flag
+
+),
+
+made_to_order as (
+
+    select product_id
+    from {{ ref('ref_stocking_policy') }}
+    where stocking_policy = 'MADE_TO_ORDER'
 
 ),
 
@@ -78,6 +88,8 @@ bucketed as (
     from snapshot_current s
     inner join status_scope st
         on s.inventory_status_code = st.inventory_status_code
+    left anti join made_to_order mto  -- EDW-144: stocked items only
+        on s.product_id = mto.product_id
     group by 1, 2, 3
 
 ),

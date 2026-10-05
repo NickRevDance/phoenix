@@ -1,13 +1,19 @@
 {{ config(materialized = 'view') }}
 
--- V_CURRENT_INVENTORY (Inventory Gold Layer spec v2.6, Section 5.1). Company-owned
+-- V_CURRENT_INVENTORY (Inventory Gold Layer spec, Section 5.1). Company-owned
 -- inventory only (join to ref_inventory_status on include_in_std_metrics_flag = TRUE);
 -- partner-owned stock is served by v_partner_inventory. Latest snapshot_date per the
 -- certified default scope rule (spec Section 5). Supply columns (on_order_qty,
 -- in_transit_*) are item + warehouse grain on the rank-1 status row (spec 2.6) and are
--- returned unchanged. Rows with a NULL product_key are excluded by the DIM_PRODUCT join
--- and reported as a DQ exception (spec 2.1); supply-only positions (zero on hand, open
--- PO or in-transit quantity) are real rows in the fact from spec v2.6.
+-- returned unchanged. Rows with a NULL product_key are KEPT (the DIM_PRODUCT join is a
+-- left join) with NULL product attributes, and are reported as a DQ exception (spec 2.1);
+-- supply-only positions (zero on hand, open PO or in-transit quantity) are real rows in
+-- the fact from spec v2.6.
+-- STOCKING POLICY (EDW-144, Merchandising decision M2): made-to-order items carry a seeded
+-- placeholder quantity in D365 that is not stock. Items marked MADE_TO_ORDER in
+-- ref_stocking_policy are left out of this view; an item with no row there is STOCKED.
+-- The rule is keyed on product_id because the made-to-order family is not in DIM_PRODUCT.
+-- The fact keeps the rows.
 -- SEAM AND COST BASIS (spec 2.5, EDW-117 item 7): fact_inventory_snapshot_daily has two
 -- source branches with different populations, told apart by record_source_table (a
 -- branch constant). Backfill rows (legacy f_KPI_InventoryValue) are the legacy KPI
@@ -44,6 +50,15 @@ status_scope as (
     from {{ ref('ref_inventory_status') }}
     where is_current_row = 1
       and include_in_std_metrics_flag
+
+),
+
+stocking_policy as (
+
+    select
+          product_id
+        , stocking_policy
+    from {{ ref('ref_stocking_policy') }}
 
 ),
 
@@ -123,6 +138,7 @@ final as (
         , s.lifecycle_status_code
         , s.availability_status_primary
         , s.inventory_site_id
+        , coalesce(sp.stocking_policy, 'STOCKED') as stocking_policy  -- always STOCKED here: MADE_TO_ORDER is filtered below
 
     -- Aging
         , s.first_receipt_date
@@ -146,10 +162,14 @@ final as (
     from snapshot_current s
     inner join status_scope st
         on s.inventory_status_code = st.inventory_status_code
+    left join stocking_policy sp
+        on s.product_id = sp.product_id
     left join product_current p
         on s.product_key = p.product_key
     left join warehouse_current w
         on s.warehouse_key = w.warehouse_key
+
+    where coalesce(sp.stocking_policy, 'STOCKED') <> 'MADE_TO_ORDER'  -- EDW-144: stocked items only
 
 )
 
