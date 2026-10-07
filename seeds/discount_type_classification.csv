@@ -1,0 +1,10 @@
+discount_type,reduces_net_sales_flag,expense_treatment,effective_start_date,note
+LINE_DISCOUNT,true,NET_SALES_REDUCTION,2026-08-27,D365 pricing engine line discounts
+HEADER_DISCOUNT,true,NET_SALES_REDUCTION,2026-08-27,Allocated per F1
+COUPON,true,NET_SALES_REDUCTION,2026-08-27,BigCommerce / D365 promo codes
+VOLUME_BREAK,true,NET_SALES_REDUCTION,2026-08-27,Baseline when it is a customer-group trade agreement tier (F4)
+TRADE_AGREEMENT,false,BASELINE,2026-08-27,Contractual B2B pricing is the revenue baseline - excluded from waterfall (F4)
+MANUAL_OVERRIDE,true,NET_SALES_REDUCTION,2026-08-27,promotion_key = 0
+EMPLOYEE,true,NET_SALES_REDUCTION,2026-08-27,Revisit for expense treatment
+BUNDLE,true,NET_SALES_REDUCTION,2026-08-27,
+FREE_SHIPPING,false,MARKETING_EXPENSE,2026-08-27,Stays in the fact for promotional spend visibility

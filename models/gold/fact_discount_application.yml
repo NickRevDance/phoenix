@@ -1,0 +1,65 @@
+version: 2
+
+models:
+  - name: fact_discount_application
+    description: >
+      FACT_DISCOUNT_APPLICATION (EDW-65). One row per discount component on a posted invoice line.
+      See README.md for the D365 profiling results and open decisions.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - sales_invoice_key
+              - discount_sequence
+    columns:
+      - name: discount_line_key
+        tests: [is_valid_key]
+      - name: sales_invoice_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('fact_sales_invoice')
+                field: sales_invoice_key
+      - name: invoice_id
+        tests: [not_null]
+      - name: discount_sequence
+        tests: [not_null]
+      - name: invoice_date_key
+        tests: [not_null]
+      - name: product_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_product')
+                field: product_key
+      - name: customer_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customer')
+                field: customer_key
+              config:
+                severity: warn  # inherits the parent's headerless-line NULL customer_key spike
+      - name: sales_channel_key
+        tests: [not_null]
+      - name: promotion_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_promotion')
+                field: promotion_key
+      - name: discount_type
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('ref_discount_type_classification')
+                field: discount_type
+          - accepted_values:
+              arguments:
+                values: ['LINE_DISCOUNT', 'HEADER_DISCOUNT', 'COUPON', 'VOLUME_BREAK', 'TRADE_AGREEMENT', 'MANUAL_OVERRIDE', 'EMPLOYEE', 'BUNDLE', 'FREE_SHIPPING']
+      - name: discount_amount
+        tests: [not_null]
