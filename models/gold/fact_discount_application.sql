@@ -138,6 +138,7 @@ components as (
 
           p.sales_invoice_key
         , 1 as discount_sequence
+        , 'LINEDISC' as discount_source_field
         , case when m.agreement_recid is not null then 'TRADE_AGREEMENT' else 'LINE_DISCOUNT' end as discount_type
         , p.line_discount_amount as discount_amount
         , p.gross_sales_amount as base_amount_before_discount
@@ -163,6 +164,7 @@ components as (
 
           p.sales_invoice_key
         , 2 as discount_sequence
+        , 'ENDDISC' as discount_source_field
         , 'HEADER_DISCOUNT' as discount_type
         , p.header_discount_allocated as discount_amount
         , p.gross_sales_amount - p.line_discount_amount as base_amount_before_discount
@@ -181,10 +183,11 @@ final as (
     select
 
     -- Core ID
-          {{ generate_surrogate_key(['c.sales_invoice_key', 'c.discount_sequence', "'D365'"]) }} as discount_line_key
+          {{ generate_surrogate_key(['p.d365_invoice_rec_id', 'c.discount_source_field', "'D365'"]) }} as discount_line_key
         , p.invoice_id
         , p.invoice_line_number
         , c.discount_sequence
+        , c.discount_source_field
         , 'D365' as source_system
         , p.d365_invoice_rec_id
 
@@ -242,7 +245,7 @@ final as (
         , current_timestamp() as etl_insert_datetime
         , current_timestamp() as etl_update_datetime
         , p.etl_source_modified_datetime
-        , sha2(concat_ws('||', cast(c.sales_invoice_key as string), cast(c.discount_sequence as string), c.discount_type, cast(c.discount_amount as string), cast(c.promotion_key as string)), 256) as row_hash
+        , sha2(concat_ws('||', cast(p.d365_invoice_rec_id as string), c.discount_source_field, c.discount_type, cast(c.discount_amount as string), cast(c.promotion_key as string)), 256) as row_hash
 
     from components c
 
