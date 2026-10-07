@@ -1,0 +1,11 @@
+version: 2
+
+seeds:
+  - name: discount_type_classification
+    config:
+      column_types:
+        discount_type: string
+        reduces_net_sales_flag: string
+        expense_treatment: string
+        effective_start_date: string
+        note: string

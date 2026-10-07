@@ -1,0 +1,17 @@
+version: 2
+
+models:
+  - name: ref_discount_type_classification
+    description: F2 gross-to-net classification per discount_type (governed seed, EDW-65).
+    columns:
+      - name: discount_type_classification_key
+        tests: [is_valid_key]
+      - name: discount_type
+        tests:
+          - not_null
+          - unique
+          - accepted_values:
+              arguments:
+                values: ['LINE_DISCOUNT', 'HEADER_DISCOUNT', 'COUPON', 'VOLUME_BREAK', 'TRADE_AGREEMENT', 'MANUAL_OVERRIDE', 'EMPLOYEE', 'BUNDLE', 'FREE_SHIPPING']
+      - name: reduces_net_sales_flag
+        tests: [not_null]
