@@ -9,8 +9,8 @@ models:
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns:
-              - sales_invoice_key
-              - discount_sequence
+              - d365_invoice_rec_id
+              - discount_source_field
     columns:
       - name: discount_line_key
         tests: [is_valid_key]
@@ -25,6 +25,14 @@ models:
         tests: [not_null]
       - name: discount_sequence
         tests: [not_null]
+      - name: d365_invoice_rec_id
+        tests: [not_null]
+      - name: discount_source_field
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['LINEDISC', 'ENDDISC']
       - name: invoice_date_key
         tests: [not_null]
       - name: product_key
