@@ -1,6 +1,8 @@
 {{ config(materialized = 'view') }}
 
 {% set demand_window_days = var('inventory_demand_window_days', 90) %}
+{% set excess_window_days = 365 %}    {# I4: fixed, the column trailing_units_sold_365 carries it in its name #}
+{% set excess_new_item_days = 180 %}  {# I4: an item first sold fewer days ago than this is not assessed for excess #}
 
 -- V_METRICS_INVENTORY_DAILY (spec v2.7, Section 5.2). Company-owned scope, daily grain, one row
 -- per snapshot status row. Item + warehouse metrics (supply, demand, flags) repeat on every
@@ -10,9 +12,20 @@
 -- Demand: trailing {{ demand_window_days }} days before snapshot_date, FACT_SALES_INVOICE net of returns, all channels,
 -- attributed on product_key + warehouse_key (same join as last_sale_date). NULL when the
 -- snapshot row has no resolved product_key (the unknown member, '-1', EDW-151) or warehouse_key.
--- Excess (confirmed 2026-10-01, EDW-51): excess_inventory_flag = 1 for stock with no demand in
--- the window (days_of_supply is undefined there). The 180-day test compares available x window
--- against 180 x units, never a rounded daily rate, so an item at exactly 180 days is not flagged.
+-- Excess (ruling I4, ratified 2026-10-07, EDW-172, Inventory Excess and Demand Basis Decision
+-- Record v1.0; replaces the 180-day test on the {{ demand_window_days }}-day window confirmed 2026-10-01 on EDW-51):
+-- excess_inventory_flag = 1 when item + warehouse available stock is above the net units sold
+-- in the trailing {{ excess_window_days }} days before snapshot_date (more than one year of supply), or when
+-- nothing sold in those {{ excess_window_days }} days. An item first sold fewer than {{ excess_new_item_days }} days before
+-- snapshot_date, in any warehouse, is not assessed (0): it has no full season of sales to be
+-- measured against. An item with no sale before snapshot_date flags as no sale, since there is
+-- no receipt date to tell new stock from dead stock. excess_qty is the units above the
+-- one-year line, spread over the pair's status rows in proportion to positive available_qty,
+-- so unlike the other item + warehouse columns it CAN be summed. days_of_supply,
+-- weeks_of_cover, stock_to_sales_ratio and inventory_turnover stay on the {{ demand_window_days }}-day window:
+-- they are run-rate measures and are meant to move with the season.
+-- Demand basis (ruling I5, ratified 2026-10-07, EDW-172, same record): demand stays net of
+-- returns received in the window, floored at zero. Unchanged from the build.
 -- Turnover: average on-hand standard cost uses snapshot points from the row's own branch only
 -- (native rows average native days, backfill rows average backfill days), because the two
 -- branches carry different cost bases; a point where stock has no cost is left out rather than
@@ -79,6 +92,7 @@ item_warehouse as (
         , s.warehouse_key
         , max(s.product_key)            as product_key
         , sum(s.available_qty)          as available_qty_iw
+        , sum(greatest(s.available_qty, 0)) as available_pos_qty_iw  -- I4: allocation base for excess_qty
         , sum(s.on_hand_qty)            as on_hand_qty_iw
         , sum(s.standard_cost_amount)   as inventory_cost_iw
         , max(s.safety_stock_qty)       as safety_stock_qty_iw
@@ -125,7 +139,21 @@ demand_events as (
     where si.product_key is not null
       and cast(si.product_key as string) <> '-1'
       and si.warehouse_key is not null
-      and si.invoice_date >= date_sub((select min(iw.snapshot_date) from item_warehouse iw), {{ demand_window_days }})
+      and si.invoice_date >= date_sub((select min(iw.snapshot_date) from item_warehouse iw), {{ [demand_window_days, excess_window_days] | max }})
+
+),
+
+first_sale as (
+
+    -- I4: first invoiced sale of the product in any warehouse, over all invoice history
+    select
+          si.product_key
+        , min(si.invoice_date) as first_sale_date
+    from {{ ref('fact_sales_invoice') }} si
+    where si.product_key is not null
+      and cast(si.product_key as string) <> '-1'
+      and si.invoiced_qty > 0
+    group by 1
 
 ),
 
@@ -149,6 +177,11 @@ demand_windowed as (
             order by u.day_num
             range between {{ demand_window_days }} preceding and 1 preceding
           ) as cogs_window
+        , sum(u.units_sold) over (
+            partition by u.product_key, u.warehouse_key
+            order by u.day_num
+            range between {{ excess_window_days }} preceding and 1 preceding
+          ) as units_sold_excess_window  -- I4: same frame rule, one year
         -- one average per branch; the snapshot point picks its own branch in demand_calc
         , avg(case when u.is_native_branch = 1 then u.inventory_cost end) over (
             partition by u.product_key, u.warehouse_key
@@ -176,6 +209,7 @@ demand_calc as (
         , w.day_num
         , greatest(coalesce(w.units_sold_window, 0), 0) as units_sold_window
         , greatest(coalesce(w.cogs_window, 0), 0)       as cogs_window
+        , greatest(coalesce(w.units_sold_excess_window, 0), 0) as units_sold_excess_window  -- I5: net of returns, floored at zero
         , case
             when w.is_native_branch = 1 then w.avg_inventory_cost_native
             else w.avg_inventory_cost_backfill
@@ -192,9 +226,12 @@ metrics_base as (
         , iw.available_qty_iw
         , iw.on_hand_qty_iw
         , iw.safety_stock_qty_iw
+        , iw.available_pos_qty_iw
         , dc.units_sold_window
         , dc.cogs_window
         , dc.avg_inventory_cost_window
+        , dc.units_sold_excess_window
+        , fs.first_sale_date
     from snapshot_scoped s
     inner join item_warehouse iw
         on s.snapshot_date = iw.snapshot_date
@@ -204,6 +241,26 @@ metrics_base as (
         on iw.product_key = dc.product_key
         and iw.warehouse_key = dc.warehouse_key
         and datediff(s.snapshot_date, date'1970-01-01') = dc.day_num
+    left join first_sale fs
+        on iw.product_key = fs.product_key
+
+),
+
+metrics_excess as (
+
+    -- ruling I4 (2026-10-07): one year of supply on the trailing {{ excess_window_days }}-day net sales
+    select
+          b.*
+        , case
+            when b.units_sold_excess_window is null or b.available_qty_iw is null then cast(null as int)
+            when b.available_qty_iw <= 0 then 0
+            when b.first_sale_date < b.snapshot_date
+                 and datediff(b.snapshot_date, b.first_sale_date) < {{ excess_new_item_days }} then 0  -- new item, not assessed
+            when b.units_sold_excess_window = 0 then 1  -- no sale in the {{ excess_window_days }} days
+            when b.available_qty_iw > b.units_sold_excess_window then 1  -- more than one year of supply
+            else 0
+          end as excess_inventory_flag
+    from metrics_base b
 
 ),
 
@@ -233,6 +290,7 @@ final as (
         , m.last_sale_date
         , m.units_sold_window  as trailing_units_sold
         , cast({{ demand_window_days }} as int) as demand_window_days
+        , m.units_sold_excess_window as trailing_units_sold_365  -- I4: net units in the {{ excess_window_days }} days before snapshot_date, the excess basis
 
     -- Certified metrics
         , case
@@ -258,20 +316,20 @@ final as (
             else 0
           end as below_safety_stock_flag  -- NULL = not computed (spec 2.4); compares item + warehouse available_qty (spec 2.6)
         , case when m.safety_stock_qty_iw is not null then 1 else 0 end as has_safety_stock_flag  -- scopes the alert to covered items (I2b)
+        , m.excess_inventory_flag  -- ruling I4, see metrics_excess
         , case
-            when m.units_sold_window is null or m.available_qty_iw is null then cast(null as int)
-            when m.available_qty_iw <= 0 then 0
-            when m.units_sold_window = 0 then 1  -- stock with no demand in the window (confirmed 2026-10-01)
-            when m.available_qty_iw * {{ demand_window_days }} > 180 * m.units_sold_window then 1  -- days_of_supply > 180, with no division
-            else 0
-          end as excess_inventory_flag
+            when m.excess_inventory_flag is null then cast(null as decimal(18,4))
+            when m.excess_inventory_flag = 1 and m.available_pos_qty_iw > 0
+                then cast((m.available_qty_iw - m.units_sold_excess_window) * greatest(m.available_qty, 0) / m.available_pos_qty_iw as decimal(18,4))
+            else cast(0 as decimal(18,4))
+          end as excess_qty  -- units above the one-year line, this row's share by positive available_qty; sums to the pair's excess
         , case
             when m.units_sold_window > 0
                 then cast(m.on_hand_qty_iw / m.units_sold_window as decimal(18,4))
           end as stock_to_sales_ratio
         , datediff(m.snapshot_date, m.last_sale_date) as days_since_last_sale  -- NULL when never sold from this warehouse (spec 5.2)
 
-    from metrics_base m
+    from metrics_excess m
 
 )
 
