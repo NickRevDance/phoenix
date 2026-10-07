@@ -5,6 +5,8 @@
 -- / actual_ship_date, neither of which has a source yet (see
 -- fact_orders_returns.sql). cancellation_rate, return_rate, and
 -- demand_value_lost are computed since their inputs exist.
+-- EDW-58 adds the return lifecycle columns, exchange_rate and
+-- return_processing_days (spec Section 8).
 
 with base as (
 
@@ -89,9 +91,12 @@ select
     , b.source_system
     , b.order_date
     , b.order_line_status
+    , b.return_status
     , b.is_return_flag
     , b.is_cancelled_flag
     , b.is_backordered_flag
+    , b.is_exchange_flag
+    , b.is_replacement_flag
 
     , b.ordered_qty
     , b.cancelled_qty
@@ -114,8 +119,21 @@ select
     , cast(null as int) as order_to_ship_days  -- Source once available: needs actual_ship_date
     , cast(null as boolean) as on_time_ship_flag  -- Source once available: needs actual_ship_date
 
+    -- exchange_rate (EDW-58): exchange return lines over return lines, per spec
+    -- Section 8. Line-level 1 or 0 on return rows, so its average over return
+    -- rows is the rate (aggregate in BI). NULL on sales rows.
+    , case when b.is_return_flag then cast(case when b.is_exchange_flag then 1 else 0 end as decimal(9,6)) end as exchange_rate
+
+    -- return_processing_days (EDW-58): request to receipt, return_date -
+    -- return_request_date. NULL until the return has arrived.
+    , case when b.is_return_flag then datediff(b.return_date, b.return_request_date) end as return_processing_days
+
+    , b.return_request_date
+    , b.return_date
     , b.return_reason_code
     , b.return_reason_category
+    , b.return_disposition
+    , b.refund_method
     , b.customer_purchase_order
     , b.rma_id
     , b.original_order_id

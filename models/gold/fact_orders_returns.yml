@@ -15,6 +15,11 @@ models:
             combination_of_columns:
               - order_id
               - d365_sales_line_rec_id
+      - dbt_utils.expression_is_true:  # EDW-58 (spec 7.10): an exchange always reads Exchange as its refund method.
+          arguments:
+            expression: "refund_method = 'Exchange'"
+          config:
+            where: "is_exchange_flag"
     columns:
       - name: orders_returns_key
         tests: [is_valid_key]
@@ -31,6 +36,45 @@ models:
           - accepted_values:
               arguments:
                 values: ['Sales Order', 'Return Order', 'Unknown']
+      - name: rma_id
+        description: D365 RMA number (SalesTable.RETURNITEMNUM, RMA-nnnnnn) on return rows and on the sales rows of a replacement order, NULL otherwise. Joins a return to the order that replaced it. EDW-58.
+      - name: original_d365_sales_line_rec_id
+        description: d365_sales_line_rec_id of the original sales line behind a return line (SalesLine.INVENTTRANSIDRETURN). NULL on cancelled returns, some awaited returns and sales rows. EDW-58.
+      - name: replacement_order_id
+        description: order_id of the sales order that replaces an exchange return. NULL when the return is not an exchange and on sales rows. EDW-58.
+      - name: return_status
+        description: SalesLine.RETURNSTATUS on return rows (spec 7.9). NULL on sales rows. EDW-58.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Awaiting', 'Registered', 'Received', 'Invoiced', 'Cancelled']
+              config:
+                severity: warn  # a status D365 has not used before is kept as its number and shows here, without failing the daily job
+      - name: is_exchange_flag
+        description: Return rows, true when the return order has a replacement order (spec 4.11). NULL on sales rows. EDW-58.
+      - name: is_replacement_flag
+        description: Sales rows, true when the order is named as the replacement on a return order (spec 4.11). NULL on return rows. EDW-58.
+      - name: return_reason_category
+        description: Fit, Preference, Quality, Fulfillment, Customer or Other from ref_return_reason_category (spec 7.8). Every return row has one; NULL on sales rows. EDW-58.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Fit', 'Preference', 'Quality', 'Fulfillment', 'Customer', 'Other']
+          - not_null:
+              config:
+                where: "is_return_flag"
+      - name: return_disposition
+        description: Label for return_disposition_code (spec 4.6). NULL when the code is blank and on sales rows. EDW-58.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['CREDIT', 'REPLACE_SCRAP', 'CREDIT_INSPECT', 'UNKNOWN']
+      - name: refund_method
+        description: The return order's payment mode decoded, Exchange taking precedence (spec 4.11). NULL on sales rows. EDW-58.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Original Payment', 'Store Credit', 'Loyalty Points', 'Exchange', 'Unknown']
       - name: customer_key
         tests:
           - relationships:
@@ -60,8 +104,13 @@ models:
       Certified order fulfillment/return metrics view per spec Section 9.
       fill_rate/order_to_ship_days/on_time_ship_flag are null for every row
       pending a shipped-quantity / actual-ship-date source -- see
-      fact_orders_returns.sql and README.md.
+      fact_orders_returns.sql and README.md. EDW-58 adds the return
+      lifecycle columns, exchange_rate and return_processing_days.
 
+# EDW-58: the return link checks that need a self-join (original line,
+# replacement order, RMA number on both sides of an exchange) are in
+# tests/assert_fact_orders_returns_return_links.sql.
+#
 # Deferred, not implemented in this pass:
 #   - relationship_coverage-style check on sales_channel_key: same known
 #     BigComUSA reseed gap already flagged on FACT_ORDER_LINE/
