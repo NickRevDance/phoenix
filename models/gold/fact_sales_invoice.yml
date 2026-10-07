@@ -8,9 +8,10 @@ models:
       README.md for build status, known gaps, and open decisions.
     tests:
       - dbt_utils.unique_combination_of_columns:  # 2026-09-16 (Chris review, EDW-23): fixed same day -- invoice_line_number (D365 LINENUM) is not unique per invoice_id (a single order line can explode into many CustInvoiceTrans rows across different products/qty under the same LINENUM), and source_system is constant 'D365' so it added no uniqueness. d365_invoice_rec_id (CustInvoiceTrans.RECID) is the true per-row identifier -- confirmed live 2026-09-16 (107,910 FAILs on the old combo, 0 on this one).
-          combination_of_columns:
-            - invoice_id
-            - d365_invoice_rec_id
+          arguments:
+            combination_of_columns:
+              - invoice_id
+              - d365_invoice_rec_id
     columns:
       - name: sales_invoice_key
         tests: [is_valid_key]
@@ -24,15 +25,19 @@ models:
         tests:
           - not_null
           - relationships:
-              to: ref('dim_customer')
-              field: customer_key
+              arguments:
+                to: ref('dim_customer')
+                field: customer_key
+      - name: unresolved_upc
+        description: D365 barcode (UPC) that had no DIM_PRODUCT row, so product_key is -1. NULL when product_key resolved or no barcode exists. EDW-134.
       - name: product_key
         tests:
           - relationships:
-              to: ref('dim_product')
-              field: product_key
+              arguments:
+                to: ref('dim_product')
+                field: product_key
               config:
-                severity: warn  # 2026-09-16: -1 unresolved-to-barcode rows are
+                severity: error  # EDW-134 (2026-10-05): every product_key now exists in dim_product ('-1' is a real member); was warn. Prior note: -1 unresolved-to-barcode rows are
                 # expected by design (same convention as fact_product_price),
                 # which would always fail a hard relationships test.
       - name: sales_channel_key

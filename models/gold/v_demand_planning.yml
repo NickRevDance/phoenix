@@ -28,7 +28,7 @@ models:
       - name: product_key
         description: >
           DIM_PRODUCT key resolved on the barcode path. '-1' where the order line has no barcode.
-          A key that is not in DIM_PRODUCT leaves the product attributes NULL (EDW-134).
+          '-1' also covers a barcode with no DIM_PRODUCT row (EDW-134); the UPC is kept in unresolved_upc on the fact.
       - name: sales_channel_key
         description: DIM_SALES_CHANNEL key.
       - name: warehouse_key

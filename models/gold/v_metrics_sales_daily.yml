@@ -31,8 +31,7 @@ models:
       - name: product_key
         description: >
           DIM_PRODUCT key resolved on the barcode path. '-1' where the line has no barcode, which
-          includes every Free Text line. A key that is not in DIM_PRODUCT leaves the product
-          attributes NULL (EDW-134).
+          includes every Free Text line. '-1' also covers a barcode with no DIM_PRODUCT row (EDW-134); the UPC is kept in unresolved_upc on the fact.
         tests: [not_null]
       - name: customer_key
         description: DIM_CUSTOMER key of the invoice account.
