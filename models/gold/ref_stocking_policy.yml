@@ -7,8 +7,8 @@ models:
       straight from the stocking_policy seed (a classification, not history: no effective
       dating, no snapshot). One row per item whose policy is not the default; an item with
       no row is STOCKED. Six rows today, the made-to-order studio apparel items 266400 to
-      266405. The certified inventory views (v_current_inventory, v_metrics_inventory_daily,
-      v_inventory_aging_summary) leave MADE_TO_ORDER items out; the snapshot fact keeps
+      266405. The certified inventory views (v_current_inventory and
+      v_metrics_inventory_daily) leave MADE_TO_ORDER items out; the snapshot fact keeps
       their rows so the exclusion stays visible and reversible.
     columns:
       - name: product_id

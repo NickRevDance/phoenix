@@ -219,9 +219,13 @@ models:
       Demand metrics (EDW-51) use the trailing 90 days before snapshot_date (var
       inventory_demand_window_days) of FACT_SALES_INVOICE, net of returns, on product_key +
       warehouse_key; NULL where either key is unresolved (product_key '-1' counts as unresolved). Item + warehouse metrics repeat on each
-      status row, so do not sum them across status rows. excess_inventory_flag is 1 for stock
-      with no demand in the window and for days_of_supply strictly over 180 (compared without a
-      rounded daily rate). inventory_turnover averages on-hand standard cost over snapshot points
+      status row, so do not sum them across status rows. excess_inventory_flag (ruling I4,
+      2026-10-07, EDW-172) is 1 when item + warehouse available stock is above
+      trailing_units_sold_365 (net units in the 365 days before snapshot_date) or nothing sold
+      in those 365 days; an item first sold under 180 days before snapshot_date is not assessed
+      (0). excess_qty is the units above that one-year line, spread over the pair's status rows
+      by positive available_qty, so it can be summed. Demand stays net of returns, floored at
+      zero (ruling I5). inventory_turnover averages on-hand standard cost over snapshot points
       from the row's own branch only (the branches carry different cost bases), leaving out points
       where stock has no cost. below_safety_stock_flag is NULL while safety_stock_qty is NULL
       (EDW-126); has_safety_stock_flag is 0 until then. reorder_flag is out of scope (I2c).
@@ -236,12 +240,21 @@ models:
           - accepted_values:
               arguments:
                 values: [0, 1]
-          # EDW-51: nothing at or under 180 days of supply is flagged (guards the boundary)
+      - name: excess_qty
+        tests:
+          # I4: never negative, and zero wherever the flag is not set
           - dbt_utils.expression_is_true:
+              name: v_metrics_inventory_daily_excess_qty_not_negative
+              arguments:
+                expression: ">= 0"
+              config:
+                severity: warn
+          - dbt_utils.expression_is_true:
+              name: v_metrics_inventory_daily_excess_qty_zero_when_not_flagged
               arguments:
                 expression: "= 0"
               config:
-                where: "days_of_supply <= 180"
+                where: "excess_inventory_flag = 0"
                 severity: warn
       - name: below_safety_stock_flag
         tests:
@@ -255,14 +268,8 @@ models:
               arguments:
                 values: [0, 1]
 
-  - name: v_inventory_aging_summary
-    description: >
-      Pre-bucketed aging per product + warehouse on the latest snapshot, company-owned scope and
-      stocked items only (MADE_TO_ORDER left out, EDW-144; spec 5.3). age_bucket is NULL until the Aging field group is sourced from
-      FACT_INVENTORY_MOVEMENT receipts. Same seam and cost-basis rules as the fact.
-
   - name: v_partner_inventory
     description: >
       Latest position for partner-owned stock by program (spec 5.4): the inverse scope of the
-      other three views (ownership_type = PARTNER_OWNED). Thin by design, no derived supply
+      other two views (ownership_type = PARTNER_OWNED). Thin by design, no derived supply
       metrics. Same seam and cost-basis rules as the fact.

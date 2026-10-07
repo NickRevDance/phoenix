@@ -140,11 +140,8 @@ final as (
         , s.inventory_site_id
         , coalesce(sp.stocking_policy, 'STOCKED') as stocking_policy  -- always STOCKED here: MADE_TO_ORDER is filtered below
 
-    -- Aging
-        , s.first_receipt_date
-        , s.last_receipt_date
-        , s.days_on_hand_age
-        , s.age_bucket
+    -- Last sale. The four aging columns (first_receipt_date, last_receipt_date, days_on_hand_age,
+    -- age_bucket) were retired in spec v2.9 (EDW-172): never sourced, NULL on every fact row.
         , s.last_sale_date
 
     -- Product attributes

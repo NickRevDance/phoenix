@@ -2,7 +2,7 @@
 
 -- V_PARTNER_INVENTORY (Inventory Gold Layer spec v2.6, Section 5.4). Latest position for
 -- partner-owned stock, by partner program. Deliberately the inverse scope of the other
--- three views -- ownership_type = 'PARTNER_OWNED' instead of include_in_std_metrics_flag
+-- two views -- ownership_type = 'PARTNER_OWNED' instead of include_in_std_metrics_flag
 -- = 1. Thin by design: no derived supply metrics, partner stock has no demand-planning
 -- role.
 -- SEAM AND COST BASIS (spec 2.5, EDW-117 item 7): fact_inventory_snapshot_daily has two
