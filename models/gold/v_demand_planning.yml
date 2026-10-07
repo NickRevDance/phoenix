@@ -1,0 +1,143 @@
+version: 2
+
+models:
+  - name: v_demand_planning
+    description: >
+      V_DEMAND_PLANNING (EDW-61) -- the certified demand view on FACT_ORDER_LINE: ordered demand
+      net of cancellations, by order date, in units. One row per order_date_key + product_key +
+      sales_channel_key + warehouse_key, with a row for every calendar day from a combination's
+      first order to 393 days after its latest order at the default window (the year-over-year offset plus the
+      comparison window, less one), including days with no orders. Carries the day's demand,
+      rolling 7, 30 and 90 day demand, and two flags (30-day trend and year over year) whose
+      thresholds come from REF_DEMAND_PLANNING_THRESHOLDS. The latest order date is a part day
+      and is marked is_partial_day_flag; read "as of now" from the latest row where that flag is
+      false. This is ordered demand; V_METRICS_INVENTORY_DAILY uses invoiced demand. The view
+      carries no amounts. See the model's header comment for the rules.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - order_date_key
+              - product_key
+              - sales_channel_key
+              - warehouse_key
+    columns:
+      # Grain
+      - name: order_date_key
+        description: The calendar day as yyyyMMdd, on the order date basis. Joins DIM_DATE.
+      - name: product_key
+        description: >
+          DIM_PRODUCT key resolved on the barcode path. '-1' where the order line has no barcode.
+          A key that is not in DIM_PRODUCT leaves the product attributes NULL (EDW-134).
+      - name: sales_channel_key
+        description: DIM_SALES_CHANNEL key.
+      - name: warehouse_key
+        description: DIM_WAREHOUSE key of the warehouse on the order line.
+
+      # Date attributes
+      - name: order_date
+        description: The calendar day. Order lines land on the day their order was created.
+      - name: is_partial_day_flag
+        description: >
+          True on the latest order date in the fact, which holds only the orders loaded so far
+          that day. Rolling figures on that day are short by the rest of the day.
+      - name: fiscal_year
+        description: Fiscal year from DIM_DATE (July 1 to June 30, named for the year it ends in).
+      - name: fiscal_quarter
+        description: Fiscal quarter number from DIM_DATE.
+      - name: fiscal_month
+        description: Fiscal month number from DIM_DATE (1 = July).
+      - name: fiscal_year_week
+        description: Week number within the fiscal year from DIM_DATE.
+
+      # Product attributes (latest version of the DIM_PRODUCT row)
+      - name: product_id
+        description: D365 item number.
+      - name: style_number
+        description: Style number.
+      - name: style_name
+        description: Style name. Unknown Product on the '-1' member.
+      - name: summary_class
+        description: Summary class.
+      - name: product_group
+        description: Product group.
+      - name: division_season
+        description: Division and season of the style.
+      - name: gender
+        description: Gender.
+
+      # Sales channel attributes
+      - name: channel_code
+        description: Sales channel code.
+      - name: channel_name
+        description: Sales channel name.
+      - name: channel_type
+        description: Sales channel type.
+
+      # Warehouse attributes
+      - name: warehouse_id
+        description: Warehouse id.
+      - name: warehouse_name
+        description: Warehouse name.
+
+      # Demand on the day
+      - name: order_line_count
+        description: Count of FACT_ORDER_LINE rows ordered on the day. Zero on a day with no orders.
+      - name: ordered_qty
+        description: Sum of ordered_qty on the day, before cancellations.
+      - name: cancelled_qty
+        description: >
+          Quantity taken out for cancellations: the whole ordered_qty of a line whose status is
+          Cancelled on FACT_ORDERS_RETURNS, otherwise its cancelled_qty up to the ordered_qty.
+      - name: demand_qty
+        description: Demand on the day - ordered_qty less cancelled_qty. Never below zero.
+
+      # Rolling demand
+      - name: demand_7d
+        description: Sum of demand_qty over the 7 calendar days ending on the row's day.
+      - name: demand_30d
+        description: Sum of demand_qty over the 30 calendar days ending on the row's day.
+      - name: demand_90d
+        description: Sum of demand_qty over the 90 calendar days ending on the row's day.
+
+      # What the flags compare
+      - name: comparison_window_days
+        description: >
+          Window length the two flags use (30 at the ratified default). Read from
+          REF_DEMAND_PLANNING_THRESHOLDS when dbt builds the view, so a change to the seed row
+          takes effect on the next build.
+      - name: demand_window_qty
+        description: >
+          Sum of demand_qty over the comparison_window_days ending on the row's day. Equal to
+          demand_30d at the default. The current side of both flags.
+      - name: demand_prior_window_qty
+        description: Sum of demand_qty over the comparison window just before the current one. The other side of demand_trend_flag.
+      - name: demand_ly_window_qty
+        description: >
+          Sum of demand_qty over the same window 364 days earlier (52 weeks, so weekdays line
+          up). The other side of demand_yoy_flag.
+
+      # Flags
+      - name: demand_trend_flag
+        description: >
+          demand_window_qty against demand_prior_window_qty. Insufficient when the two together
+          are under insufficient_units_60d or the prior window starts before the fact's first
+          order date; Increasing at or above trend_increasing_pct; Declining at or below
+          trend_declining_pct; Stable between. Thresholds from REF_DEMAND_PLANNING_THRESHOLDS,
+          as they stand today, on every date. Before about September 2023 the prior window
+          falls in months the fact does not fully hold.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Increasing', 'Stable', 'Declining', 'Insufficient']
+      - name: demand_yoy_flag
+        description: >
+          demand_window_qty against demand_ly_window_qty, on the same thresholds and labels as
+          demand_trend_flag. Insufficient where the fact has no history a year back. A
+          combination that sold enough units in the window a year ago and has not sold since
+          reads Declining. Before about August 2024 the year-ago window falls in months the
+          fact does not fully hold.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Increasing', 'Stable', 'Declining', 'Insufficient']
