@@ -14,10 +14,11 @@ models:
       stays on the fact.
     tests:
       - dbt_utils.unique_combination_of_columns:  # EDW-7: exactly one current row per natural key
-          combination_of_columns:
-            - source_system
-            - source_storefront_code
-            - source_promotion_id
+          arguments:
+            combination_of_columns:
+              - source_system
+              - source_storefront_code
+              - source_promotion_id
           config:
             where: "is_current_row = 1"
     columns:
@@ -30,12 +31,34 @@ models:
       - name: promotion_class
         tests:
           - accepted_values:
-              values: ['CONTRACTUAL_PRICING', 'PROMOTIONAL_DISCOUNT', 'MANUAL', 'Reserved']
+              arguments:
+                values: ['MARKETING_PROMOTION', 'CONTRACTUAL_PRICING', 'MARKDOWN', 'INTERNAL', 'SYSTEM']
       - name: promotion_mechanism
         tests:
           - accepted_values:
-              values: ['TRADE_AGREEMENT', 'PERCENT_DISCOUNT', 'AMOUNT_DISCOUNT', 'BOGO', 'FREE_SHIPPING', 'COUPON_CODE', 'CART_RULE', 'MANUAL_OVERRIDE', 'NONE', 'UNKNOWN']
+              arguments:
+                values: ['PERCENT_OFF', 'AMOUNT_OFF', 'BOGO', 'TIERED_VOLUME', 'BUNDLE', 'FREE_SHIPPING', 'PRICE_OVERRIDE', 'GIFT_WITH_PURCHASE']
+              config:
+                where: "promotion_class <> 'SYSTEM'"  # reserved members 0 / -1 carry NONE / UNKNOWN; the spec domain has no neutral value
       - name: discount_type_default
         tests:
+          - not_null
           - accepted_values:
-              values: ['PERCENT', 'FIXED_AMOUNT', 'FIXED_PRICE', 'FREE_SHIPPING', 'NONE']
+              arguments:
+                values: ['LINE_DISCOUNT', 'HEADER_DISCOUNT', 'COUPON', 'VOLUME_BREAK', 'TRADE_AGREEMENT', 'MANUAL_OVERRIDE', 'EMPLOYEE', 'BUNDLE', 'FREE_SHIPPING']
+          - relationships:  # same governed domain as FACT_DISCOUNT_APPLICATION.discount_type, one definition
+              arguments:
+                to: ref('ref_discount_type_classification')
+                field: discount_type
+      - name: discount_value
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "between 0 and 1"
+              config:
+                where: "discount_value_unit = 'PERCENT'"
+      - name: discount_value_unit
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['PERCENT', 'AMOUNT']
