@@ -6,12 +6,22 @@ models:
       FACT_ORDER_LINE -- immutable as-ordered demand snapshot, insert-only
       accumulating fact (D365 SalesLine + SalesTable). See README.md for
       build status, known gaps, and open decisions.
+    tests:
+      - dbt_utils.unique_combination_of_columns:  # EDW-21 v1.1 (2026-10-07, spec Section 3 / 7.7): grain is order_id + d365_sales_line_rec_id, not order_id + order_line_number -- same rec_id-grain test as FACT_ORDERS_RETURNS.
+          arguments:
+            combination_of_columns:
+              - order_id
+              - d365_sales_line_rec_id
     columns:
       - name: order_line_key
         tests: [is_valid_key]
       - name: order_id
         tests: [not_null]
       - name: order_line_number
+        description: SalesLine.LINENUM as DECIMAL(10,4). Fractional when D365 inserts a line between existing lines. Display and sort attribute, not the grain. EDW-21.
+        tests: [not_null]
+      - name: d365_sales_line_rec_id
+        description: SalesLine RECID. Grain component with order_id and the join key to FACT_ORDERS_RETURNS. EDW-21.
         tests: [not_null]
       - name: source_system
         tests: [not_null]
@@ -57,11 +67,11 @@ models:
       - name: net_line_amount
         tests: [not_null]
 
-# Deferred, not implemented in this pass:
-#   - order_id + order_line_number + source_system business-key uniqueness:
-#     not tested directly (2 known live duplicates on this combination --
-#     see README/SQL comment on order_line_key -- is_valid_key on the
-#     surrogate key covers row-level uniqueness instead).
+# EDW-21 v1.1 (2026-10-07): uniqueness is tested on order_id +
+# d365_sales_line_rec_id (model-level test above) and on order_line_key.
+# There is no uniqueness test on order_id + order_line_number by design
+# (spec 7.7): lines deleted in D365 and re-created under the same LINENUM
+# are both kept, so that combination repeats.
 #
 # 2026-09-16: customer_key not_null converted to warn (threshold error_if
 # >5) instead of hard error, per the project-wide dq_exceptions_framework

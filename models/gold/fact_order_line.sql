@@ -31,9 +31,9 @@ with line as (
     -- (confirmed live 2026-09-11: all 215,909 SALESTYPE=4 lines carry
     -- RETURNSTATUS in {1,2,4,5,6}, all 2,588,292 SALESTYPE=3 lines carry
     -- RETURNSTATUS=0) -- treated as the Return population per spec Section 3,
-    -- excluded here. Official SalesType enum label mapping unconfirmed
-    -- (Open Decision 2) -- order_type stays null below rather than guessing
-    -- a label off this inference.
+    -- excluded here. EDW-21 v1.1 (2026-10-07): the fact carries no
+    -- order_type column (spec 4.3 / 7.2, decision C7) -- SALESTYPE = 3 is
+    -- the only value this fact admits, so it is a filter, not an attribute.
     where l.SALESTYPE = 3
 
     -- Grace period so the SalesTable header has time to land
@@ -255,16 +255,16 @@ final as (
     -- INVOICEID+LINENUM key collided and was fixed to RECID on 2026-09-11.
           xxhash64(l.REC, 'D365')                                    as order_line_key
         , l.SALESID                                                  as order_id
-        , cast(l.LINENUM as int)                                     as order_line_number
+        , cast(l.LINENUM as decimal(10,4))                           as order_line_number  -- EDW-21 v1.1 (2026-10-07): DECIMAL(10,4), not INT -- fractional LINENUM values and re-created lines make the line number non-unique/non-integer within an order (spec Section 3). Display and sort attribute, not the grain. Same cast as FACT_ORDERS_RETURNS.
+        , cast(l.REC as bigint)                                      as d365_sales_line_rec_id  -- EDW-21 v1.1 (2026-10-07): SalesLine RECID. Grain component (order_id + d365_sales_line_rec_id) and the join key to FACT_ORDERS_RETURNS, spec Section 3 / 6.
         , 'D365'                                                     as source_system
         , cast(null as string) as bigcommerce_order_id  -- Source once available: no confirmed field -- SalesTable.REVINTEGRATIONID is 78.5% populated but not confirmed to be BigCommerce-specific; SUNECOMMORDERID (0% populated) ruled out
-        , cast(null as string) as order_type  -- Source once available: D365 SalesType enum label mapping unconfirmed (Open Decision 2) -- see filter comment above
 
     -- Dim FKs
         , cast(date_format(l.order_created_date, 'yyyyMMdd') as int)  as order_date_key
-        , case when l.SHIPPINGDATEREQUESTED is not null
+        , case when l.SHIPPINGDATEREQUESTED is not null and l.SHIPPINGDATEREQUESTED > timestamp('1901-01-01') and l.SHIPPINGDATEREQUESTED < timestamp('2040-01-01')
                then cast(date_format(l.SHIPPINGDATEREQUESTED, 'yyyyMMdd') as int)
-               else null end                                          as requested_ship_date_key
+               else null end                                          as requested_ship_date_key  -- EDW-21 v1.1 (2026-10-07): placeholder dates on/after 2040-01-01 or on/before 1901-01-01 null out with their key (spec 4.7 / 7.8). Same rule as FACT_ORDERS_RETURNS.
         , l.product_key
         , l.unresolved_upc
         , l.customer_key
@@ -279,7 +279,9 @@ final as (
 
     -- Dates
         , cast(l.order_created_date as date)                         as order_date
-        , cast(l.SHIPPINGDATEREQUESTED as date)                      as requested_ship_date
+        , case when l.SHIPPINGDATEREQUESTED is not null and l.SHIPPINGDATEREQUESTED > timestamp('1901-01-01') and l.SHIPPINGDATEREQUESTED < timestamp('2040-01-01')
+               then cast(l.SHIPPINGDATEREQUESTED as date)
+               else null end                                          as requested_ship_date  -- EDW-21 v1.1 (2026-10-07): placeholder rule, see requested_ship_date_key
         , cast(null as date) as requested_delivery_date  -- Phase 2 per spec
 
     -- Status
