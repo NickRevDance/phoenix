@@ -26,6 +26,8 @@ with line as (
         , l.SHIPPINGDATEREQUESTED
         , l.RETURNARRIVALDATE
         , l.RETURNDISPOSITIONCODEID
+        , l.RETURNSTATUS
+        , l.INVENTTRANSIDRETURN
         , l.MODIFIEDDATE
 
     from {{ ref('silver_d365_sales_line') }} l
@@ -40,6 +42,17 @@ with line as (
         l.MODIFIEDDATE > (select coalesce(max(etl_source_modified_datetime), timestamp('1900-01-01')) from {{ this }}) - interval 2 days
         -- EDW-134 self-heal: re-pull lines that still hold an Unknown product
         or cast(l.REC as bigint) in (select d365_sales_line_rec_id from {{ this }} where product_key = '-1')
+        -- EDW-58: re-pull return lines whose return order header changed inside the same lookback.
+        -- Reason, RMA number, replacement and refund tender sit on the header, and the watermark is on the line.
+        or (
+            l.SALESTYPE = 4
+            and l.SALESID in (
+                select h.SALESID
+                from {{ ref('silver_d365_sales_table') }} h
+                where h.SALESTYPE = 4
+                  and h.MODIFIEDDATE > (select coalesce(max(etl_source_modified_datetime), timestamp('1900-01-01')) from {{ this }}) - interval 2 days
+            )
+        )
     )
     {% endif %}
 
@@ -56,6 +69,13 @@ sales_table as (
         , st.DLVMODE
         , st.PURCHORDERFORMNUM
         , st.CREATEDDATE
+        -- EDW-58: return lifecycle columns. On a return row these come from the return order's own header.
+        , st.RETURNITEMNUM
+        , st.RETURNREASONCODEID
+        , st.RETURNREPLACEMENTCREATED
+        , st.RETURNREPLACEMENTID
+        , st.PAYMMODE
+        , st.RETURNDEADLINE
 
     from {{ ref('silver_d365_sales_table') }} st
 
@@ -70,9 +90,55 @@ return_header as (
 
           r.SALESTABLE
         , r.ORIGINALSALESID
-        , r.REC as return_header_rec
 
     from {{ ref('silver_d365_mcr_return_sales_table') }} r
+
+),
+
+-- EDW-58: the sales orders that replace a return (spec 4.11): every order named in a
+-- return header's RETURNREPLACEMENTID. Read from the full header table, so a sales line
+-- gets its flag on any run. McrReturnSalesTable.ISEXCHANGE is not used: it also marks
+-- 27 orders that no return points to (checked October 7, 2026).
+replacement_order as (
+
+    select distinct
+
+          rt.RETURNREPLACEMENTID as SALESID
+
+    from {{ ref('silver_d365_sales_table') }} rt
+    where rt.SALESTYPE = 4
+      and rt.RETURNREPLACEMENTCREATED = 1
+      and nullif(rt.RETURNREPLACEMENTID, '') is not null
+
+),
+
+-- EDW-58: the original sales line behind a return line (spec Section 3), matched on
+-- INVENTTRANSIDRETURN = INVENTTRANSID. Reads the full silver table, not the line CTE,
+-- because an incremental run only holds the lookback window there. INVENTTRANSID is
+-- unique on SalesLine, so this join cannot fan out.
+original_line as (
+
+    select
+
+          ol.INVENTTRANSID
+        , cast(ol.REC as bigint) as original_rec_id
+        , ol.LINENUM as original_linenum
+
+    from {{ ref('silver_d365_sales_line') }} ol
+    where ol.SALESTYPE in (3, 4)
+      and nullif(ol.INVENTTRANSID, '') is not null
+
+),
+
+-- EDW-58: reason category lookup (spec 7.8), one row per code plus the blank-code row.
+return_reason_category as (
+
+    select
+
+          return_reason_code
+        , return_reason_category
+
+    from {{ ref('ref_return_reason_category') }}
 
 ),
 
@@ -214,6 +280,7 @@ joined as (
         , l.SHIPPINGDATEREQUESTED
         , l.RETURNARRIVALDATE
         , l.RETURNDISPOSITIONCODEID
+        , l.RETURNSTATUS
         , l.MODIFIEDDATE
 
         , st.CUSTACCOUNT
@@ -221,9 +288,18 @@ joined as (
         , st.DLVMODE
         , st.PURCHORDERFORMNUM
         , st.CREATEDDATE                         as order_created_date
+        , st.RETURNITEMNUM
+        , st.RETURNREASONCODEID
+        , st.RETURNREPLACEMENTCREATED
+        , st.RETURNREPLACEMENTID
+        , st.PAYMMODE
+        , st.RETURNDEADLINE
 
         , rh.ORIGINALSALESID
-        , rh.return_header_rec
+        , ol.original_rec_id
+        , ol.original_linenum
+        , ro.SALESID is not null                 as is_replacement_order
+        , rrc.return_reason_category
 
         , d.INVENTLOCATIONID
         -- EDW-134: UPCs missing from dim_product resolve to Unknown ('-1'); UPC kept in unresolved_upc
@@ -245,6 +321,21 @@ joined as (
     -- order line's SALESID never appears as a return header's SALESTABLE.
     left join return_header rh
         on st.REC = rh.SALESTABLE
+
+    -- EDW-58: return rows only. The line link is blank on cancelled returns.
+    left join original_line ol
+        on l.SALESTYPE = 4
+        and nullif(l.INVENTTRANSIDRETURN, '') = ol.INVENTTRANSID
+
+    -- EDW-58: sales rows only.
+    left join replacement_order ro
+        on l.SALESTYPE = 3
+        and l.SALESID = ro.SALESID
+
+    -- EDW-58: return rows only. A blank or missing code joins the blank-code row (Other).
+    left join return_reason_category rrc
+        on l.SALESTYPE = 4
+        and coalesce(nullif(trim(st.RETURNREASONCODEID), ''), '') = rrc.return_reason_code
 
     left join inventory_dim d
         on l.INVENTDIMID = d.InventDimID
@@ -292,9 +383,14 @@ final as (
         , cast(l.REC as bigint)                                       as d365_sales_line_rec_id  -- Grain component / join key to FACT_ORDER_LINE, spec Section 6.
         , 'D365'                                                      as source_system
         , cast(null as string) as bigcommerce_order_id  -- Source once available: no confirmed field -- SalesTable.REVINTEGRATIONID is 78.5% populated but not confirmed to be BigCommerce-specific; SUNECOMMORDERID (0% populated) ruled out. Same gap as FACT_ORDER_LINE.
-        , case when l.SALESTYPE = 4 then cast(l.return_header_rec as string) end as rma_id  -- No dedicated RMA-number field found on McrReturnSalesTable or SalesLine -- using the return header's own row id (REC) as the traceable identifier. Only populated for return lines; null for forward-demand lines.
+        , case
+            when l.SALESTYPE = 4 then nullif(l.RETURNITEMNUM, '')
+            when l.SALESTYPE = 3 and l.is_replacement_order then nullif(l.RETURNITEMNUM, '')
+          end                                                         as rma_id  -- EDW-58: SalesTable.RETURNITEMNUM (RMA-nnnnnn) on return rows and on the sales rows of a replacement order, NULL otherwise (spec 4.3). Was the return header's record id.
         , case when l.SALESTYPE = 4 then l.ORIGINALSALESID end        as original_order_id  -- McrReturnSalesTable.ORIGINALSALESID, 89% populated on return headers (123,288 of 138,758) -- Open Decision 5, not fully resolved
-        , cast(null as int) as original_order_line_number  -- Source once available: McrReturnSalesTable links at the order-header level only, no original line number captured -- Open Decision 5
+        , case when l.SALESTYPE = 4 then l.original_rec_id end        as original_d365_sales_line_rec_id  -- EDW-58: RECID of the original sales line via INVENTTRANSIDRETURN (spec Section 3). NULL on cancelled returns and on sales rows.
+        , case when l.SALESTYPE = 4 then cast(l.original_linenum as decimal(10,4)) end as original_order_line_number  -- EDW-58: LINENUM of the same original line. Display value; join on the rec id.
+        , case when l.SALESTYPE = 4 and l.RETURNREPLACEMENTCREATED = 1 then nullif(l.RETURNREPLACEMENTID, '') end as replacement_order_id  -- EDW-58: the sales order that replaces this return (spec 4.11). NULL when the return is not an exchange.
 
     -- Dim FKs
         , case when l.order_created_date is not null and l.order_created_date > timestamp('1901-01-01') and l.order_created_date < timestamp('2040-01-01')
@@ -309,6 +405,9 @@ final as (
         , case when l.SALESTYPE = 4 and l.RETURNARRIVALDATE is not null and l.RETURNARRIVALDATE > timestamp('1901-01-01') and l.RETURNARRIVALDATE < timestamp('2040-01-01')
                then cast(date_format(l.RETURNARRIVALDATE, 'yyyyMMdd') as int)
                else null end                                          as return_date_key  -- Same placeholder rule as requested_ship_date_key (spec 7.6) -- 1901 floor paired with a 2040 ceiling (25,020 rows live sit below the floor; none currently sit above the ceiling).
+        , case when l.SALESTYPE = 4 and l.order_created_date is not null and l.order_created_date > timestamp('1901-01-01') and l.order_created_date < timestamp('2040-01-01')
+               then cast(date_format(l.order_created_date, 'yyyyMMdd') as int)
+               else null end                                          as return_request_date_key  -- EDW-58: DIM_DATE key on return_request_date.
         , cast(null as int) as cancel_date_key  -- Source once available: no dedicated cancellation-date field found on SalesLine -- MODIFIEDDATE reflects the row's last change generally, not confirmed to be the cancellation event specifically
         , l.product_key
         , l.unresolved_upc
@@ -335,7 +434,12 @@ final as (
         , case when l.SALESTYPE = 4 and l.RETURNARRIVALDATE is not null and l.RETURNARRIVALDATE > timestamp('1901-01-01') and l.RETURNARRIVALDATE < timestamp('2040-01-01')
                then cast(l.RETURNARRIVALDATE as date)
                else null end                                          as return_date
-        , cast(null as date) as return_request_date  -- Phase 2 per spec
+        , case when l.SALESTYPE = 4 and l.order_created_date is not null and l.order_created_date > timestamp('1901-01-01') and l.order_created_date < timestamp('2040-01-01')
+               then cast(l.order_created_date as date)
+               else null end                                          as return_request_date  -- EDW-58: the return order's CREATEDDATE on return rows (equals order_date there; kept so return metrics read one column).
+        , case when l.SALESTYPE = 4 and l.RETURNDEADLINE is not null and l.RETURNDEADLINE > timestamp('1901-01-01') and l.RETURNDEADLINE < timestamp('2040-01-01')
+               then cast(l.RETURNDEADLINE as date)
+               else null end                                          as return_deadline  -- EDW-58: SalesTable.RETURNDEADLINE on return rows, placeholder rule (spec 7.6).
 
     -- Status
     -- D365 SalesStatus enum: 0=None, 1=Backorder, 2=Delivered, 3=Invoiced,
@@ -357,12 +461,22 @@ final as (
             when l.SALESTYPE = 4 then 'Return Order'
             else 'Unknown'
           end                                                         as order_type  -- D365 SalesType label mapping per spec 7.7/C6 -- 3 = Sales Order, 4 = Return Order, else Unknown. is_return_flag below still derives from the raw SALESTYPE value directly.
+        , case when l.SALESTYPE = 4 then
+            case l.RETURNSTATUS
+                when 1 then 'Awaiting'
+                when 2 then 'Registered'
+                when 4 then 'Received'
+                when 5 then 'Invoiced'
+                when 6 then 'Cancelled'
+                else cast(l.RETURNSTATUS as string)
+            end
+          end                                                         as return_status  -- EDW-58: SalesLine.RETURNSTATUS on return rows, labels per spec 7.9. Any other value is kept as its number and shows on the accepted-values test.
         , case when l.SALESTYPE = 4 then true else false end          as is_return_flag
         , case when l.SALESSTATUS = 4 or l.REVQTYCANCELLED > 0 then true else false end as is_cancelled_flag
         , case when l.SALESSTATUS = 1 then true else false end        as is_backordered_flag  -- Reflects SalesStatus = Backorder as of the current ETL run, not true backorder history -- same current-state caveat as FACT_ORDER_LINE's order_line_status_at_creation
         , cast(null as boolean) as is_partial_ship_flag  -- Source once available: depends on shipped_qty, which has no source -- see actual_ship_date_key
-        , cast(null as boolean) as is_replacement_flag  -- Phase 2 per spec
-        , cast(null as boolean) as is_exchange_flag  -- Phase 2 per spec
+        , case when l.SALESTYPE = 3 then l.is_replacement_order end   as is_replacement_flag  -- EDW-58: sales rows, true when the order is named in a return header's RETURNREPLACEMENTID (spec 4.11). NULL on return rows.
+        , case when l.SALESTYPE = 4 then coalesce(l.RETURNREPLACEMENTCREATED = 1, false) end as is_exchange_flag  -- EDW-58: return rows, true when the return header has RETURNREPLACEMENTCREATED = 1 (spec 4.11). NULL on sales rows.
         , cast(null as boolean) as is_dso_order_flag  -- Phase 2 per spec
 
     -- Quantities
@@ -388,12 +502,28 @@ final as (
         , cast(null as decimal(19,4)) as net_line_amount_usd  -- Phase 2 per spec
 
     -- Returns
-        , cast(null as string) as return_reason_code  -- Source once available: no return-reason-code field or reference table found anywhere in the BYOD extract -- Open Decision 4
-        , cast(null as string) as return_reason_description  -- Source once available: see return_reason_code
-        , cast(null as string) as return_reason_category  -- Source once available: see return_reason_code
-        , cast(null as string) as return_disposition_code  -- Phase 2 per spec, though the raw source (SalesLine.RETURNDISPOSITIONCODEID) is already available and 88.5% populated on return lines -- left null-with-note per this project's phase-boundary convention, not a real data gap
-        , cast(null as string) as return_condition_code  -- Phase 2 per spec
-        , cast(null as string) as refund_method  -- Phase 2 per spec
+        , case when l.SALESTYPE = 4 then nullif(trim(l.RETURNREASONCODEID), '') end as return_reason_code  -- EDW-58: SalesTable.RETURNREASONCODEID on return rows, as sourced. NULL when blank (spec 7.8).
+        , cast(null as string) as return_reason_description  -- Source once available: the D365 ReturnReasonCode entity (EDW-55)
+        , case when l.SALESTYPE = 4 then coalesce(l.return_reason_category, 'Other') end as return_reason_category  -- EDW-58: from ref_return_reason_category (spec 7.8). A blank code and a code not yet in the seed both read Other, so every return row has a category.
+        , case when l.SALESTYPE = 4 then nullif(trim(l.RETURNDISPOSITIONCODEID), '') end as return_disposition_code  -- EDW-58: SalesLine.RETURNDISPOSITIONCODEID on return rows. NULL when blank (the return is cancelled or still awaited).
+        , case when l.SALESTYPE = 4 then
+            case nullif(trim(l.RETURNDISPOSITIONCODEID), '')
+                when '10' then 'CREDIT'
+                when '20' then 'REPLACE_SCRAP'
+                when '30' then 'CREDIT_INSPECT'
+                else case when nullif(trim(l.RETURNDISPOSITIONCODEID), '') is not null then 'UNKNOWN' end
+            end
+          end                                                         as return_disposition  -- EDW-58: label for return_disposition_code (spec 4.6). UNKNOWN for any other code; NULL when the code is blank.
+        , cast(null as string) as return_condition_code  -- Phase 2 per spec: no D365 source, Salesforce RMA side (FACT_RMA)
+        , case when l.SALESTYPE = 4 then
+            case
+                when l.RETURNREPLACEMENTCREATED = 1 then 'Exchange'
+                when upper(trim(l.PAYMMODE)) in ('CC-BT', 'CHECK', 'ACH') then 'Original Payment'
+                when upper(trim(l.PAYMMODE)) = 'CREDIT' then 'Store Credit'
+                when upper(trim(l.PAYMMODE)) = 'REVPOINTS' then 'Loyalty Points'
+                else 'Unknown'
+            end
+          end                                                         as refund_method  -- EDW-58: the return order's PAYMMODE decoded, with Exchange taking precedence (spec 4.11). PAYMMODE itself is payment_mode_code (EDW-57).
 
     -- B2B
         , nullif(l.PURCHORDERFORMNUM, '')                              as customer_purchase_order
@@ -413,7 +543,13 @@ final as (
         {% endif %}
         , current_timestamp()                                         as etl_update_datetime
         , l.MODIFIEDDATE                                               as etl_source_modified_datetime  -- not a spec field; incremental-merge watermark, same pattern as FACT_ORDER_LINE
-        , sha2(concat_ws('||', l.SALESID, cast(l.LINENUM as string), 'D365', cast(l.SALESTYPE as string), cast(l.QTYORDERED as string), cast(l.REVQTYCANCELLED as string), coalesce(cast(l.SALESSTATUS as string), '')), 256) as row_hash
+        , sha2(concat_ws('||', l.SALESID, cast(l.LINENUM as string), 'D365', cast(l.SALESTYPE as string), cast(l.QTYORDERED as string), cast(l.REVQTYCANCELLED as string), coalesce(cast(l.SALESSTATUS as string), '')
+            -- EDW-58: return_status, return_disposition_code, is_exchange_flag, replacement_order_id (spec 4.2)
+            , coalesce(case when l.SALESTYPE = 4 then cast(l.RETURNSTATUS as string) end, '')
+            , coalesce(case when l.SALESTYPE = 4 then nullif(trim(l.RETURNDISPOSITIONCODEID), '') end, '')
+            , coalesce(case when l.SALESTYPE = 4 then cast(coalesce(l.RETURNREPLACEMENTCREATED = 1, false) as string) end, '')
+            , coalesce(case when l.SALESTYPE = 4 and l.RETURNREPLACEMENTCREATED = 1 then nullif(l.RETURNREPLACEMENTID, '') end, '')
+          ), 256) as row_hash
 
     from joined l
 
