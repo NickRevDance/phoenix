@@ -1,0 +1,185 @@
+version: 2
+
+models:
+  - name: v_metrics_sales_daily
+    description: >
+      V_METRICS_SALES_DAILY (EDW-133) -- the certified daily sales metrics view over
+      FACT_SALES_INVOICE. One row per invoice_date_key + product_key + customer_key +
+      sales_channel_key + warehouse_key + transaction_currency_code + invoice_type. Every row of
+      the fact is represented, including unresolved keys and Free Text lines, so each additive
+      measure summed over the view equals the same sum over the fact. Ratios ship as numerator
+      and denominator and are divided by the consumer. Transaction amounts are in
+      transaction_currency_code and must not be summed across currencies. Revenue and discount
+      totals include both invoice types; anything by product, units, ASP, cost or margin
+      filters invoice_type = 'Sales Order'. See the model's header comment for the rules.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - invoice_date_key
+              - product_key
+              - customer_key
+              - sales_channel_key
+              - warehouse_key
+              - transaction_currency_code
+              - invoice_type
+    columns:
+      # Grain
+      - name: invoice_date_key
+        description: Invoice date as yyyyMMdd. Joins DIM_DATE.
+        tests: [not_null]
+      - name: product_key
+        description: >
+          DIM_PRODUCT key resolved on the barcode path. '-1' where the line has no barcode, which
+          includes every Free Text line. A key that is not in DIM_PRODUCT leaves the product
+          attributes NULL (EDW-134).
+        tests: [not_null]
+      - name: customer_key
+        description: DIM_CUSTOMER key of the invoice account.
+        tests: [not_null]
+      - name: sales_channel_key
+        description: DIM_SALES_CHANNEL key. -1 (Unknown Channel) where the sales origin is blank or unmapped.
+        tests: [not_null]
+      - name: warehouse_key
+        description: >
+          DIM_WAREHOUSE key. NULL where the line resolves to no warehouse (Free Text lines and a
+          few others) until DIM_WAREHOUSE carries its unknown member (EDW-90).
+      - name: transaction_currency_code
+        description: Currency of the transaction amounts on the row (USD or CAD). In the grain so the two are never summed in one cell.
+        tests: [not_null]
+      - name: invoice_type
+        description: >
+          Sales Order or Free Text. Taken from the fact once EDW-59 populates it; until then
+          derived from order_id, which is blank on free text invoice lines.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Sales Order', 'Free Text']
+
+      # Date attributes
+      - name: invoice_date
+        description: Invoice date.
+      - name: fiscal_year
+        description: Fiscal year from DIM_DATE (July 1 to June 30, named for the year it ends in).
+      - name: fiscal_quarter
+        description: Fiscal quarter number from DIM_DATE.
+      - name: fiscal_month
+        description: Fiscal month number from DIM_DATE (1 = July).
+      - name: fiscal_year_week
+        description: Week number within the fiscal year from DIM_DATE.
+      - name: year_month_int
+        description: Calendar year and month as yyyyMM from DIM_DATE.
+
+      # Product attributes (latest version of the DIM_PRODUCT row)
+      - name: product_id
+        description: D365 item number.
+      - name: style_number
+        description: Style number.
+      - name: style_name
+        description: Style name. Unknown Product on the '-1' member.
+      - name: summary_class
+        description: Summary class.
+      - name: product_group
+        description: Product group.
+      - name: reporting_category_group
+        description: Reporting rollup, level 1 (REF_SUMMARY_CLASS_ROLLUP, EDW-125).
+      - name: reporting_subcategory
+        description: Reporting rollup, level 2 (REF_SUMMARY_CLASS_ROLLUP, EDW-125).
+      - name: dw_sku_status
+        description: Active or Retired, from DIM_PRODUCT.
+
+      # Customer attributes (latest version of the DIM_CUSTOMER row)
+      - name: customer_type
+        description: B2B or B2C as DIM_CUSTOMER carries it today. The classification rule is still to be confirmed with the business.
+      - name: customer_status
+        description: Customer status as DIM_CUSTOMER carries it today (Active, Suspended).
+
+      # Sales channel attributes
+      - name: channel_code
+        description: Sales channel code.
+      - name: channel_name
+        description: Sales channel name.
+      - name: channel_type
+        description: Sales channel type.
+      - name: storefront_code
+        description: Storefront code (US, CA, TT) on the ecommerce channels.
+
+      # Warehouse attributes
+      - name: warehouse_id
+        description: Warehouse id.
+
+      # Volume
+      - name: invoice_line_count
+        description: Count of FACT_SALES_INVOICE rows. Additive.
+      - name: invoice_count
+        description: >
+          Count of distinct invoice_id at the grain. Semi-additive: an invoice with more than one
+          product, warehouse or invoice type is counted on each row it touches, so do not sum it
+          across rows.
+      - name: invoiced_qty
+        description: Sum of invoiced_qty. Negative on credit lines, so returns net here.
+
+      # Revenue (transaction currency)
+      - name: gross_sales_amount
+        description: Sum of gross_sales_amount (quantity x unit price).
+      - name: line_discount_amount
+        description: Sum of line_discount_amount.
+      - name: header_discount_allocated
+        description: Sum of header_discount_allocated. NULL until the fact carries the header discount (F1).
+      - name: total_discount_amount
+        description: Sum of total_discount_amount. Equal to line_discount_amount until the header discount lands.
+      - name: net_sales_amount
+        description: Sum of net_sales_amount. Net of credit lines.
+        tests: [not_null]
+      - name: tax_amount
+        description: Sum of tax_amount.
+
+      # Standard cost and margin
+      - name: cost_currency_code
+        description: Currency of standard_cost_amount (USD).
+      - name: standard_cost_amount
+        description: Sum of standard_cost_amount where the line has a standard cost. In cost_currency_code on every row, including CAD rows.
+      - name: net_sales_amount_with_cost
+        description: >
+          Sum of net_sales_amount on lines that have a standard cost in the transaction currency.
+          The margin denominator. NULL on rows where the transaction currency is not the cost
+          currency (CAD) until the USD amounts land with EDW-169.
+      - name: gross_margin_std_amount
+        description: >
+          Standard-cost gross margin: net_sales_amount less standard_cost_amount on the lines
+          counted in net_sales_amount_with_cost. Margin percent = gross_margin_std_amount /
+          net_sales_amount_with_cost, divided by the consumer. NULL on CAD rows until EDW-169.
+
+      # Returns
+      - name: return_qty
+        description: Sum of the absolute invoiced_qty on return lines (is_return_flag). Positive.
+      - name: return_amount
+        description: >
+          Sum of the absolute net_sales_amount on return lines (is_return_flag). Positive. Return
+          rate = return_amount / (net_sales_amount + return_amount), divided by the consumer.
+
+      # Below cost (EDW-146)
+      - name: below_cost_line_count
+        description: >
+          Count of lines where standard_cost_unit >= unit_price, among lines with a standard cost
+          in the transaction currency. Includes zero-price lines. NULL on CAD rows until EDW-169.
+      - name: below_cost_net_sales_amount
+        description: Sum of net_sales_amount on the below-cost lines. Below-Cost Net Sales.
+      - name: below_cost_standard_cost_amount
+        description: >
+          Sum of standard_cost_amount on the below-cost lines. Below-Cost Gross Margin =
+          below_cost_net_sales_amount less this; Gross Margin excl. Below-Cost =
+          gross_margin_std_amount less Below-Cost Gross Margin.
+
+      # Held for later builds (typed NULL)
+      - name: landed_cost_amount
+        description: Typed NULL until EDW-60.
+      - name: gross_margin_landed_amount
+        description: Typed NULL until EDW-60. Landed-cost margin, a different number from gross_margin_std_amount.
+      - name: freight_cost_amount
+        description: Typed NULL until EDW-60.
+      - name: net_sales_amount_usd
+        description: Typed NULL until EDW-169 populates the USD amounts on the fact.
+      - name: loyalty_points_earned
+        description: Typed NULL until the loyalty transaction fact exists (EDW-78).
