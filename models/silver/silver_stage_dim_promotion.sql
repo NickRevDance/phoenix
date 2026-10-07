@@ -8,9 +8,10 @@ with d365_contractual_pricing as (
         , concat_ws(' - ', 'D365 Contractual Pricing', coalesce(nullif(trim(p.ACCOUNTRELATION), ''), 'ALL ACCOUNTS'), coalesce(nullif(trim(p.ITEMRELATION), ''), 'ALL ITEMS')) as promotion_name
         , cast(null as string) as promotion_description  -- Source once available: PriceDiscTable has no free-text description field
         , 'CONTRACTUAL_PRICING' as promotion_class
-        , 'TRADE_AGREEMENT' as promotion_mechanism
-        , 'PERCENT' as discount_type_default  -- customer-group agreements are percent-off only: 219 of 241 ACCOUNTCODE = 1 rows carry PERCENT1, the other 22 are 0% and none carry AMOUNT (2026-09-23)
-        , {{ amount('coalesce(p.PERCENT1, 0)') }} as discount_value
+        , 'PERCENT_OFF' as promotion_mechanism  -- customer-group agreements are percent-off only: 219 of 241 ACCOUNTCODE = 1 rows carry PERCENT1, the other 22 are 0% and none carry AMOUNT (2026-09-23)
+        , 'TRADE_AGREEMENT' as discount_type_default
+        , {{ amount('coalesce(p.PERCENT1, 0) / 100') }} as discount_value  -- decimal proportion per spec (0.1600 = 16 percent); PERCENT1 is a whole percent
+        , 'PERCENT' as discount_value_unit
         , case when p.FROMDATE = date('1900-01-01') then cast(null as date) else cast(p.FROMDATE as date) end as promotion_start_date
         , case when p.TODATE = date('1900-01-01') then cast(null as date) else cast(p.TODATE as date) end as promotion_end_date
         , 'Company' as funding_source_default  -- NEEDS CONFIRMATION: assumes trade agreements are company-funded customer pricing, not a vendor rebate -- override via promotion_enrichment if Finance says otherwise
@@ -35,7 +36,8 @@ manual_seed as (
         , m.promotion_class
         , m.promotion_mechanism
         , m.discount_type_default
-        , {{ amount('m.discount_value') }} as discount_value
+        , {{ amount('m.discount_value') }} as discount_value  -- seed values follow the same rule: percentages as decimal proportions
+        , case m.promotion_mechanism when 'PERCENT_OFF' then 'PERCENT' when 'AMOUNT_OFF' then 'AMOUNT' end as discount_value_unit
         , cast(nullif(m.promotion_start_date, '') as date) as promotion_start_date
         , cast(nullif(m.promotion_end_date, '') as date) as promotion_end_date
         , m.funding_source_default
@@ -74,6 +76,7 @@ enriched as (
         , u.promotion_mechanism
         , u.discount_type_default
         , u.discount_value
+        , u.discount_value_unit
         , u.promotion_start_date
         , u.promotion_end_date
         , coalesce(e.funding_source_default_override, u.funding_source_default) as funding_source_default
@@ -102,6 +105,7 @@ final as (
               "coalesce(e.promotion_mechanism, '')",
               "coalesce(e.discount_type_default, '')",
               "coalesce(cast(e.discount_value as string), '')",
+              "coalesce(e.discount_value_unit, '')",
               "coalesce(cast(e.promotion_start_date as string), '')",
               "coalesce(cast(e.promotion_end_date as string), '')",
               "coalesce(e.funding_source_default, '')",
