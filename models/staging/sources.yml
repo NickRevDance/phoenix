@@ -69,6 +69,14 @@ sources:
       - name: d365_dir_party
         identifier: Rev_dirpartytablestaging
 
+      # Added 2026-10-06 for DIM_VENDOR address (EDW-92). Party -> location link and the
+      # date-effective postal address rows (LogisticsPostalAddress).
+      - name: d365_dir_party_location
+        identifier: Rev_DirPartyLocationStaging
+
+      - name: d365_logistics_postal_address
+        identifier: Rev_LogisticsPostalAddressStaging
+
       - name: d365_price_disc_table
         identifier: Rev_PriceDiscTableStaging
 

@@ -23,10 +23,10 @@ with business_vendors as (
         , coalesce(stg.primary_contact_phone, snap_v.primary_contact_phone) as primary_contact_phone
         , snap_v.vendor_website
         , snap_v.address_line_1
-        , snap_v.address_line_2
+        , coalesce(stg.address_line_2, snap_v.address_line_2) as address_line_2
         , snap_v.city
         , snap_v.state_province
-        , snap_v.postal_code
+        , coalesce(stg.postal_code, snap_v.postal_code) as postal_code
         , snap_v.country_code
         , snap_v.country_key
         , snap_v.geo_region
