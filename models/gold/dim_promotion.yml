@@ -54,7 +54,7 @@ models:
         tests:
           - dbt_utils.expression_is_true:
               arguments:
-                expression: "discount_value between 0 and 1"
+                expression: "between 0 and 1"
               config:
                 where: "discount_value_unit = 'PERCENT'"
       - name: discount_value_unit
