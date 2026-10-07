@@ -31,8 +31,8 @@ with trans as (
     {% if is_incremental() %}
     where (
         t.MODIFIEDDATE > (select coalesce(max(etl_source_modified_datetime), timestamp('1900-01-01')) from {{ this }}) - interval 2 days
-        -- EDW-134 self-heal: re-pull invoices that still hold an Unknown product line
-        or t.PARENTRECID in (select d365_invoice_rec_id from {{ this }} where product_key = '-1')
+        -- EDW-134 self-heal: re-pull invoice lines that still hold an Unknown product (EDW-173: match on the line RECID, not the header PARENTRECID)
+        or t.RECID in (select d365_invoice_rec_id from {{ this }} where product_key = '-1')
     )
     {% endif %}
 
