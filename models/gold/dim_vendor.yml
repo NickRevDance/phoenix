@@ -12,9 +12,11 @@ models:
       vendor_group (Inventory = Merchandise Supplier, Interco =
       Intercompany, blank = Unclassified, all others = Service
       Provider); the stage filter is not narrowed further. Includes
-      two reserved members (UNKNOWN=-1, NO_VENDOR=0). Phase 2 fields
-      (address/location, compliance tracking, lead time, quality
-      scorecard) are null-cast pending source availability -- see
+      two reserved members (UNKNOWN=-1, NO_VENDOR=0). Address fields
+      (line 1/2, city, state, postal code, country code) come from the
+      primary postal address (EDW-92); contact name, lead time,
+      compliance tracking and the quality scorecard are null-cast
+      pending source availability -- see
       README.md for the full field-by-field status. Type 1 attributes
       are read from the current silver_stage_dim_vendor row; vendor_start_date
       and vendor_end_date are the vendor lifecycle dates (no D365 source

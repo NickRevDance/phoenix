@@ -1,4 +1,32 @@
-with vendor_base as (
+with vendor_address as (
+
+    -- primary postal address per party; the date-effective row valid today
+    select
+
+          pl.DIRPARTYTABLE_FK_PARTYNUMBER as party_number
+        , nullif(trim(concat_ws(' ', nullif(trim(pa.STREETNUMBER), ''), nullif(trim(pa.STREET), ''))), '') as address_line_1
+        , nullif(trim(pa.BUILDINGCOMPLIMENT), '') as address_line_2
+        , nullif(trim(pa.CITY), '')            as city
+        , nullif(trim(pa.STATE), '')           as state_province
+        , nullif(trim(pa.ZIPCODE), '')         as postal_code
+        , nullif(trim(pa.COUNTRYREGIONID), '') as country_code
+        , row_number() over (
+              partition by pl.DIRPARTYTABLE_FK_PARTYNUMBER
+              order by pl.ISROLEBUSINESS desc, pa.VALIDFROM desc, pa.RECID desc
+          ) as rn
+
+    from {{ ref('silver_d365_dir_party_location') }} pl
+    inner join {{ ref('silver_d365_logistics_postal_address') }} pa
+        on pa.LOCATION_LOCATIONID = pl.LOGISTICSLOCATION_FK_LOCATIONID
+
+    where pl.ISPOSTALADDRESS = 1
+      and pl.ISPRIMARY = 1
+      and current_timestamp() >= pa.VALIDFROM
+      and current_timestamp() < pa.VALIDTO
+
+),
+
+vendor_base as (
 
     select
 
@@ -12,7 +40,14 @@ with vendor_base as (
         , v.BLOCKED    as blocked_code
         , dp.LOGISTICSELECTRONICADDRESS_EMAIL_LOCATOR as primary_contact_email
         , dp.LOGISTICSELECTRONICADDRESS_PHONE_LOCATOR as primary_contact_phone
-        , dp.PARTYNUMBER as d365_party_number, case
+        , dp.PARTYNUMBER as d365_party_number
+        , va.address_line_1
+        , va.address_line_2
+        , va.city
+        , va.state_province
+        , va.postal_code
+        , va.country_code
+        , case
             when v.BLOCKED = 0 then 'Active'
             when v.BLOCKED = 1 then 'Suspended'
             when v.BLOCKED = 2 then 'Blocked'
@@ -25,6 +60,9 @@ with vendor_base as (
     from {{ ref('silver_d365_vendor_table') }} v
     left join {{ ref('silver_d365_dir_party') }} dp
         on v.PARTYFIELD = dp.RECID
+    left join vendor_address va
+        on dp.PARTYNUMBER = va.party_number
+        and va.rn = 1
 
     -- NEEDS CONFIRMATION (Ops/Merchandising, spec Open Decision #1): excludes VENDGROUP
     -- NIM/Customer/Employee -- non-supplier AP payees, confirmed via live data 2026-09-02
@@ -57,14 +95,14 @@ final as (
         , b.primary_contact_phone    -- party-level phone off DirPartyTable; same caveat as primary_contact_email
         , cast(null as string) as vendor_website  -- Source once available: silver_d365_dir_party.LOGISTICSELECTRONICADDRESS_URL_LOCATOR (already populated on the source) -- Phase 2 per spec field catalog, not wired yet
 
-        , cast(null as string) as address_line_1  -- Source once available: D365 LogisticsPostalAddress -- not yet ingested via BYOD, see [[dbt_sources_reference]]
-        , cast(null as string) as address_line_2  -- Source once available: D365 LogisticsPostalAddress -- not yet ingested via BYOD
-        , cast(null as string) as city  -- Source once available: D365 LogisticsPostalAddress -- not yet ingested via BYOD
-        , cast(null as string) as state_province  -- Source once available: D365 LogisticsPostalAddress -- not yet ingested via BYOD
-        , cast(null as string) as postal_code  -- Source once available: D365 LogisticsPostalAddress -- not yet ingested via BYOD
-        , cast(null as string) as country_code  -- Source once available: D365 LogisticsPostalAddress.CountryRegionId -- not yet ingested via BYOD
-        , cast(null as bigint) as country_key  -- Source once available: lookup against DIM_COUNTRY once country_code is sourced -- DIM_COUNTRY doesn't exist in this project yet either
-        , cast(null as string) as geo_region  -- Source once available: derived from country_code using the DIM_CUSTOMER/DIM_WAREHOUSE region mapping -- Phase 2, blocked on country_code
+        , b.address_line_1
+        , b.address_line_2
+        , b.city
+        , b.state_province
+        , b.postal_code
+        , b.country_code
+        , cast(null as bigint) as country_key  -- Source once available: lookup against DIM_COUNTRY (Open Decision 8) -- DIM_COUNTRY doesn't exist yet
+        , cast(null as string) as geo_region  -- Source once available: derived from country_code using the DIM_CUSTOMER/DIM_WAREHOUSE region mapping -- Phase 2
 
         , b.payment_terms         -- raw D365 PaymTermId code; no PaymTerm display-value table sourced yet
         , b.default_currency_code
@@ -96,7 +134,7 @@ final as (
         , b.vendor_group as d365_vendor_group_id
         , b.d365_party_number
 
-        , 'silver_d365_vendor_table + silver_d365_dir_party' as record_source_table -- EDW-25 remediation R1 (2026-09-16)
+        , 'silver_d365_vendor_table + silver_d365_dir_party + silver_d365_dir_party_location + silver_d365_logistics_postal_address' as record_source_table
 
         /*, current_timestamp() as version_start_date -- initial load: treated as the first version for every vendor
         , cast(null as timestamp) as version_end_date -- NULL = current row
@@ -109,7 +147,11 @@ final as (
               "coalesce(b.payment_terms, '')",
               "coalesce(b.default_currency_code, '')",
               "coalesce(b.default_incoterm_code, '')",
-              "coalesce(b.vendor_status, '')"
+              "coalesce(b.vendor_status, '')",
+              "coalesce(b.address_line_1, '')",
+              "coalesce(b.city, '')",
+              "coalesce(b.state_province, '')",
+              "coalesce(b.country_code, '')"
           ]) }} as vendor_change_hash -- hashes the currently-populated Type 2 (history-tracked) attributes per the spec's SCD2 Tracking Plan; extend this list as null placeholders above get wired to real sources
 
         , current_timestamp() as etl_insert_datetime
