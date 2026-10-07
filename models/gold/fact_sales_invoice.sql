@@ -29,7 +29,11 @@ with trans as (
     from {{ ref('silver_d365_cust_invoice_trans') }} t
 
     {% if is_incremental() %}
-    where t.MODIFIEDDATE > (select coalesce(max(etl_source_modified_datetime), timestamp('1900-01-01')) from {{ this }}) - interval 2 days
+    where (
+        t.MODIFIEDDATE > (select coalesce(max(etl_source_modified_datetime), timestamp('1900-01-01')) from {{ this }}) - interval 2 days
+        -- EDW-134 self-heal: re-pull invoices that still hold an Unknown product line
+        or t.PARENTRECID in (select d365_invoice_rec_id from {{ this }} where product_key = '-1')
+    )
     {% endif %}
 
 ),
@@ -72,6 +76,16 @@ inventory_dim as (
         , INVENTCOLORID
 
     from {{ ref('silver_d365_inventory_dim') }}
+
+),
+
+product as (
+
+    -- EDW-134: dim membership check for product_key resolution.
+    select product_key
+    from {{ ref('dim_product') }}
+    where version_number = 1
+      and product_key <> '-1'
 
 ),
 
@@ -219,10 +233,9 @@ joined as (
 
         , st.CREATEDDATE                        as order_created_date
 
-        , case when bar.ITEMBARCODE is not null
-               then md5(concat_ws('|', bar.ITEMBARCODE))
-               else '-1'
-          end                                    as product_key
+        -- EDW-134: UPCs missing from dim_product resolve to Unknown ('-1'); UPC kept in unresolved_upc
+        , coalesce(prod.product_key, '-1')   as product_key
+        , case when prod.product_key is null then bar.ITEMBARCODE end as unresolved_upc
         , cu.customer_key
         , wh.warehouse_key
         , coalesce(sc.sales_channel_key, -1) as sales_channel_key  -- v1.2 (EDW-15/16, adopted): sales_channel_key is never NULL -- unmapped/blank origins resolve to dim_sales_channel's reserved -1 UNKNOWN member. The 10-14% of lines on a *mapped* origin that still come back with no channel (header-join loss, not an unmapped-origin gap) is an open EDW-23 review item, not fixed by this coalesce.
@@ -251,6 +264,9 @@ joined as (
         and d.INVENTSIZEID = bar.INVENTSIZEID
         and d.INVENTCOLORID = bar.INVENTCOLORID
         and bar.rn = 1
+
+    left join product prod
+        on md5(concat_ws('|', bar.ITEMBARCODE)) = prod.product_key
 
     left join customer cu
         on j.INVOICEACCOUNT = cu.customer_id
@@ -287,6 +303,7 @@ final as (
         , cast(date_format(j.order_created_date, 'yyyyMMdd') as int) as order_date_key
         , cast(null as int) as ship_date_key  -- Source once available: SalesLine.ShippingDateConfirmed -- not registered/wired yet, see README
         , j.product_key
+        , j.unresolved_upc
         , j.customer_key
         , cast(null as bigint) as ship_to_customer_key  -- Phase 2 per spec -- role-playing DIM_CUSTOMER, not distinguished from bill-to yet
         , j.sales_channel_key

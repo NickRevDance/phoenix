@@ -36,7 +36,11 @@ with line as (
     where l.SALESTYPE in (3, 4)
 
     {% if is_incremental() %}
-    and l.MODIFIEDDATE > (select coalesce(max(etl_source_modified_datetime), timestamp('1900-01-01')) from {{ this }}) - interval 2 days
+    and (
+        l.MODIFIEDDATE > (select coalesce(max(etl_source_modified_datetime), timestamp('1900-01-01')) from {{ this }}) - interval 2 days
+        -- EDW-134 self-heal: re-pull lines that still hold an Unknown product
+        or cast(l.REC as bigint) in (select d365_sales_line_rec_id from {{ this }} where product_key = '-1')
+    )
     {% endif %}
 
 ),
@@ -94,6 +98,16 @@ inventory_dim as (
 -- size/color first, then matched on ITEMID + size + color -- 99.79%
 -- resolution confirmed live vs. 98.16% under the prior
 -- style+size+color-to-dim_product path.
+product as (
+
+    -- EDW-134: dim membership check for product_key resolution.
+    select product_key
+    from {{ ref('dim_product') }}
+    where version_number = 1
+      and product_key <> '-1'
+
+),
+
 barcode as (
 
     select
@@ -212,10 +226,9 @@ joined as (
         , rh.return_header_rec
 
         , d.INVENTLOCATIONID
-        , case when bar.ITEMBARCODE is not null
-               then md5(concat_ws('|', bar.ITEMBARCODE))
-               else '-1'
-          end                                     as product_key
+        -- EDW-134: UPCs missing from dim_product resolve to Unknown ('-1'); UPC kept in unresolved_upc
+        , coalesce(prod.product_key, '-1')   as product_key
+        , case when prod.product_key is null then bar.ITEMBARCODE end as unresolved_upc
         , cu.customer_key
         , wh.warehouse_key
         , coalesce(sc.sales_channel_key, -1)     as sales_channel_key
@@ -241,6 +254,9 @@ joined as (
         and d.INVENTSIZEID = bar.INVENTSIZEID
         and d.INVENTCOLORID = bar.INVENTCOLORID
         and bar.rn = 1
+
+    left join product prod
+        on md5(concat_ws('|', bar.ITEMBARCODE)) = prod.product_key
 
     left join customer cu
         on st.CUSTACCOUNT = cu.customer_id
@@ -295,6 +311,7 @@ final as (
                else null end                                          as return_date_key  -- Same placeholder rule as requested_ship_date_key (spec 7.6) -- 1901 floor paired with a 2040 ceiling (25,020 rows live sit below the floor; none currently sit above the ceiling).
         , cast(null as int) as cancel_date_key  -- Source once available: no dedicated cancellation-date field found on SalesLine -- MODIFIEDDATE reflects the row's last change generally, not confirmed to be the cancellation event specifically
         , l.product_key
+        , l.unresolved_upc
         , l.customer_key
         , cast(null as bigint) as ship_to_customer_key  -- Phase 2 per spec
         , l.sales_channel_key

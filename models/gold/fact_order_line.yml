@@ -27,15 +27,19 @@ models:
                                  # not a model bug; a spike past 5 means
                                  # something upstream actually broke
           - relationships:
-              to: ref('dim_customer')
-              field: customer_key
+              arguments:
+                to: ref('dim_customer')
+                field: customer_key
+      - name: unresolved_upc
+        description: D365 barcode (UPC) that had no DIM_PRODUCT row, so product_key is -1. NULL when product_key resolved or no barcode exists. EDW-134.
       - name: product_key
         tests:
           - relationships:
-              to: ref('dim_product')
-              field: product_key
+              arguments:
+                to: ref('dim_product')
+                field: product_key
               config:
-                severity: warn  # 2026-09-16: -1 unresolved-to-barcode rows
+                severity: error  # EDW-134 (2026-10-05): every product_key now exists in dim_product ('-1' is a real member); was warn. Prior note: -1 unresolved-to-barcode rows are
                 # are expected by design (same convention as
                 # fact_product_price) and would always fail a hard
                 # relationships test -- see that model's yml for the same
