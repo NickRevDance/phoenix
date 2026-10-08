@@ -149,6 +149,9 @@ sources:
       - name: d365_exchange_rate
         identifier: Rev_ExchangeRateStaging
 
+      - name: d365_logistics_electronic_address
+        identifier: Rev_LogisticsElectronicAddressStaging
+
   - name: bc
     database: dwhvisualnext
     schema: bc
