@@ -26,6 +26,32 @@ with vendor_address as (
 
 ),
 
+vendor_contact as (
+
+    -- named contact per party: description on an email locator, primary first;
+    -- generic labels ("primary email", "AP", ...) are not names
+    select
+
+          pl.DIRPARTYTABLE_FK_PARTYNUMBER as party_number
+        , trim(ea.DESCRIPTION) as contact_name
+        , row_number() over (
+              partition by pl.DIRPARTYTABLE_FK_PARTYNUMBER
+              order by ea.ISPRIMARY desc, ea.RECID
+          ) as rn
+
+    from {{ ref('silver_d365_dir_party_location') }} pl
+    inner join {{ ref('silver_d365_logistics_electronic_address') }} ea
+        on ea.LOGISTICSLOCATION_FK_LOCATIONID = pl.LOGISTICSLOCATION_FK_LOCATIONID
+
+    where ea.TYPE = 2
+      and nullif(trim(ea.DESCRIPTION), '') is not null
+      and lower(trim(ea.DESCRIPTION)) not in (
+            'primary email', 'primary email address', 'primary', 'email', 'ap', 'ap email'
+          , 'accounts payable', 'contact', 'accounting', 'sales', 'orders', 'info', 'billing'
+      )
+
+),
+
 vendor_base as (
 
     select
@@ -47,6 +73,7 @@ vendor_base as (
         , va.state_province
         , va.postal_code
         , va.country_code
+        , vc.contact_name as primary_contact_name
         , case
             when v.BLOCKED = 0 then 'Active'
             when v.BLOCKED = 1 then 'Suspended'
@@ -63,6 +90,9 @@ vendor_base as (
     left join vendor_address va
         on dp.PARTYNUMBER = va.party_number
         and va.rn = 1
+    left join vendor_contact vc
+        on dp.PARTYNUMBER = vc.party_number
+        and vc.rn = 1
 
     -- NEEDS CONFIRMATION (Ops/Merchandising, spec Open Decision #1): excludes VENDGROUP
     -- NIM/Customer/Employee -- non-supplier AP payees, confirmed via live data 2026-09-02
@@ -90,9 +120,9 @@ final as (
         , b.vendor_group
         , cast(null as string) as vendor_category  -- Source once available: manual classification seed file reviewed with Merchandising -- Phase 2, no source yet
 
-        , cast(null as string) as primary_contact_name  -- Source once available: D365 DirPartyContactInfoView -- not yet ingested via BYOD
-        , b.primary_contact_email    -- party-level email off DirPartyTable; proxy for a named contact's email until DirPartyContactInfoView is sourced
-        , b.primary_contact_phone    -- party-level phone off DirPartyTable; same caveat as primary_contact_email
+        , b.primary_contact_name    -- email-locator description; most vendors have none (generic labels excluded)
+        , b.primary_contact_email    -- party-level email off DirPartyTable
+        , b.primary_contact_phone    -- party-level phone off DirPartyTable
         , cast(null as string) as vendor_website  -- Source once available: silver_d365_dir_party.LOGISTICSELECTRONICADDRESS_URL_LOCATOR (already populated on the source) -- Phase 2 per spec field catalog, not wired yet
 
         , b.address_line_1
@@ -134,7 +164,7 @@ final as (
         , b.vendor_group as d365_vendor_group_id
         , b.d365_party_number
 
-        , 'silver_d365_vendor_table + silver_d365_dir_party + silver_d365_dir_party_location + silver_d365_logistics_postal_address' as record_source_table
+        , 'silver_d365_vendor_table + silver_d365_dir_party + silver_d365_dir_party_location + silver_d365_logistics_postal_address + silver_d365_logistics_electronic_address' as record_source_table
 
         /*, current_timestamp() as version_start_date -- initial load: treated as the first version for every vendor
         , cast(null as timestamp) as version_end_date -- NULL = current row
