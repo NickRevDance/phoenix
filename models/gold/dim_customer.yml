@@ -1,0 +1,70 @@
+version: 2
+
+models:
+  - name: dim_customer
+    description: >
+      DIM_CUSTOMER -- SCD Type 2 conformed customer dimension (spec v1.3),
+      one row per customer_id + source_system per version. Type 2 attributes
+      and SCD2 controls come from silver_snapshot_dim_customer; Type 1
+      attributes (name, contact, bill-to, currency, storefront) are read from
+      the current silver_stage_dim_customer row. is_current_row is 1 when
+      version_number = 1 and effective_end_datetime is null, so a
+      hard-deleted account no longer reads as current. Includes the reserved
+      -1 Unknown member that facts coalesce headerless lines to.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - customer_key
+              - version_number
+      - dbt_utils.unique_combination_of_columns:  # one current row per business key
+          name: dim_customer_one_current_row_per_customer
+          arguments:
+            combination_of_columns:
+              - customer_id
+              - source_system
+          config:
+            where: "is_current_row = 1"
+    columns:
+      - name: customer_key
+        tests: [not_null]
+      - name: customer_id
+        tests: [not_null]
+      - name: source_system
+        tests: [not_null]
+      - name: customer_name
+        tests: [not_null]
+      - name: customer_type
+        tests:
+          - not_null
+          - accepted_values:  # C1; Unknown is the reserved -1 member only
+              arguments:
+                values: ['Wholesale', 'Consumer', 'Unknown']
+      - name: customer_status
+        tests:
+          - not_null
+          - accepted_values:  # C2 to C5; Closed is not a value, Unknown is the reserved -1 member only
+              arguments:
+                values: ['Prospect', 'Active', 'Inactive', 'Suspended', 'Unknown']
+      - name: account_created_date
+        description: DATE (was TIMESTAMP before spec v1.3). NULL on the -1 member.
+      - name: version_number
+        tests: [not_null]
+      - name: is_current_row
+        description: int 1/0 per the EDW-130 standard. 1 when version_number = 1 and effective_end_datetime is null.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+                quote: false
+
+  - name: v_dim_customer_current
+    description: >
+      Current-row view over dim_customer (is_current_row = 1) with SCD2 and
+      internal metadata columns stripped, plus the flattened segment
+      attributes. A hard-deleted account is closed by the snapshot and does
+      not appear. Includes the -1 Unknown member.
+    columns:
+      - name: customer_key
+        tests: [is_valid_key]

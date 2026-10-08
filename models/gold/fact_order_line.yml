@@ -27,15 +27,7 @@ models:
         tests: [not_null]
       - name: customer_key
         tests:
-          - not_null:
-              config:
-                severity: warn
-                warn_if: ">0"
-                error_if: ">5"   # known D365 header-sync gap (see project
-                                 # memory / dq_exceptions_framework README) --
-                                 # a handful is a source-system gap to chase,
-                                 # not a model bug; a spike past 5 means
-                                 # something upstream actually broke
+          - not_null
           - relationships:
               arguments:
                 to: ref('dim_customer')
@@ -73,8 +65,6 @@ models:
 # (spec 7.7): lines deleted in D365 and re-created under the same LINENUM
 # are both kept, so that combination repeats.
 #
-# 2026-09-16: customer_key not_null converted to warn (threshold error_if
-# >5) instead of hard error, per the project-wide dq_exceptions_framework
-# (see maintenance/dq_exceptions_framework_2026-09-16/README.md) -- flags
-# the known SO-3715780-style header-sync gap for remediation via
-# v_dq_open_exceptions instead of failing the whole Prod Daily job on it.
+# EDW-135: customer_key is never NULL. Lines whose SalesTable header has not landed
+# resolve to the dim_customer -1 member, and the self-heal in the model re-pulls
+# them once the header arrives. not_null is a hard test again (was warn, error_if >5).

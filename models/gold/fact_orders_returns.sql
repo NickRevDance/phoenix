@@ -42,6 +42,8 @@ with line as (
         l.MODIFIEDDATE > (select coalesce(max(etl_source_modified_datetime), timestamp('1900-01-01')) from {{ this }}) - interval 2 days
         -- EDW-134 self-heal: re-pull lines that still hold an Unknown product
         or cast(l.REC as bigint) in (select d365_sales_line_rec_id from {{ this }} where product_key = '-1')
+        -- EDW-135 self-heal: re-pull lines that still hold a null or Unknown customer
+        or cast(l.REC as bigint) in (select d365_sales_line_rec_id from {{ this }} where customer_key is null or customer_key = -1)
         -- EDW-58: re-pull return lines whose return order header changed inside the same lookback.
         -- Reason, RMA number, replacement and refund tender sit on the header, and the watermark is on the line.
         or (
@@ -305,7 +307,7 @@ joined as (
         -- EDW-134: UPCs missing from dim_product resolve to Unknown ('-1'); UPC kept in unresolved_upc
         , coalesce(prod.product_key, '-1')   as product_key
         , case when prod.product_key is null then bar.ITEMBARCODE end as unresolved_upc
-        , cu.customer_key
+        , coalesce(cu.customer_key, cast(-1 as bigint)) as customer_key  -- EDW-135: headerless lines resolve to the dim_customer -1 member
         , wh.warehouse_key
         , coalesce(sc.sales_channel_key, -1)     as sales_channel_key
         {% if is_incremental() %}

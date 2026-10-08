@@ -9,5 +9,5 @@ select
         partition by snap.customer_segment_id
         order by snap.effective_start_datetime desc
     ) as version_number
-    , case when version_number = 1 then 1 else 0 end as is_current_row
+    , {{ scd2_is_current_row() }} as is_current_row  -- EDW-135: closed (invalidated) segments are not current
 from {{ ref('silver_snapshot_dim_customer_segment') }} snap

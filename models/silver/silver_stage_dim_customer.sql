@@ -1,4 +1,19 @@
-with d365_customer_base as (
+with customer_activity as (
+
+    -- Invoice activity read off the raw D365 invoice silver tables, not
+    -- fact_sales_invoice, so this model stays upstream of the facts that
+    -- ref dim_customer. D365 only: BigCommerce rows never accrue invoices.
+    select
+          j.INVOICEACCOUNT as customer_id
+        , max(t.INVOICEDATE) as most_recent_invoice_date
+    from {{ ref('silver_d365_cust_invoice_trans') }} t
+    inner join {{ ref('silver_d365_cust_invoice_jour') }} j
+        on t.PARENTRECID = j.REC
+    group by j.INVOICEACCOUNT
+
+),
+
+d365_customer_base as (
 
     select
 
@@ -29,7 +44,7 @@ with d365_customer_base as (
         , cast(null as string) as bill_to_postal_code  -- Source once available: D365 LogisticsPostalAddress
         , cast(null as string) as bill_to_country_code  -- Source once available: D365 LogisticsPostalAddress
 
-        , 'B2B' as customer_type  -- NEEDS CONFIRMATION: D365 CustTable = wholesale/B2B accounts per spec Source Systems section; no PersonTypeCode/storefront on this source to refine further -- business rule TBD, spec Recommended Next Steps #3
+        , 'Wholesale' as customer_type  -- C1: every D365 account is Wholesale
         , cast(null as string) as storefront_code  -- D365 accounts aren't ecommerce storefront customers
 
         , c.CURRENCY     as currency_code
@@ -37,15 +52,19 @@ with d365_customer_base as (
         , c.CREDITMAX    as d365_credit_limit_amount  -- already available on CustTable; still nulled out below -- Phase 2 per spec
 
         , case
-            when c.BLOCKED = 0 then 'Active'
-            else 'Suspended'
-          end as customer_status  -- NEEDS CONFIRMATION: best-effort mapping off CustTable.BLOCKED; full Active/Inactive/Closed logic needs order-activity thresholds TBD with business (spec section 9) -- no sales fact table exists in this project yet to derive them from
+            when c.BLOCKED <> 0 then 'Suspended'
+            when a.most_recent_invoice_date is null then 'Prospect'
+            when a.most_recent_invoice_date >= add_months(current_date(), -18) then 'Active'
+            else 'Inactive'
+          end as customer_status  -- C2 to C5: BLOCKED drives Suspended, then 18-month invoice window; Closed is not a value
 
-        , c.CREATEDDATE  as account_created_date
+        , cast(c.CREATEDDATE as date) as account_created_date
 
     from {{ ref('silver_d365_customer_table') }} c
     left join {{ ref('silver_d365_dir_party') }} dp
         on c.PARTY = dp.RECID
+    left join customer_activity a
+        on c.ACCOUNTNUM = a.customer_id
 
 ),
 
@@ -99,18 +118,18 @@ bc_customer_base as (
         , cast(null as string) as bill_to_country_code  -- Source once available: BigCommerce address book
 
         , case
-            when nullif(trim(bc.company), '') is not null then 'B2B'
-            else 'B2C'
-          end as customer_type  -- NEEDS CONFIRMATION: a populated company name is treated as B2B, else B2C -- business rule TBD, spec Recommended Next Steps #3. Live data check 2026-09-03: 30,144 of 30,261 bc.customer_header rows (99.6%) have a non-blank company (mostly dance-studio names), so this classifies nearly all BigCommerce customers as B2B -- contradicts the spec's framing of BigCommerce as "B2C and some B2B" (spec section 2). Worth confirming with Business before relying on this split.
-        , bc.store as storefront_code  -- BC storefront: US, CA, TT
+            when nullif(trim(bc.company), '') is not null then 'Wholesale'
+            else 'Consumer'
+          end as customer_type  -- C1: blank company = Consumer, otherwise Wholesale; the studio/consumer discriminator is still open (EDW-131)
+        , bc.store as storefront_code  -- BC storefront: US, CA
 
         , cast(null as string) as currency_code  -- Source once available: currency is transaction-level in BigCommerce, no per-customer currency column on bc.customer_header
         , cast(null as string) as d365_payment_terms  -- not applicable -- BigCommerce customers are not on D365 payment terms
         , cast(null as decimal(19,4)) as d365_credit_limit_amount  -- not applicable -- BigCommerce customers do not carry a D365 credit limit
 
-        , 'Active' as customer_status  -- NEEDS CONFIRMATION: bc.customer_header carries no account-status column; full Active/Inactive/Closed logic needs order-activity thresholds TBD with business (spec section 9)
+        , 'Prospect' as customer_status  -- C2: BigCommerce rows never accrue invoices under their own key until BRIDGE_CUSTOMER_IDENTITY (EDW-116)
 
-        , bc.date_created as account_created_date
+        , cast(bc.date_created as date) as account_created_date
 
     from bc_customer_dedup bc
     where bc.rn = 1
@@ -141,7 +160,7 @@ final as (
         , c.sf_customer_id
         , c.customer_code
 
-        , c.customer_name
+        , coalesce(nullif(trim(c.customer_name), ''), 'Unknown') as customer_name  -- 'Unknown' when every source name is blank
         , c.first_name
         , c.last_name
         , c.company_name
