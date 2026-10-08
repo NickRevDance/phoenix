@@ -90,9 +90,9 @@ models:
 
       # Customer attributes (latest version of the DIM_CUSTOMER row)
       - name: customer_type
-        description: B2B or B2C as DIM_CUSTOMER carries it today. The classification rule is still to be confirmed with the business.
+        description: Wholesale, Consumer or Unknown. Wholesale is a D365 account or a BigCommerce customer with a company name; Consumer is any other BigCommerce customer. Unknown is the reserved -1 member (EDW-135).
       - name: customer_status
-        description: Customer status as DIM_CUSTOMER carries it today (Active, Suspended).
+        description: Prospect, Active, Inactive, Suspended or Unknown. Suspended is a blocked D365 account; otherwise D365 accounts are Prospect (never invoiced), Active (invoiced in the last 18 months) or Inactive. BigCommerce customers are Prospect. Unknown is the reserved -1 member (EDW-135).
 
       # Sales channel attributes
       - name: channel_code
@@ -102,7 +102,7 @@ models:
       - name: channel_type
         description: Sales channel type.
       - name: storefront_code
-        description: Storefront code (US, CA, TT) on the ecommerce channels.
+        description: Storefront code (US, CA) on the ecommerce channels.
 
       # Warehouse attributes
       - name: warehouse_id

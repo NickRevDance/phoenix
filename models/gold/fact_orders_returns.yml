@@ -77,6 +77,7 @@ models:
                 values: ['Original Payment', 'Store Credit', 'Loyalty Points', 'Exchange', 'Unknown']
       - name: customer_key
         tests:
+          - not_null  # EDW-135: never NULL -- headerless lines resolve to the dim_customer -1 member
           - relationships:
               arguments:
                 to: ref('dim_customer')
