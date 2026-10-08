@@ -118,9 +118,11 @@ bc_customer_base as (
         , cast(null as string) as bill_to_country_code  -- Source once available: BigCommerce address book
 
         , case
-            when nullif(trim(bc.company), '') is not null then 'Wholesale'
-            else 'Consumer'
-          end as customer_type  -- C1: blank company = Consumer, otherwise Wholesale; the studio/consumer discriminator is still open (EDW-131)
+            when bc.customer_group_description is null then 'Unknown'
+            when bc.customer_group_description in ('Rev_Up_Employee', 'Marketing Samples', 'TEST GROUP', 'UK Test') then 'Unknown'
+            when bc.customer_group_description in ('Pending', 'Denied') then 'Consumer'
+            else 'Wholesale'
+          end as customer_type  -- C1 / EDW-147: BigCommerce customer group; Pending and Denied = Consumer, internal/test/unmapped = Unknown, every other group (incl. Inactive) = Wholesale
         , bc.store as storefront_code  -- BC storefront: US, CA
 
         , cast(null as string) as currency_code  -- Source once available: currency is transaction-level in BigCommerce, no per-customer currency column on bc.customer_header

@@ -159,6 +159,9 @@ sources:
       - name: bc_customer
         identifier: customer_header
 
+      - name: bc_customer_group
+        identifier: customergroups
+
   - name: SFDC
     database: "{{ 'phoenix_prod_catalog' if target.schema == 'prod' else 'phoenix_dev_catalog' }}"
     schema: "{{ 'prod_raw' if target.schema == 'prod' else 'dev_raw' }}"
