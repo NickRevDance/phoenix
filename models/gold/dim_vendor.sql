@@ -18,7 +18,7 @@ with business_vendors as (
         , snap_v.vendor_subtype
         , snap_v.vendor_group
         , snap_v.vendor_category
-        , snap_v.primary_contact_name
+        , coalesce(stg.primary_contact_name, snap_v.primary_contact_name) as primary_contact_name
         , coalesce(stg.primary_contact_email, snap_v.primary_contact_email) as primary_contact_email
         , coalesce(stg.primary_contact_phone, snap_v.primary_contact_phone) as primary_contact_phone
         , snap_v.vendor_website
