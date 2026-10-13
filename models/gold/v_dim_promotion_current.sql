@@ -1,4 +1,4 @@
-{{ config(materialized = 'view', schema = 'shared_gold') }}
+{{ config(materialized = 'view', schema = 'gold') }}
 
 select
     dp.* except
