@@ -1,4 +1,4 @@
-{{ config(materialized = 'table', schema = 'shared_gold') }}
+{{ config(materialized = 'table', schema = 'gold') }}
 
 with versioned as (
 
