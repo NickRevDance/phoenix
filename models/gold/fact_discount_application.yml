@@ -4,7 +4,9 @@ models:
   - name: fact_discount_application
     description: >
       FACT_DISCOUNT_APPLICATION (EDW-65). One row per discount component on a posted invoice line.
-      See README.md for the D365 profiling results and open decisions.
+      See README.md for the D365 profiling results and open decisions. Decision F4a group-rate lines
+      classify as TRADE_AGREEMENT and key to the F4A-n promotions on dim_promotion (rate table in the
+      discount_group_rate seed).
     tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:

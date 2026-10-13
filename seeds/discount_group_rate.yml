@@ -1,0 +1,32 @@
+version: 2
+
+seeds:
+  - name: discount_group_rate
+    description: >
+      Decision F4a rate table: customer discount group + item discount group pairs that carry a standing
+      contract rate with no D365 agreement row. One promotion_source_id per rate table row (three rows,
+      expanded to one seed row per group pair). order_date_before_key is the exclusive order date bound.
+    config:
+      column_types:
+        rate_row_id: int
+        promotion_source_id: string
+        customer_disc_group: string
+        item_disc_group: string
+        rate_percent: decimal(9,4)
+        order_date_before_key: int
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - customer_disc_group
+              - item_disc_group
+    columns:
+      - name: promotion_source_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_promotion')
+                field: source_promotion_id
+      - name: rate_percent
+        tests: [not_null]

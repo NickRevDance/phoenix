@@ -1,0 +1,17 @@
+rate_row_id,promotion_source_id,customer_disc_group,item_disc_group,rate_percent,order_date_before_key
+1,F4A-1,MTJGD,Costumes,20,20260808
+1,F4A-1,DSO+MTJGD,Costumes,20,20260808
+1,F4A-1,DSO+TSD+MT,Costumes,20,20260808
+2,F4A-2,DSO,Costumes,10,20260808
+3,F4A-3,DSO+TSD,Accessory,10,20260808
+3,F4A-3,DSO+TSD,Bodywear,10,20260808
+3,F4A-3,DSO+TSD,Footwear,10,20260808
+3,F4A-3,DSO+TSD,Studio Res,10,20260808
+3,F4A-3,DSO+TSD+MT,Accessory,10,20260808
+3,F4A-3,DSO+TSD+MT,Bodywear,10,20260808
+3,F4A-3,DSO+TSD+MT,Footwear,10,20260808
+3,F4A-3,DSO+TSD+MT,Studio Res,10,20260808
+3,F4A-3,TSD,Accessory,10,20260808
+3,F4A-3,TSD,Bodywear,10,20260808
+3,F4A-3,TSD,Footwear,10,20260808
+3,F4A-3,TSD,Studio Res,10,20260808

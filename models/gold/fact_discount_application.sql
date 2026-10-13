@@ -99,6 +99,8 @@ matched as (
         , a.RECID as agreement_recid
         , a.ACCOUNTRELATION as agreement_disc_group
         , a.PERCENT1 as agreement_percent
+        , 'D365' as promotion_source_system
+        , cast(a.RECID as string) as promotion_source_id
         , row_number() over (partition by p.sales_invoice_key order by a.RECID) as rn
 
     from parent p
@@ -117,17 +119,51 @@ matched as (
 
 ),
 
+group_rate as (
+
+    -- Decision F4a: standing group rates with no D365 agreement row. Same tie rule (+/- 0.5 pt), orders before the seed's date bound.
+    -- A D365 agreement match keeps priority, so only lines left unmatched are considered here.
+    select
+
+          p.sales_invoice_key
+        , 'Manual Seed' as promotion_source_system
+        , r.promotion_source_id
+        , r.customer_disc_group
+        , row_number() over (partition by p.sales_invoice_key order by r.rate_row_id) as rn
+
+    from parent p
+
+    inner join line_context lc
+        on p.sales_invoice_key = lc.sales_invoice_key
+
+    inner join {{ ref('discount_group_rate') }} r
+        on lc.customer_disc_group = r.customer_disc_group
+        and lc.item_disc_group = r.item_disc_group
+
+    left join matched m
+        on p.sales_invoice_key = m.sales_invoice_key
+        and m.rn = 1
+
+    where m.sales_invoice_key is null
+      and p.gross_sales_amount <> 0
+      and p.order_date_key > 0
+      and p.order_date_key < r.order_date_before_key
+      and abs(abs(p.line_discount_amount / p.gross_sales_amount) * 100 - r.rate_percent) < 0.5
+
+),
+
 promotion as (
 
     select
 
           d.promotion_key
+        , d.source_system
         , d.source_promotion_id
 
     from {{ ref('dim_promotion') }} d
 
     where d.version_number = 1  -- fact key resolution house rule: latest version, not is_current_row
-      and d.source_system = 'D365'
+      and d.source_system in ('D365', 'Manual Seed')  -- Manual Seed carries the F4a group-rate promotions
 
 ),
 
@@ -139,11 +175,11 @@ components as (
           p.sales_invoice_key
         , 1 as discount_sequence
         , 'LINEDISC' as discount_source_field
-        , case when m.agreement_recid is not null then 'TRADE_AGREEMENT' else 'LINE_DISCOUNT' end as discount_type
+        , case when pr.promotion_key is not null then 'TRADE_AGREEMENT' else 'LINE_DISCOUNT' end as discount_type  -- a line is contractual pricing only when it resolves to a promotion row
         , p.line_discount_amount as discount_amount
         , p.gross_sales_amount as base_amount_before_discount
         , m.agreement_recid
-        , m.agreement_disc_group
+        , coalesce(m.agreement_disc_group, g.customer_disc_group) as agreement_disc_group
         , coalesce(pr.promotion_key, -1) as promotion_key
 
     from parent p
@@ -152,8 +188,13 @@ components as (
         on p.sales_invoice_key = m.sales_invoice_key
         and m.rn = 1
 
+    left join group_rate g
+        on p.sales_invoice_key = g.sales_invoice_key
+        and g.rn = 1
+
     left join promotion pr
-        on cast(m.agreement_recid as string) = pr.source_promotion_id
+        on pr.source_system = coalesce(m.promotion_source_system, g.promotion_source_system)
+        and pr.source_promotion_id = coalesce(m.promotion_source_id, g.promotion_source_id)
 
     where p.line_discount_amount <> 0
 
