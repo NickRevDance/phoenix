@@ -13,6 +13,36 @@ with customer_activity as (
 
 ),
 
+sfdc_dso as (
+
+    -- silver_sfdc_account keeps every historical version of a Salesforce
+    -- account (about 977K rows on 35K ids). Take the latest version per Id,
+    -- drop deleted accounts and rows with no studio account number; that
+    -- leaves one row per account number (checked live 2026-10-13).
+    select
+          trim(l.StudioAccountNumber__c) as customer_id
+        , coalesce(l.DSO_Member__c and l.DSO_Status__c = 'a', false) as is_dso_member_flag  -- EDW-54 O2: member = DSO_Member__c true and DSO_Status__c = 'a'
+        , case lower(trim(l.DSO_Status__c))
+            when 'a' then 'Active'
+            when 'i' then 'Inactive'
+            when 'd' then 'D'  -- NEEDS CONFIRMATION: label for status d (14 accounts on 2026-10-13), kept as the raw code
+            when 'c' then 'C'  -- NEEDS CONFIRMATION: label for status c (3 accounts on 2026-10-13), kept as the raw code
+          end as dso_membership_status
+    from (
+        select
+              s.*
+            , row_number() over (
+                partition by s.Id
+                order by s.SystemModstamp desc, s.LastModifiedDate desc
+              ) as rn
+        from {{ ref('silver_sfdc_account') }} s
+    ) l
+    where l.rn = 1
+      and coalesce(l.IsDeleted, false) = false
+      and nullif(trim(l.StudioAccountNumber__c), '') is not null
+
+),
+
 d365_customer_base as (
 
     select
@@ -60,11 +90,16 @@ d365_customer_base as (
 
         , cast(c.CREATEDDATE as date) as account_created_date
 
+        , coalesce(d.is_dso_member_flag, false) as is_dso_member_flag  -- EDW-135 item 7: false when the account has no Salesforce match
+        , d.dso_membership_status  -- NULL when the account has no Salesforce match
+
     from {{ ref('silver_d365_customer_table') }} c
     left join {{ ref('silver_d365_dir_party') }} dp
         on c.PARTY = dp.RECID
     left join customer_activity a
         on c.ACCOUNTNUM = a.customer_id
+    left join sfdc_dso d
+        on c.ACCOUNTNUM = d.customer_id
 
 ),
 
@@ -133,6 +168,9 @@ bc_customer_base as (
 
         , cast(bc.date_created as date) as account_created_date
 
+        , cast(null as boolean) as is_dso_member_flag  -- Source once available: Salesforce joins on the D365 account number, so BigCommerce rows wait on BRIDGE_CUSTOMER_IDENTITY (EDW-116)
+        , cast(null as string) as dso_membership_status  -- Source once available: same as is_dso_member_flag
+
     from bc_customer_dedup bc
     where bc.rn = 1
 
@@ -194,8 +232,8 @@ final as (
         , cast(null as bigint) as sales_channel_key  -- Source once available: DIM_SALES_CHANNEL FK -- Phase 2 per spec, DIM_SALES_CHANNEL doesn't exist in this project yet
 
         , cast(null as bigint) as customer_segment_key  -- Source once available: DIM_CUSTOMER_SEGMENT lookup -- spec recommends building it alongside this table (section 10 #5), not built in this delivery
-        , cast(null as boolean) as is_dso_member_flag  -- Source once available: Salesforce DSO / Member Gate -- requires Salesforce CRM integration per spec section 7, not wired yet
-        , cast(null as string) as dso_membership_status  -- Source once available: Salesforce Member Gate -- Phase 2 per spec
+        , c.is_dso_member_flag
+        , c.dso_membership_status
 
         , cast(null as boolean) as is_loyalty_eligible_flag  -- v1.2: NULL until the loyalty exclusion list source is identified by Marketing -- spec section 11 (EDW-80); not defaulted to eligible
         , cast(null as string) as loyalty_exclusion_reason  -- v1.2: same open dependency as is_loyalty_eligible_flag -- spec section 11
@@ -224,7 +262,9 @@ final as (
         , sha2(
             concat_ws('||',
                 coalesce(c.customer_type, ''),
-                coalesce(c.customer_status, '')
+                coalesce(c.customer_status, ''),
+                coalesce(cast(c.is_dso_member_flag as string), ''),
+                coalesce(c.dso_membership_status, '')
             ), 256
           ) as customer_change_hash
 
