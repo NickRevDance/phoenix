@@ -6,7 +6,7 @@ models:
       DIM_PROMOTION -- conformed promotion master (SCD Type 2), shared_gold.
       One governed row per source promotion per storefront per SCD2 version:
       D365 trade agreements (promotion_class = CONTRACTUAL_PRICING) and
-      manual seed rows this pass; BigCommerce promotions/coupons pending
+      manual seed rows (including the three Decision F4a group-rate rows, F4A-1 to F4A-3) this pass; BigCommerce promotions/coupons pending
       EDW-33 (see README.md). Precedes FACT_DISCOUNT_APPLICATION by design --
       promotion_key there is Phase 1 NOT NULL, so this dimension and its
       default members (0 = NO_PROMOTION, -1 = UNKNOWN) must exist first.
