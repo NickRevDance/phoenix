@@ -163,11 +163,12 @@ sources:
         identifier: customergroups
 
   - name: SFDC
-    database: "{{ 'phoenix_prod_catalog' if target.schema == 'prod' else 'phoenix_dev_catalog' }}"
-    schema: "{{ 'prod_raw' if target.schema == 'prod' else 'dev_raw' }}"
+    database: phoenix_prod_catalog
+    schema: prod_raw
     tables:
       - name: sfdc_account
         identifier: sfdc_account
+        
       - name: sfdc_case
         identifier: sfdc_case
 
