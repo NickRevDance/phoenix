@@ -14,3 +14,13 @@ models:
       - name: customer_segment_id
         tests:
           - not_null
+
+  - name: silver_stage_dim_customer_segment
+    description: >
+      One row per segment combination. Fails the build before the snapshot
+      when a column in the distinct list is missing from the customer_segment_id hash (EDW-72).
+    columns:
+      - name: customer_segment_id
+        tests:
+          - unique
+          - not_null
