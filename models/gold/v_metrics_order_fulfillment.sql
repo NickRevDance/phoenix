@@ -1,16 +1,42 @@
 {{ config(materialized = 'view') }}
 
--- Certified fulfillment/return metrics view per spec Section 9. fill_rate
--- and on_time_ship_flag/pct are NOT computed here -- both need shipped_qty
--- / actual_ship_date, neither of which has a source yet (see
--- fact_orders_returns.sql). cancellation_rate, return_rate, and
--- demand_value_lost are computed since their inputs exist.
+-- Certified fulfillment/return metrics view per spec Section 9.
 -- EDW-58 adds the return lifecycle columns, exchange_rate and
 -- return_processing_days (spec Section 8).
+-- EDW-57 fills the fulfillment metrics on the invoice basis (fulfillment_basis
+-- 'INVOICE'; 'PACKING_SLIP' once the packing slip lands, EDW-55): fill_rate,
+-- order_to_ship_days, on_time_ship_flag / on_time_ship_pct against the original
+-- estimated ship date, and return_rate on shipped_qty. It also adds the open order
+-- columns the Executive Summary reads, with the model's Open Order Status labels.
+-- The open order columns read today's date in US Central at query time, so they
+-- move from day to day without a rebuild.
 
 with base as (
 
     select * from {{ ref('fact_orders_returns') }}
+
+),
+
+-- EDW-57: returned quantity against each original sales line, through the line link
+-- (spec Section 3). Cancelled returns never arrived and are left out.
+linked_return as (
+
+    select
+
+          original_d365_sales_line_rec_id
+        , sum(returned_qty) as linked_returned_qty
+
+    from {{ ref('fact_orders_returns') }}
+    where is_return_flag
+      and original_d365_sales_line_rec_id is not null
+      and coalesce(return_status, '') <> 'Cancelled'
+    group by original_d365_sales_line_rec_id
+
+),
+
+today as (
+
+    select cast(from_utc_timestamp(current_timestamp(), 'America/Chicago') as date) as today_date
 
 ),
 
@@ -109,15 +135,55 @@ select
     -- cancellation_rate: line-level, per spec formula (aggregate in BI)
     , case when b.ordered_qty <> 0 then b.cancelled_qty / b.ordered_qty end as cancellation_rate
 
-    -- return_rate: returned_qty / shipped_qty per spec -- shipped_qty has no
-    -- source, so this is null for every row until that gap is filled.
-    , cast(null as decimal(9,6)) as return_rate  -- Source once available: needs shipped_qty
+    -- return_rate (EDW-57): on a sales row, the quantity returned against this line
+    -- (linked return lines, not cancelled) over shipped_qty, per spec Section 8.
+    -- NULL on return rows and on lines with nothing shipped.
+    , case when not b.is_return_flag and b.shipped_qty > 0
+           then cast(coalesce(lr.linked_returned_qty, 0) / b.shipped_qty as decimal(9,6)) end as return_rate
 
     , case when b.is_cancelled_flag then b.cancelled_qty * b.unit_price end as demand_value_lost
 
-    , cast(null as decimal(9,4)) as fill_rate  -- Source once available: needs shipped_qty
-    , cast(null as int) as order_to_ship_days  -- Source once available: needs actual_ship_date
-    , cast(null as boolean) as on_time_ship_flag  -- Source once available: needs actual_ship_date
+    -- Fulfillment (EDW-57), invoice basis
+    , 'INVOICE' as fulfillment_basis
+    , case when not b.is_return_flag and b.ordered_qty > 0
+           then cast(b.shipped_qty / b.ordered_qty as decimal(9,4)) end as fill_rate  -- line-level; aggregate as sum(shipped_qty) / sum(ordered_qty)
+    , case when not b.is_return_flag then datediff(b.actual_ship_date, b.order_date) end as order_to_ship_days
+    , case when not b.is_return_flag and b.actual_ship_date is not null and b.original_estimated_ship_date is not null
+           then b.actual_ship_date <= b.original_estimated_ship_date end as on_time_ship_flag  -- shipped on or before the first date promised
+    , case when not b.is_return_flag and b.actual_ship_date is not null and b.original_estimated_ship_date is not null
+           then cast(case when b.actual_ship_date <= b.original_estimated_ship_date then 1 else 0 end as decimal(9,6)) end as on_time_ship_pct  -- 1 or 0, so its average is the rate (the exchange_rate pattern)
+    , b.shipped_qty
+    , b.open_qty
+    , lr.linked_returned_qty
+    , b.is_partial_ship_flag
+    , b.actual_ship_date
+    , b.estimated_ship_date
+    , b.original_estimated_ship_date
+    , b.estimated_ship_date_status
+    , b.carrier_code
+    , b.payment_terms_code
+    , b.payment_mode_code
+
+    -- Open orders (EDW-57): a sales line with quantity still to ship and an order header.
+    -- Lines whose order was deleted in D365 stay in silver with no header and are left out.
+    -- Labels are the Executive Summary's Open Order Status.
+    , case when not b.is_return_flag and b.open_qty > 0 and b.order_date is not null then true else false end as is_open_order_flag
+    , case when not b.is_return_flag and b.open_qty > 0 and b.order_date is not null then
+        case
+            when b.estimated_ship_date_status = 'Not Assigned' then 'Awaiting Ship Date'
+            when b.estimated_ship_date_status = 'Awaiting Release' then 'Branded - Awaiting Release'
+            when b.estimated_ship_date < t.today_date then 'Past Due'
+            when b.original_estimated_ship_date is not null and b.estimated_ship_date <> b.original_estimated_ship_date then 'Rescheduled'
+            else 'On Schedule'
+        end
+      end as open_order_status
+    , case when not b.is_return_flag and b.open_qty > 0 and b.order_date is not null
+                and b.estimated_ship_date < t.today_date
+           then datediff(t.today_date, b.estimated_ship_date) end as open_order_days_past_due
+    , case when not b.is_return_flag and b.open_qty > 0 and b.order_date is not null
+           then datediff(t.today_date, b.order_date) end as open_order_age_days
+    , b.open_line_amount_usd
+    , b.open_wholesale_amount_usd
 
     -- exchange_rate (EDW-58): exchange return lines over return lines, per spec
     -- Section 8. Line-level 1 or 0 on return rows, so its average over return
@@ -161,6 +227,13 @@ select
     , d.fiscal_month
 
 from base b
+
+cross join today t
+
+-- EDW-57: sales rows only; a return row never matches its own rec id here.
+left join linked_return lr
+    on not b.is_return_flag
+    and b.d365_sales_line_rec_id = lr.original_d365_sales_line_rec_id
 
 left join product pr
     on b.product_key = pr.product_key
