@@ -20,6 +20,17 @@ models:
             expression: "refund_method = 'Exchange'"
           config:
             where: "is_exchange_flag"
+      - dbt_utils.expression_is_true:  # EDW-169: USD lines carry a rate of 1
+          arguments:
+            expression: "fx_rate_to_usd = 1"
+          config:
+            where: "transaction_currency_code = 'USD'"
+      - dbt_utils.expression_is_true:  # EDW-169: wholesale is net less Nimbly fee and commission
+          arguments:
+            expression: "wholesale_line_amount = net_line_amount - nimbly_fee_amount - nimbly_commission_amount"
+      - dbt_utils.expression_is_true:  # EDW-169: the same in USD; each term is rounded to 6 places on its own
+          arguments:
+            expression: "abs(wholesale_line_amount_usd - (net_line_amount_usd - nimbly_fee_amount_usd - nimbly_commission_amount_usd)) <= 0.00001"
     columns:
       - name: orders_returns_key
         tests: [is_valid_key]
@@ -99,6 +110,42 @@ models:
         tests: [not_null]  # never NULL -- coalesced to -1 above
       - name: ordered_qty
         tests: [not_null]
+      - name: fx_rate_to_usd
+        description: Spot rate to USD at the order date from the D365 monthly spot table (EDW-94 interim), nearest rate where a date falls outside the published ranges; 1 on USD. EDW-169.
+        tests:
+          - not_null:
+              config:
+                severity: warn  # coverage: a currency with no spot rate surfaces here without stopping the run
+      - name: net_line_amount_usd
+        description: net_line_amount x fx_rate_to_usd. EDW-169.
+        tests:
+          - not_null:
+              config:
+                severity: warn
+      - name: nimbly_fee_amount
+        description: Nimbly website fee, SalesLine.REVWEBSITEFEE per unit x ordered_qty. Transaction currency. EDW-169.
+        tests: [not_null]
+      - name: nimbly_commission_amount
+        description: Nimbly commission, SalesLine.REVCOMMISSION per unit x ordered_qty. Transaction currency. EDW-169.
+        tests: [not_null]
+      - name: wholesale_line_amount
+        description: net_line_amount less Nimbly fee and commission, transaction currency. EDW-169.
+        tests: [not_null]
+      - name: nimbly_fee_amount_usd
+        description: nimbly_fee_amount x fx_rate_to_usd. EDW-169.
+      - name: nimbly_commission_amount_usd
+        description: nimbly_commission_amount x fx_rate_to_usd. EDW-169.
+      - name: custom_print_fee_amount
+        description: Custom print fee, SalesLine.REVNETCUSTOMPRINTFEE, a line amount as stored. Informational, not taken off wholesale. EDW-169.
+        tests: [not_null]
+      - name: custom_print_fee_amount_usd
+        description: custom_print_fee_amount x fx_rate_to_usd. EDW-169.
+      - name: wholesale_line_amount_usd
+        description: net_line_amount_usd less the USD fee and commission; the basis of Order Amount. EDW-169.
+        tests:
+          - not_null:
+              config:
+                severity: warn
 
   - name: v_metrics_order_fulfillment
     description: >
