@@ -28,6 +28,9 @@ with line as (
         , l.RETURNDISPOSITIONCODEID
         , l.RETURNSTATUS
         , l.INVENTTRANSIDRETURN
+        , l.REVWEBSITEFEE  -- EDW-169: Nimbly website fee, per unit
+        , l.REVCOMMISSION  -- EDW-169: Nimbly commission, per unit
+        , l.REVNETCUSTOMPRINTFEE  -- EDW-169: custom print fee, a line amount
         , l.MODIFIEDDATE
 
     from {{ ref('silver_d365_sales_line') }} l
@@ -245,6 +248,48 @@ sales_channel as (
 
 ),
 
+-- EDW-169: spot rate to USD at the order date. Orders carry no posted rate (SalesTable
+-- FIXEDEXCHRATE is zero or blank on every CAD order line), so the D365 monthly spot table
+-- is the source (EDW-94 interim, the same table fact_product_cost reads; REF_FX_RATE is
+-- EDW-127). Ranges are rebuilt here from valid_from_date: each rate runs to the day before
+-- the next one, the first starts at 1900-01-01 and the last stays open, so a gap or a date
+-- before the first rate still finds the nearest rate. One row per currency and start date.
+fx_rate as (
+
+    select
+
+          r.from_currency_code
+        , r.fx_rate_to_usd
+        , case
+            when row_number() over (partition by r.from_currency_code order by r.valid_from_date) = 1
+            then date'1900-01-01'
+            else r.valid_from_date
+          end                                                       as rate_start_date
+        , coalesce(
+              date_sub(lead(r.valid_from_date) over (partition by r.from_currency_code order by r.valid_from_date), 1)
+            , date'9999-12-31'
+          )                                                         as rate_end_date
+
+    from (
+
+        select
+
+              x.from_currency_code
+            , x.fx_rate_to_usd
+            , x.valid_from_date
+            , row_number() over (
+                partition by x.from_currency_code, x.valid_from_date
+                order by x.d365_modified_datetime desc
+              ) as rn
+
+        from {{ ref('silver_d365_exchange_rate') }} x
+        where x.to_currency_code = 'USD'
+
+    ) r
+    where r.rn = 1
+
+),
+
 {% if is_incremental() %}
 -- Preserves etl_insert_datetime across merges -- Type 1 overwrite means a
 -- line's row is updated in place on every status/quantity change, and the
@@ -284,6 +329,13 @@ joined as (
         , l.RETURNDISPOSITIONCODEID
         , l.RETURNSTATUS
         , l.MODIFIEDDATE
+        , coalesce(l.REVWEBSITEFEE, 0)            as nimbly_fee_unit
+        , coalesce(l.REVCOMMISSION, 0)            as nimbly_commission_unit
+        , coalesce(l.REVNETCUSTOMPRINTFEE, 0)     as custom_print_fee_line
+        , case
+            when l.CURRENCYCODE = 'USD' then cast(1 as decimal(19,8))
+            else fx.fx_rate_to_usd
+          end                                    as fx_rate_to_usd  -- EDW-169
 
         , st.CUSTACCOUNT
         , st.SALESORIGINID
@@ -363,6 +415,17 @@ joined as (
 
     left join sales_channel sc
         on som.channel_code = sc.channel_code
+
+    -- EDW-169: rate at the order date as the fact derives it (same placeholder bounds as
+    -- order_date); the line's modified date where the order has no usable created date.
+    left join fx_rate fx
+        on l.CURRENCYCODE = fx.from_currency_code
+        and l.CURRENCYCODE <> 'USD'
+        and coalesce(
+              case when st.CREATEDDATE > timestamp('1901-01-01') and st.CREATEDDATE < timestamp('2040-01-01')
+                   then cast(st.CREATEDDATE as date) end
+            , cast(l.MODIFIEDDATE as date)
+          ) between fx.rate_start_date and fx.rate_end_date
 
     {% if is_incremental() %}
     left join existing ex
@@ -500,8 +563,22 @@ final as (
         , {{ amount('l.LINEAMOUNT') }}                                 as net_line_amount  -- Sourced from SalesLine.LINEAMOUNT directly (source truth) instead of re-derived from QTYORDERED * SALESPRICE - LINEDISC -- the derived formula only ties on 2,676,078 of 2,838,957 lines (94.3%) live.
         , case when l.SALESTYPE = 4 then {{ amount('abs(l.LINEAMOUNT)') }} end as return_amount  -- Net of discount per spec 7.5: abs(LINEAMOUNT) on return lines, not abs(QTYORDERED) * SALESPRICE, which ignores discount entirely.
         , l.CURRENCYCODE                                               as transaction_currency_code
-        , cast(null as decimal(19,8)) as fx_rate_to_usd  -- Phase 2 per spec
-        , cast(null as decimal(19,4)) as net_line_amount_usd  -- Phase 2 per spec
+        , l.fx_rate_to_usd  -- EDW-169: spot rate at the order date (fx_rate CTE), 1 on USD
+        , {{ amount('l.LINEAMOUNT * l.fx_rate_to_usd') }}             as net_line_amount_usd  -- EDW-169
+
+    -- Nimbly (EDW-169): per unit on the sales line x ordered_qty, so they carry the line's
+    -- sign (negative on return lines). Wholesale is net less fee and commission, the basis of
+    -- the Executive Summary model's Order Amount. Both fields are 0 on CAD lines today.
+        , {{ amount('l.QTYORDERED * l.nimbly_fee_unit') }}            as nimbly_fee_amount
+        , {{ amount('l.QTYORDERED * l.nimbly_commission_unit') }}     as nimbly_commission_amount
+        , {{ amount('l.LINEAMOUNT - l.QTYORDERED * (l.nimbly_fee_unit + l.nimbly_commission_unit)') }} as wholesale_line_amount
+        , {{ amount('l.QTYORDERED * l.nimbly_fee_unit * l.fx_rate_to_usd') }} as nimbly_fee_amount_usd
+        , {{ amount('l.QTYORDERED * l.nimbly_commission_unit * l.fx_rate_to_usd') }} as nimbly_commission_amount_usd
+        , {{ amount('(l.LINEAMOUNT - l.QTYORDERED * (l.nimbly_fee_unit + l.nimbly_commission_unit)) * l.fx_rate_to_usd') }} as wholesale_line_amount_usd
+    -- Custom print fee (EDW-169): a line amount as stored on the sales line. Informational, not
+    -- taken off wholesale.
+        , {{ amount('l.custom_print_fee_line') }}                     as custom_print_fee_amount
+        , {{ amount('l.custom_print_fee_line * l.fx_rate_to_usd') }}  as custom_print_fee_amount_usd
 
     -- Returns
         , case when l.SALESTYPE = 4 then nullif(trim(l.RETURNREASONCODEID), '') end as return_reason_code  -- EDW-58: SalesTable.RETURNREASONCODEID on return rows, as sourced. NULL when blank (spec 7.8).

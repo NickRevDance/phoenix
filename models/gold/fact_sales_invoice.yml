@@ -12,6 +12,17 @@ models:
             combination_of_columns:
               - invoice_id
               - d365_invoice_rec_id
+      - dbt_utils.expression_is_true:  # EDW-169: USD lines carry a rate of 1
+          arguments:
+            expression: "fx_rate_to_usd = 1"
+          config:
+            where: "transaction_currency_code = 'USD'"
+      - dbt_utils.expression_is_true:  # EDW-169: wholesale is net less Nimbly fee and commission
+          arguments:
+            expression: "wholesale_amount = net_sales_amount - nimbly_fee_amount - nimbly_commission_amount"
+      - dbt_utils.expression_is_true:  # EDW-169: the same in USD; each term is rounded to 6 places on its own
+          arguments:
+            expression: "abs(wholesale_amount_usd - (net_sales_amount_usd - nimbly_fee_amount_usd - nimbly_commission_amount_usd)) <= 0.00001"
     columns:
       - name: sales_invoice_key
         tests: [is_valid_key]
@@ -47,6 +58,51 @@ models:
         tests: [not_null]
       - name: net_sales_amount
         tests: [not_null]
+      - name: fx_rate_to_usd
+        description: Posted rate from the invoice header (CustInvoiceJour.EXCHRATE / 100), 1 on USD. EDW-169.
+        tests:
+          - not_null:
+              config:
+                severity: warn  # coverage: a currency with no posted rate surfaces here without stopping the run
+      - name: net_sales_amount_usd
+        description: The line as booked in USD (CustInvoiceTrans.LINEAMOUNTMST). EDW-169.
+        tests:
+          - not_null:
+              config:
+                severity: warn
+      - name: nimbly_fee_amount
+        description: Nimbly website fee, SalesLine.REVWEBSITEFEE per unit x invoiced_qty through INVENTTRANSID; 0 with no sales line. Transaction currency. EDW-169.
+        tests: [not_null]
+      - name: nimbly_commission_amount
+        description: Nimbly commission, SalesLine.REVCOMMISSION per unit x invoiced_qty through INVENTTRANSID; 0 with no sales line. Transaction currency. EDW-169.
+        tests: [not_null]
+      - name: wholesale_amount
+        description: net_sales_amount less Nimbly fee and commission, transaction currency. EDW-169.
+        tests: [not_null]
+      - name: nimbly_fee_amount_usd
+        description: nimbly_fee_amount x fx_rate_to_usd. EDW-169.
+      - name: nimbly_commission_amount_usd
+        description: nimbly_commission_amount x fx_rate_to_usd. EDW-169.
+      - name: d365_sales_line_rec_id
+        description: SalesLine RECID reached through INVENTTRANSID. Joins the invoice line to its order line on FACT_ORDER_LINE and FACT_ORDERS_RETURNS. NULL on free text lines and the few with no link. EDW-169.
+        tests:
+          - relationships:
+              arguments:
+                to: ref('fact_orders_returns')
+                field: d365_sales_line_rec_id
+              config:
+                severity: warn
+      - name: custom_print_fee_amount
+        description: Custom print fee, SalesLine.REVNETCUSTOMPRINTFEE (a line amount) x invoiced_qty / ordered quantity; 0 with no sales line. Informational, not taken off wholesale. EDW-169.
+        tests: [not_null]
+      - name: custom_print_fee_amount_usd
+        description: custom_print_fee_amount x fx_rate_to_usd. EDW-169.
+      - name: wholesale_amount_usd
+        description: net_sales_amount_usd less the USD fee and commission; the basis of Wholesale Revenue. EDW-169.
+        tests:
+          - not_null:
+              config:
+                severity: warn
 
 # Deferred, not implemented in this pass:
 #   - Reconciliation rule 1 (spec Section 7): sum(net_sales_amount) by invoice_id

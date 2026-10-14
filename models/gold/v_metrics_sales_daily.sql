@@ -12,7 +12,9 @@
 -- Currency: transaction amounts are in transaction_currency_code. Never sum them across
 -- currencies. Standard cost is carried in cost_currency_code (USD on every line today), so the
 -- margin and below-cost measures are computed only on lines where the two currencies match
--- and are NULL on the others (the CAD lines) until the USD amounts land with EDW-169.
+-- and are NULL on the others (the CAD lines). EDW-169 adds the USD amounts: the *_usd measures
+-- can be summed across currencies, and the USD margin pair covers every line with a USD
+-- standard cost, CAD lines included.
 -- invoice_type: taken from the fact once EDW-59 populates it. Until then it is derived from
 -- order_id, which is blank (never NULL) on free text invoice lines.
 -- Free Text: kept as their own rows so totals reconcile to the AR ledger. Revenue and
@@ -26,7 +28,10 @@
 -- member that has since been closed at the source still describes its history. They are
 -- carried so the view reads on its own in Excel and SQL; Power BI relates on the keys.
 -- Typed NULL columns (D6) hold their place in the contract: landed and freight cost (EDW-60),
--- net_sales_amount_usd (EDW-169), loyalty_points_earned (EDW-78).
+-- loyalty_points_earned (EDW-78).
+-- Nimbly (EDW-169): website fee and commission and the wholesale amount (net less both), in
+-- transaction currency and USD. Wholesale USD is the basis of Wholesale Revenue. The custom
+-- print fee is carried beside them and is not taken off wholesale.
 -- warehouse_key is NULL where the line resolves to no warehouse (the Free Text lines and a
 -- few others) until DIM_WAREHOUSE carries its unknown member (EDW-90).
 
@@ -56,6 +61,20 @@ with invoice_line as (
         , f.standard_cost_amount
         , f.cost_currency_code
         , f.is_return_flag
+        , f.net_sales_amount_usd
+        , f.nimbly_fee_amount
+        , f.nimbly_commission_amount
+        , f.wholesale_amount
+        , f.nimbly_fee_amount_usd
+        , f.nimbly_commission_amount_usd
+        , f.wholesale_amount_usd
+        , f.custom_print_fee_amount
+        , f.custom_print_fee_amount_usd
+        , case when f.standard_cost_unit is not null
+                and f.cost_currency_code = 'USD'
+                and f.net_sales_amount_usd is not null
+               then 1 else 0
+          end                                                        as has_usd_cost
         , case when f.standard_cost_unit is not null
                 and f.cost_currency_code = f.transaction_currency_code
                then 1 else 0
@@ -96,6 +115,21 @@ daily as (
                                                                      as net_sales_amount_with_cost
         , {{ amount('sum(case when l.has_comparable_cost = 1 then l.net_sales_amount - l.standard_cost_amount end)') }}
                                                                      as gross_margin_std_amount
+
+        , {{ amount('sum(l.net_sales_amount_usd)') }}                as net_sales_amount_usd
+        , {{ amount('sum(case when l.has_usd_cost = 1 then l.net_sales_amount_usd end)') }}
+                                                                     as net_sales_amount_usd_with_cost
+        , {{ amount('sum(case when l.has_usd_cost = 1 then l.net_sales_amount_usd - l.standard_cost_amount end)') }}
+                                                                     as gross_margin_std_amount_usd
+
+        , {{ amount('sum(l.nimbly_fee_amount)') }}                   as nimbly_fee_amount
+        , {{ amount('sum(l.nimbly_commission_amount)') }}            as nimbly_commission_amount
+        , {{ amount('sum(l.wholesale_amount)') }}                    as wholesale_amount
+        , {{ amount('sum(l.nimbly_fee_amount_usd)') }}               as nimbly_fee_amount_usd
+        , {{ amount('sum(l.nimbly_commission_amount_usd)') }}        as nimbly_commission_amount_usd
+        , {{ amount('sum(l.wholesale_amount_usd)') }}                as wholesale_amount_usd
+        , {{ amount('sum(l.custom_print_fee_amount)') }}             as custom_print_fee_amount
+        , {{ amount('sum(l.custom_print_fee_amount_usd)') }}         as custom_print_fee_amount_usd
 
         , {{ amount('sum(case when l.is_return_flag then abs(l.invoiced_qty) else 0 end)') }}
                                                                      as return_qty
@@ -246,6 +280,21 @@ select
     , d.net_sales_amount_with_cost
     , d.gross_margin_std_amount
 
+    -- USD (EDW-169): summable across currencies
+    , d.net_sales_amount_usd
+    , d.net_sales_amount_usd_with_cost
+    , d.gross_margin_std_amount_usd
+
+    -- Nimbly and wholesale (EDW-169)
+    , d.nimbly_fee_amount
+    , d.nimbly_commission_amount
+    , d.wholesale_amount
+    , d.nimbly_fee_amount_usd
+    , d.nimbly_commission_amount_usd
+    , d.wholesale_amount_usd
+    , d.custom_print_fee_amount
+    , d.custom_print_fee_amount_usd
+
     -- Returns
     , d.return_qty
     , d.return_amount
@@ -259,7 +308,6 @@ select
     , cast(null as decimal(38,6)) as landed_cost_amount          -- EDW-60
     , cast(null as decimal(38,6)) as gross_margin_landed_amount  -- EDW-60
     , cast(null as decimal(38,6)) as freight_cost_amount         -- EDW-60
-    , cast(null as decimal(38,6)) as net_sales_amount_usd        -- EDW-169
     , cast(null as decimal(38,6)) as loyalty_points_earned       -- EDW-78
 
 from daily d

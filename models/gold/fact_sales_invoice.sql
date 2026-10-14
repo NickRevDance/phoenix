@@ -21,10 +21,12 @@ with trans as (
         , t.SALESPRICE
         , t.LINEDISC
         , t.LINEAMOUNT
+        , t.LINEAMOUNTMST  -- EDW-169: the line amount as booked in the accounting currency (USD)
         , t.TAXAMOUNT
         , t.CURRENCYCODE
         , t.MODIFIEDDATE
         , t.PARENTRECID
+        , t.INVENTTRANSID  -- EDW-169: link to the sales line (unique on SalesLine)
 
     from {{ ref('silver_d365_cust_invoice_trans') }} t
 
@@ -49,8 +51,30 @@ jour as (
         , j.SALESORIGINID
         , j.PURCHASEORDER
         , j.RETURNREASONCODEID
+        , j.EXCHRATE  -- EDW-169: posted exchange rate, per 100 units of the invoice currency (100 on USD)
 
     from {{ ref('silver_d365_cust_invoice_jour') }} j
+
+),
+
+sales_line as (
+
+    -- EDW-169: Nimbly website fee and commission, per unit on the sales line. Reached
+    -- through INVENTTRANSID, which is unique on SalesLine (2,901,485 of 2,901,485, checked
+    -- Oct 14 2026), so this join cannot fan out. Matched rows agree on item and order on
+    -- every line since Jul 2023. Return sales lines carry the fields too, so credit lines
+    -- reach them the same way. Also carries the custom print fee, which is a line amount.
+    select
+
+          sl.INVENTTRANSID
+        , sl.REC
+        , sl.QTYORDERED
+        , sl.REVWEBSITEFEE
+        , sl.REVCOMMISSION
+        , sl.REVNETCUSTOMPRINTFEE
+
+    from {{ ref('silver_d365_sales_line') }} sl
+    where nullif(sl.INVENTTRANSID, '') is not null
 
 ),
 
@@ -221,6 +245,7 @@ joined as (
         , tr.SALESPRICE
         , tr.LINEDISC
         , tr.LINEAMOUNT
+        , tr.LINEAMOUNTMST
         , tr.TAXAMOUNT
         , tr.CURRENCYCODE
         , tr.MODIFIEDDATE
@@ -230,6 +255,19 @@ joined as (
         , j.PURCHASEORDER
         , j.RETURNREASONCODEID
         , j.SALESORIGINID
+
+        -- EDW-169: posted rate to USD. 1 on USD (EXCHRATE = 100 on every USD header).
+        , case
+            when tr.CURRENCYCODE = 'USD' then cast(1 as decimal(19,8))
+            else cast(nullif(j.EXCHRATE, 0) / 100 as decimal(19,8))
+          end                                   as fx_rate_to_usd
+        -- EDW-169: per-unit Nimbly fields; 0 where the line has no sales line (free text lines)
+        , coalesce(sl.REVWEBSITEFEE, 0)          as nimbly_fee_unit
+        , coalesce(sl.REVCOMMISSION, 0)          as nimbly_commission_unit
+        -- EDW-169: custom print fee is a line amount on the sales line, so the invoice line takes
+        -- its share by invoiced over ordered quantity (the whole amount on a fully invoiced line)
+        , coalesce(sl.REVNETCUSTOMPRINTFEE * tr.QTY / nullif(sl.QTYORDERED, 0), 0) as custom_print_fee_share
+        , cast(sl.REC as bigint)                 as d365_sales_line_rec_id
 
         , st.CREATEDDATE                        as order_created_date
 
@@ -284,6 +322,9 @@ joined as (
     left join product_cost pc
         on tr.ITEMID = pc.product_id
 
+    left join sales_line sl
+        on nullif(tr.INVENTTRANSID, '') = sl.INVENTTRANSID
+
 ),
 
 final as (
@@ -295,7 +336,8 @@ final as (
         , j.INVOICEID                                                as invoice_id
         , cast(j.LINENUM as int)                                     as invoice_line_number
         , j.SALESID                                                  as order_id
-        , cast(null as int) as order_line_number  -- Source once available: no confirmed CustInvoiceTrans -> SalesLine join key identified -- open decision, order-to-invoice reconciliation (spec Source Mapping notes this is unconfirmed)
+        , cast(null as int) as order_line_number  -- EDW-169: the link to the sales line is now confirmed (INVENTTRANSID, see d365_sales_line_rec_id). Stays a typed NULL INT for now: FACT_DISCOUNT_APPLICATION passes this column through, and filling it at the order facts' DECIMAL(10,4) changes that fact's column type too, so it lands with the discount fact's order-line keys.
+        , j.d365_sales_line_rec_id  -- EDW-169: SalesLine RECID through INVENTTRANSID; joins to d365_sales_line_rec_id on FACT_ORDER_LINE and FACT_ORDERS_RETURNS. NULL on free text lines and the few with no link.
         , 'D365'                                                     as source_system
 
     -- Dim FKs
@@ -346,8 +388,22 @@ final as (
 
     -- Currency
         , j.CURRENCYCODE                                             as transaction_currency_code
-        , cast(null as decimal(19,8)) as fx_rate_to_usd  -- Phase 2 per spec
-        , cast(null as decimal(19,4)) as net_sales_amount_usd  -- Phase 2 per spec
+        , j.fx_rate_to_usd  -- EDW-169: posted rate from the invoice header (CustInvoiceJour.EXCHRATE / 100), 1 on USD
+        , {{ amount('j.LINEAMOUNTMST') }}                             as net_sales_amount_usd  -- EDW-169: LINEAMOUNTMST, the line as booked in USD. Equals round(LINEAMOUNT x EXCHRATE / 100, 2) on every line since Jul 2023 (checked Oct 14 2026).
+
+    -- Nimbly (EDW-169): per unit on the sales line x invoiced_qty, so they carry the line's
+    -- sign (negative on credit lines). Wholesale is net less fee and commission, the basis of
+    -- the Executive Summary model's Wholesale Revenue. Both fields are 0 on CAD lines today.
+        , {{ amount('j.QTY * j.nimbly_fee_unit') }}                   as nimbly_fee_amount
+        , {{ amount('j.QTY * j.nimbly_commission_unit') }}            as nimbly_commission_amount
+        , {{ amount('j.LINEAMOUNT - j.QTY * (j.nimbly_fee_unit + j.nimbly_commission_unit)') }} as wholesale_amount
+        , {{ amount('j.QTY * j.nimbly_fee_unit * j.fx_rate_to_usd') }} as nimbly_fee_amount_usd
+        , {{ amount('j.QTY * j.nimbly_commission_unit * j.fx_rate_to_usd') }} as nimbly_commission_amount_usd
+        , {{ amount('j.LINEAMOUNTMST - j.QTY * (j.nimbly_fee_unit + j.nimbly_commission_unit) * j.fx_rate_to_usd') }} as wholesale_amount_usd
+    -- Custom print fee (EDW-169): informational, not taken off wholesale (the Executive Summary
+    -- model's Wholesale Revenue does not take it off either).
+        , {{ amount('j.custom_print_fee_share') }}                    as custom_print_fee_amount
+        , {{ amount('j.custom_print_fee_share * j.fx_rate_to_usd') }} as custom_print_fee_amount_usd
 
     -- Order Context
         , cast(null as string) as order_type  -- Source once available: D365 SalesType enum mapping not confirmed -- Open Decision area, not guessed
