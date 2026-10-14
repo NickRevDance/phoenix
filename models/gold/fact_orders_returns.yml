@@ -6,9 +6,10 @@ models:
       FACT_ORDERS_RETURNS -- Type 1 overwrite, current-state order + return
       lifecycle fact (D365 SalesLine + SalesTable + McrReturnSalesTable).
       Combines forward-demand and return order lines in one physical table
-      per spec Section 4.9. See README.md for build status, known gaps
-      (shipped_qty/open_qty/fill_rate have no source yet), and open
-      decisions.
+      per spec Section 4.9. See README.md for build status and open
+      decisions. EDW-57 fills shipped_qty, actual_ship_date and the
+      fulfillment fields on the invoice basis, open_qty from D365's remaining
+      quantity, and the open order value.
     tests:
       - dbt_utils.unique_combination_of_columns:  # 2026-09-21 (EDW-22 review, spec Section 3): grain is d365_sales_line_rec_id, not order_id + order_line_number -- same rec_id-grain fix as FACT_SALES_INVOICE's EDW-23 round.
           arguments:
@@ -31,6 +32,17 @@ models:
       - dbt_utils.expression_is_true:  # EDW-169: the same in USD; each term is rounded to 6 places on its own
           arguments:
             expression: "abs(wholesale_line_amount_usd - (net_line_amount_usd - nimbly_fee_amount_usd - nimbly_commission_amount_usd)) <= 0.00001"
+      - dbt_utils.expression_is_true:  # EDW-57 (spec 7.4): open quantity is never negative
+          arguments:
+            expression: "open_qty >= 0"
+          config:
+            where: "not is_return_flag"
+      - dbt_utils.expression_is_true:  # EDW-57: on an open line D365's remaining quantity equals ordered less shipped less cancelled; warn, since it depends on what D365 holds
+          arguments:
+            expression: "open_qty = ordered_qty - shipped_qty - cancelled_qty"
+          config:
+            where: "order_line_status = 'Confirmed'"
+            severity: warn
     columns:
       - name: orders_returns_key
         tests: [is_valid_key]
@@ -146,14 +158,70 @@ models:
           - not_null:
               config:
                 severity: warn
+      - name: shipped_qty
+        description: Invoiced quantity on the line, the sum of CustInvoiceTrans.QTY on INVENTTRANSID (invoice basis, spec 4.9). 0 when nothing is invoiced; NULL on return rows. EDW-57.
+        tests:
+          - not_null:
+              config:
+                where: "not is_return_flag"
+      - name: open_qty
+        description: D365's remaining quantity to deliver (SalesLine.REMAINSALESPHYSICAL). Above 0 only on open (Confirmed) lines; NULL on return rows. The Executive Summary's Open Orders Units. EDW-57.
+        tests:
+          - not_null:
+              config:
+                where: "not is_return_flag"
+      - name: backordered_qty
+        description: Retired (EDW-57). The backordered quantity is open_qty. Typed NULL.
+      - name: actual_ship_date
+        description: Earliest invoice date on the line (invoice basis, spec 4.9). NULL unshipped and on return rows. EDW-57.
+      - name: estimated_ship_date
+        description: SalesLine.REVESTIMATEDSHIPDATE, the current estimated ship date. NULL when D365 holds a placeholder; see estimated_ship_date_status. Sales rows only. EDW-57.
+      - name: original_estimated_ship_date
+        description: SalesLine.REVOGESTIMATEDSHIPDATE, the first ship date promised; the on-time target. Sales rows only. EDW-57.
+      - name: estimated_ship_date_status
+        description: Assigned, Not Assigned (D365 placeholder 1900-01-01) or Awaiting Release (2040-01-01, branded lines held for release). NULL on return rows. EDW-57.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Assigned', 'Not Assigned', 'Awaiting Release']
+      - name: carrier_code
+        description: Conformed carrier from the SalesLine.DLVMODE token before the first hyphen (spec 7.11). NULL when DLVMODE is blank. EDW-57.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['UPS', 'FEDEX', 'USPS', 'FRONTIER', 'IDS', 'SHIP_TO_DESK', 'UNKNOWN']
+      - name: shipping_method
+        description: SalesLine.DLVMODE as sourced (EDW-57; read the order header before, which is blank on most orders).
+      - name: payment_terms_code
+        description: SalesTable.PAYMENT conformed (spec 7.12). EDW-57.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['PREPAID', 'NET10', 'NET30', 'NET45', 'NET60', 'UNKNOWN']
+      - name: payment_mode_code
+        description: SalesTable.PAYMMODE as sourced, blank to NULL (spec 4.13). EDW-57.
+      - name: open_line_amount
+        description: net_line_amount x open_qty / ordered_qty. Transaction currency. NULL on return rows. EDW-57.
+      - name: open_line_amount_usd
+        description: open_line_amount x fx_rate_to_usd. EDW-57.
+      - name: open_wholesale_amount
+        description: wholesale_line_amount x open_qty / ordered_qty. Transaction currency. NULL on return rows. EDW-57.
+      - name: open_wholesale_amount_usd
+        description: open_wholesale_amount x fx_rate_to_usd; the Executive Summary's Open Orders Amount. EDW-57.
+        tests:
+          - not_null:
+              config:
+                where: "not is_return_flag"
+                severity: warn  # coverage: a currency with no spot rate surfaces here without stopping the run
 
   - name: v_metrics_order_fulfillment
     description: >
       Certified order fulfillment/return metrics view per spec Section 9.
-      fill_rate/order_to_ship_days/on_time_ship_flag are null for every row
-      pending a shipped-quantity / actual-ship-date source -- see
-      fact_orders_returns.sql and README.md. EDW-58 adds the return
-      lifecycle columns, exchange_rate and return_processing_days.
+      EDW-58 adds the return lifecycle columns, exchange_rate and
+      return_processing_days. EDW-57 fills fill_rate, order_to_ship_days,
+      on_time_ship_flag / on_time_ship_pct and return_rate on the invoice
+      basis (fulfillment_basis), and adds the open order columns with the
+      Executive Summary's Open Order Status labels, evaluated at query time.
 
 # EDW-58: the return link checks that need a self-join (original line,
 # replacement order, RMA number on both sides of an exchange) are in

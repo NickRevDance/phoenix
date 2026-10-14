@@ -31,6 +31,12 @@ with line as (
         , l.REVWEBSITEFEE  -- EDW-169: Nimbly website fee, per unit
         , l.REVCOMMISSION  -- EDW-169: Nimbly commission, per unit
         , l.REVNETCUSTOMPRINTFEE  -- EDW-169: custom print fee, a line amount
+        , l.INVENTTRANSID  -- EDW-57: link to the invoice lines (unique on SalesLine)
+        , l.REMAINSALESPHYSICAL  -- EDW-57: D365's remaining quantity to deliver, the open quantity
+        , l.DLVMODE  -- EDW-57: delivery mode on the line (the header's is blank on most orders)
+        , l.SHIPPINGDATECONFIRMED  -- EDW-57
+        , l.REVESTIMATEDSHIPDATE  -- EDW-57: current estimated ship date
+        , l.REVOGESTIMATEDSHIPDATE  -- EDW-57: original estimated ship date, the first date promised
         , l.MODIFIEDDATE
 
     from {{ ref('silver_d365_sales_line') }} l
@@ -71,9 +77,9 @@ sales_table as (
         , st.REC
         , st.CUSTACCOUNT
         , st.SALESORIGINID
-        , st.DLVMODE
         , st.PURCHORDERFORMNUM
         , st.CREATEDDATE
+        , st.PAYMENT  -- EDW-57: payment terms
         -- EDW-58: return lifecycle columns. On a return row these come from the return order's own header.
         , st.RETURNITEMNUM
         , st.RETURNREASONCODEID
@@ -132,6 +138,26 @@ original_line as (
     from {{ ref('silver_d365_sales_line') }} ol
     where ol.SALESTYPE in (3, 4)
       and nullif(ol.INVENTTRANSID, '') is not null
+
+),
+
+-- EDW-57: shipped quantity and ship date on the invoice basis (spec 4.9, step 2a). Revolution
+-- invoices at shipment, so the invoice lines on a sales line's INVENTTRANSID are its shipments.
+-- INVENTTRANSID is unique on SalesLine, so the join to the line cannot fan out; no credit
+-- invoice line carries a sales line's INVENTTRANSID (checked October 14, 2026). Posting an
+-- invoice touches the sales line's MODIFIEDDATE, so the line watermark re-pulls it.
+shipment as (
+
+    select
+
+          t.INVENTTRANSID
+        , sum(t.QTY)                                         as invoiced_qty
+        , min(case when t.QTY > 0 then t.INVOICEDATE end)    as first_invoice_date
+
+    from {{ ref('silver_d365_cust_invoice_trans') }} t
+    where nullif(t.INVENTTRANSID, '') is not null
+      and t.INVENTTRANSID in (select l.INVENTTRANSID from line l where l.SALESTYPE = 3)
+    group by t.INVENTTRANSID
 
 ),
 
@@ -329,6 +355,13 @@ joined as (
         , l.RETURNDISPOSITIONCODEID
         , l.RETURNSTATUS
         , l.MODIFIEDDATE
+        , l.REMAINSALESPHYSICAL
+        , l.DLVMODE                              -- EDW-57: the line's delivery mode (was the header's)
+        , l.SHIPPINGDATECONFIRMED
+        , l.REVESTIMATEDSHIPDATE
+        , l.REVOGESTIMATEDSHIPDATE
+        , sh.invoiced_qty                        -- EDW-57: NULL when the line has no invoice line
+        , sh.first_invoice_date
         , coalesce(l.REVWEBSITEFEE, 0)            as nimbly_fee_unit
         , coalesce(l.REVCOMMISSION, 0)            as nimbly_commission_unit
         , coalesce(l.REVNETCUSTOMPRINTFEE, 0)     as custom_print_fee_line
@@ -339,9 +372,9 @@ joined as (
 
         , st.CUSTACCOUNT
         , st.SALESORIGINID
-        , st.DLVMODE
         , st.PURCHORDERFORMNUM
         , st.CREATEDDATE                         as order_created_date
+        , st.PAYMENT
         , st.RETURNITEMNUM
         , st.RETURNREASONCODEID
         , st.RETURNREPLACEMENTCREATED
@@ -380,6 +413,11 @@ joined as (
     left join original_line ol
         on l.SALESTYPE = 4
         and nullif(l.INVENTTRANSIDRETURN, '') = ol.INVENTTRANSID
+
+    -- EDW-57: sales rows only. A return line's own credit invoice is not a shipment.
+    left join shipment sh
+        on l.SALESTYPE = 3
+        and nullif(l.INVENTTRANSID, '') = sh.INVENTTRANSID
 
     -- EDW-58: sales rows only.
     left join replacement_order ro
@@ -464,8 +502,15 @@ final as (
         , case when l.SHIPPINGDATEREQUESTED is not null and l.SHIPPINGDATEREQUESTED > timestamp('1901-01-01') and l.SHIPPINGDATEREQUESTED < timestamp('2040-01-01')
                then cast(date_format(l.SHIPPINGDATEREQUESTED, 'yyyyMMdd') as int)
                else null end                                          as requested_ship_date_key  -- Placeholder dates on/after 2040-01-01 or on/before 1901-01-01 null out with their key per spec 7.6 (152 rows live).
-        , cast(null as int) as confirmed_ship_date_key  -- Source once available: no WMS-confirmed-ship-date source registered in this project
-        , cast(null as int) as actual_ship_date_key  -- Source once available: SalesLine.SALESDELIVERNOW/INVENTDELIVERNOW exist but are 0 for every row in live data -- no usable shipment-quantity or actual-ship-date signal from D365 BYOD; needs a WMS source
+        , case when l.SHIPPINGDATECONFIRMED is not null and l.SHIPPINGDATECONFIRMED > timestamp('1901-01-01') and l.SHIPPINGDATECONFIRMED < timestamp('2040-01-01')
+               then cast(date_format(l.SHIPPINGDATECONFIRMED, 'yyyyMMdd') as int)
+               else null end                                          as confirmed_ship_date_key  -- EDW-57: SalesLine.SHIPPINGDATECONFIRMED, placeholder rule (spec 7.6). Sparse (spec 4.9).
+        , case when l.SALESTYPE = 3 and l.first_invoice_date is not null
+               then cast(date_format(l.first_invoice_date, 'yyyyMMdd') as int)
+               else null end                                          as actual_ship_date_key  -- EDW-57: earliest invoice date on the line (invoice basis, spec 4.9).
+        , case when l.SALESTYPE = 3 and l.REVESTIMATEDSHIPDATE is not null and l.REVESTIMATEDSHIPDATE > timestamp('1901-01-01') and l.REVESTIMATEDSHIPDATE < timestamp('2040-01-01')
+               then cast(date_format(l.REVESTIMATEDSHIPDATE, 'yyyyMMdd') as int)
+               else null end                                          as estimated_ship_date_key  -- EDW-57: DIM_DATE key on estimated_ship_date (the Executive Summary's open orders by ship date).
         , cast(null as int) as delivery_date_key  -- Phase 2 per spec
         , case when l.SALESTYPE = 4 and l.RETURNARRIVALDATE is not null and l.RETURNARRIVALDATE > timestamp('1901-01-01') and l.RETURNARRIVALDATE < timestamp('2040-01-01')
                then cast(date_format(l.RETURNARRIVALDATE, 'yyyyMMdd') as int)
@@ -492,8 +537,16 @@ final as (
         , case when l.SHIPPINGDATEREQUESTED is not null and l.SHIPPINGDATEREQUESTED > timestamp('1901-01-01') and l.SHIPPINGDATEREQUESTED < timestamp('2040-01-01')
                then cast(l.SHIPPINGDATEREQUESTED as date)
                else null end                                          as requested_ship_date
-        , cast(null as date) as confirmed_ship_date  -- Source once available: see confirmed_ship_date_key
-        , cast(null as date) as actual_ship_date  -- Source once available: see actual_ship_date_key
+        , case when l.SHIPPINGDATECONFIRMED is not null and l.SHIPPINGDATECONFIRMED > timestamp('1901-01-01') and l.SHIPPINGDATECONFIRMED < timestamp('2040-01-01')
+               then cast(l.SHIPPINGDATECONFIRMED as date)
+               else null end                                          as confirmed_ship_date  -- EDW-57: see confirmed_ship_date_key
+        , case when l.SALESTYPE = 3 then cast(l.first_invoice_date as date) end as actual_ship_date  -- EDW-57: earliest invoice date on INVENTTRANSID (invoice basis, spec 4.9). NULL unshipped and on return rows; re-sources to the packing slip when it lands (EDW-55).
+        , case when l.SALESTYPE = 3 and l.REVESTIMATEDSHIPDATE is not null and l.REVESTIMATEDSHIPDATE > timestamp('1901-01-01') and l.REVESTIMATEDSHIPDATE < timestamp('2040-01-01')
+               then cast(l.REVESTIMATEDSHIPDATE as date)
+               else null end                                          as estimated_ship_date  -- EDW-57: SalesLine.REVESTIMATEDSHIPDATE, the current estimate. The 1900 and 2040 placeholders read NULL here and are kept in estimated_ship_date_status.
+        , case when l.SALESTYPE = 3 and l.REVOGESTIMATEDSHIPDATE is not null and l.REVOGESTIMATEDSHIPDATE > timestamp('1901-01-01') and l.REVOGESTIMATEDSHIPDATE < timestamp('2040-01-01')
+               then cast(l.REVOGESTIMATEDSHIPDATE as date)
+               else null end                                          as original_estimated_ship_date  -- EDW-57: SalesLine.REVOGESTIMATEDSHIPDATE, the first date promised. The on-time target in V_METRICS_ORDER_FULFILLMENT.
         , cast(null as date) as delivery_date  -- Phase 2 per spec
         , cast(null as date) as cancel_date  -- Source once available: see cancel_date_key
         , case when l.SALESTYPE = 4 and l.RETURNARRIVALDATE is not null and l.RETURNARRIVALDATE > timestamp('1901-01-01') and l.RETURNARRIVALDATE < timestamp('2040-01-01')
@@ -539,7 +592,16 @@ final as (
         , case when l.SALESTYPE = 4 then true else false end          as is_return_flag
         , case when l.SALESSTATUS = 4 or l.REVQTYCANCELLED > 0 then true else false end as is_cancelled_flag
         , case when l.SALESSTATUS = 1 then true else false end        as is_backordered_flag  -- Reflects SalesStatus = Backorder as of the current ETL run, not true backorder history -- same current-state caveat as FACT_ORDER_LINE's order_line_status_at_creation
-        , cast(null as boolean) as is_partial_ship_flag  -- Source once available: depends on shipped_qty, which has no source -- see actual_ship_date_key
+        , case when l.SALESTYPE = 3 then
+            coalesce(l.invoiced_qty, 0) > 0 and coalesce(l.invoiced_qty, 0) < l.QTYORDERED - coalesce(l.REVQTYCANCELLED, 0)
+          end                                                         as is_partial_ship_flag  -- EDW-57: some but not all of the ordered less cancelled quantity shipped (spec 7.4). Open partial lines and lines closed short both read true. NULL on return rows.
+        , case when l.SALESTYPE = 3 then
+            case
+                when l.REVESTIMATEDSHIPDATE >= timestamp('2040-01-01') then 'Awaiting Release'
+                when l.REVESTIMATEDSHIPDATE > timestamp('1901-01-01') then 'Assigned'
+                else 'Not Assigned'
+            end
+          end                                                         as estimated_ship_date_status  -- EDW-57: what the estimated ship date placeholder means. D365 writes 1900-01-01 until a date is assigned and 2040-01-01 on branded lines held for release. NULL on return rows.
         , case when l.SALESTYPE = 3 then l.is_replacement_order end   as is_replacement_flag  -- EDW-58: sales rows, true when the order is named in a return header's RETURNREPLACEMENTID (spec 4.11). NULL on return rows.
         , case when l.SALESTYPE = 4 then coalesce(l.RETURNREPLACEMENTCREATED = 1, false) end as is_exchange_flag  -- EDW-58: return rows, true when the return header has RETURNREPLACEMENTCREATED = 1 (spec 4.11). NULL on sales rows.
         , cast(null as boolean) as is_dso_order_flag  -- Phase 2 per spec
@@ -548,12 +610,12 @@ final as (
         , l.QTYORDERED                                                 as ordered_qty
         , cast(null as decimal(18,4)) as confirmed_qty  -- Source once available: no confirmed-availability quantity field found separate from QTYORDERED
         , cast(null as decimal(18,4)) as picked_qty  -- Phase 2 per spec
-        , cast(null as decimal(18,4)) as shipped_qty  -- Source once available: SalesLine.SALESDELIVERNOW/INVENTDELIVERNOW exist but are 0 for every row in live data -- no usable shipped-quantity signal in this BYOD extract; needs a WMS source. open_qty below is null as a direct consequence.
+        , case when l.SALESTYPE = 3 then {{ amount('coalesce(l.invoiced_qty, 0)') }} end as shipped_qty  -- EDW-57: sum of CustInvoiceTrans.QTY on INVENTTRANSID (invoice basis, spec 4.9). 0 when the line has no invoice line; NULL on return rows. SALESDELIVERNOW / INVENTDELIVERNOW are 0 on every row and are not used.
         , cast(null as decimal(18,4)) as delivered_qty  -- Phase 2 per spec
         , l.REVQTYCANCELLED                                            as cancelled_qty
         , case when l.SALESTYPE = 4 then abs(l.QTYORDERED) end        as returned_qty  -- Return lines carry QTYORDERED negative in live data -- abs() to express as a positive returned quantity per spec
-        , cast(null as decimal(18,4)) as backordered_qty  -- Source once available: is_backordered_flag exists but no separate backordered-quantity field found
-        , cast(null as decimal(18,4)) as open_qty  -- Source once available: formula is ordered_qty - shipped_qty - cancelled_qty per spec 7.4, and shipped_qty has no source -- see above
+        , cast(null as decimal(18,4)) as backordered_qty  -- EDW-57: retired. The backordered quantity is open_qty: D365's remaining quantity is above 0 only on Backorder lines, so a separate column would equal open_qty on every row.
+        , case when l.SALESTYPE = 3 then {{ amount('l.REMAINSALESPHYSICAL') }} end as open_qty  -- EDW-57: SalesLine.REMAINSALESPHYSICAL, D365's remaining quantity to deliver. Equals ordered - shipped - cancelled on every open line; 0 on closed lines, where that subtraction can leave a remainder (lines closed short) or go negative (a cancel quantity on fully invoiced lines). NULL on return rows.
         , coalesce(nullif(l.SALESUNIT, ''), 'ea')                     as qty_uom
 
     -- Amounts
@@ -579,6 +641,13 @@ final as (
     -- taken off wholesale.
         , {{ amount('l.custom_print_fee_line') }}                     as custom_print_fee_amount
         , {{ amount('l.custom_print_fee_line * l.fx_rate_to_usd') }}  as custom_print_fee_amount_usd
+    -- Open order value (EDW-57): the line's net and wholesale amounts prorated by open over
+    -- ordered quantity, in transaction currency and USD. open_wholesale_amount_usd is the
+    -- Executive Summary's Open Orders Amount. 0 when nothing is open; NULL on return rows.
+        , case when l.SALESTYPE = 3 then {{ amount('coalesce(l.LINEAMOUNT * l.REMAINSALESPHYSICAL / nullif(l.QTYORDERED, 0), 0)') }} end as open_line_amount
+        , case when l.SALESTYPE = 3 then {{ amount('coalesce(l.LINEAMOUNT * l.REMAINSALESPHYSICAL / nullif(l.QTYORDERED, 0), 0) * l.fx_rate_to_usd') }} end as open_line_amount_usd
+        , case when l.SALESTYPE = 3 then {{ amount('coalesce((l.LINEAMOUNT - l.QTYORDERED * (l.nimbly_fee_unit + l.nimbly_commission_unit)) * l.REMAINSALESPHYSICAL / nullif(l.QTYORDERED, 0), 0)') }} end as open_wholesale_amount
+        , case when l.SALESTYPE = 3 then {{ amount('coalesce((l.LINEAMOUNT - l.QTYORDERED * (l.nimbly_fee_unit + l.nimbly_commission_unit)) * l.REMAINSALESPHYSICAL / nullif(l.QTYORDERED, 0), 0) * l.fx_rate_to_usd') }} end as open_wholesale_amount_usd
 
     -- Returns
         , case when l.SALESTYPE = 4 then nullif(trim(l.RETURNREASONCODEID), '') end as return_reason_code  -- EDW-58: SalesTable.RETURNREASONCODEID on return rows, as sourced. NULL when blank (spec 7.8).
@@ -604,13 +673,32 @@ final as (
             end
           end                                                         as refund_method  -- EDW-58: the return order's PAYMMODE decoded, with Exchange taking precedence (spec 4.11). PAYMMODE itself is payment_mode_code (EDW-57).
 
+    -- Payment (EDW-57, spec 4.13 and 7.12): from the order header, on sales and return rows.
+        , case
+            when nullif(trim(l.PAYMENT), '') is null then null
+            when upper(trim(l.PAYMENT)) in ('PREPAID', 'NET10', 'NET30', 'NET45', 'NET60') then upper(trim(l.PAYMENT))
+            else 'UNKNOWN'
+          end                                                         as payment_terms_code  -- EDW-57: SalesTable.PAYMENT upper-cased (PrePaid / Prepaid / PREPAID to PREPAID); blank to NULL; anything else UNKNOWN. Same domain as FACT_SALES_INVOICE.
+        , nullif(trim(l.PAYMMODE), '')                                 as payment_mode_code  -- EDW-57: SalesTable.PAYMMODE as sourced (CC-BT, Credit, RevPoints, Check, ACH); blank to NULL.
+
     -- B2B
         , nullif(l.PURCHORDERFORMNUM, '')                              as customer_purchase_order
         , cast(null as string) as b2b_account_number  -- Phase 2 per spec -- master is dim_customer per spec Section 6
 
     -- Fulfillment
-        , nullif(l.DLVMODE, '')                                        as shipping_method
-        , cast(null as string) as carrier_code  -- Phase 2 per spec
+        , nullif(trim(l.DLVMODE), '')                                  as shipping_method  -- EDW-57: SalesLine.DLVMODE as sourced (spec Section 10). Read the header's DLVMODE before, which is blank on most orders.
+        , case
+            when nullif(trim(l.DLVMODE), '') is null then null
+            else case upper(split(trim(l.DLVMODE), '-')[0])
+                when 'UPS'        then 'UPS'
+                when 'FEDEX'      then 'FEDEX'
+                when 'USPS'       then 'USPS'
+                when 'FRONT'      then 'FRONTIER'
+                when 'IDS'        then 'IDS'
+                when 'SHIPTODESK' then 'SHIP_TO_DESK'
+                else 'UNKNOWN'
+            end
+          end                                                         as carrier_code  -- EDW-57: the DLVMODE token before the first hyphen, upper-cased (spec 7.11). Frontier is Front-fntr in D365. SHIP_TO_DESK is a delivery method kept in the domain. The raw value stays in shipping_method.
         , cast(null as string) as tracking_number  -- Phase 2 per spec
 
     -- Audit
@@ -628,6 +716,12 @@ final as (
             , coalesce(case when l.SALESTYPE = 4 then nullif(trim(l.RETURNDISPOSITIONCODEID), '') end, '')
             , coalesce(case when l.SALESTYPE = 4 then cast(coalesce(l.RETURNREPLACEMENTCREATED = 1, false) as string) end, '')
             , coalesce(case when l.SALESTYPE = 4 and l.RETURNREPLACEMENTCREATED = 1 then nullif(l.RETURNREPLACEMENTID, '') end, '')
+            -- EDW-57: shipped_qty, open_qty, actual_ship_date and the two estimated ship dates (spec 4.2)
+            , coalesce(case when l.SALESTYPE = 3 then cast(coalesce(l.invoiced_qty, 0) as string) end, '')
+            , coalesce(case when l.SALESTYPE = 3 then cast(l.REMAINSALESPHYSICAL as string) end, '')
+            , coalesce(case when l.SALESTYPE = 3 then cast(cast(l.first_invoice_date as date) as string) end, '')
+            , coalesce(case when l.SALESTYPE = 3 then cast(cast(l.REVESTIMATEDSHIPDATE as date) as string) end, '')
+            , coalesce(case when l.SALESTYPE = 3 then cast(cast(l.REVOGESTIMATEDSHIPDATE as date) as string) end, '')
           ), 256) as row_hash
 
     from joined l
