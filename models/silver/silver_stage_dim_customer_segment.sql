@@ -43,10 +43,9 @@ final as (
 
         , sha2(
             concat_ws('||',
-                coalesce(cast(loyalty_enrolled_flag as string), ''),
-                coalesce(dso_membership_status, '')
+                coalesce(cast(loyalty_enrolled_flag as string), '')
             ), 256
-          ) as profile_change_hash  -- hashes the Type 1 attributes that can change in place under a fixed customer_segment_id
+          ) as profile_change_hash  -- Type 1 attributes not in customer_segment_id; dso_membership_status moved into the id (EDW-72)
 
         , 'silver_stage_dim_customer_segment' as record_source_table
         , current_timestamp() as etl_insert_datetime

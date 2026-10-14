@@ -63,9 +63,9 @@ profile_attrs as (
 
         , cast(null as string) as loyalty_tier  -- Source once available: SiteVibes via Jitterbit -- Phase 2 per spec, not wired
 
-        , c.is_dso_member_flag  -- copied from DIM_CUSTOMER, system of record -- null today, Salesforce not wired
+        , c.is_dso_member_flag  -- copied from DIM_CUSTOMER, system of record (Salesforce, EDW-135 item 7)
 
-        , c.dso_membership_status  -- copied from DIM_CUSTOMER -- Phase 2 per spec, null today
+        , c.dso_membership_status  -- copied from DIM_CUSTOMER, system of record (Salesforce, EDW-135 item 7)
 
         , cast(null as boolean) as loyalty_enrolled_flag  -- Source once available: DIM_CUSTOMER.loyalty_enrolled_flag -- DIM_CUSTOMER doesn't carry this field yet despite being system of record per spec
 
@@ -94,11 +94,12 @@ final as (
                 coalesce(customer_tier, ''),
                 coalesce(loyalty_tier, ''),
                 coalesce(cast(is_dso_member_flag as string), ''),
+                coalesce(dso_membership_status, ''),
                 coalesce(purchase_frequency_band, ''),
                 coalesce(avg_order_value_band, ''),
                 coalesce(channel_preference, '')
             ), 256
-          ) as customer_segment_id  -- business key per spec section 9 formula; also the single source silver_stage_dim_customer_segment.sql dedupes on -- keep the hash formula in sync between the two if it ever changes. dso_membership_status and loyalty_enrolled_flag excluded, they're Type 1 profile-completeness fields, not part of the combination
+          ) as customer_segment_id  -- EDW-72: every column silver_stage_dim_customer_segment dedupes on is in the hash, so one id is one stage row. dso_membership_status is Type 2 per spec section 4. loyalty_enrolled_flag stays out while it is NULL for everyone; it fans out the same way once sourced
 
         , customer_key
         , customer_type
