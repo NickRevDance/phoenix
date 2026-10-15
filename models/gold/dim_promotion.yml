@@ -21,6 +21,21 @@ models:
               - source_promotion_id
           config:
             where: "is_current_row = 1"
+      # EDW-132 sections 1 and 2: one current row per key and no overlapping version ranges, at warn first
+      - one_current_row_per_key:
+          name: dim_promotion_one_current_row_per_key
+          arguments:
+            key_columns: ['source_system', 'source_storefront_code', 'source_promotion_id']
+          config:
+            severity: warn
+      - no_overlapping_effective_periods:
+          name: dim_promotion_no_overlapping_effective_periods
+          arguments:
+            partition_by: ['source_system', 'source_storefront_code', 'source_promotion_id']
+            from_column: effective_start_datetime
+            to_column: effective_end_datetime
+          config:
+            severity: warn
     columns:
       - name: promotion_key
         tests:
@@ -62,3 +77,15 @@ models:
           - accepted_values:
               arguments:
                 values: ['PERCENT', 'AMOUNT']
+
+  - name: v_dim_promotion_current
+    description: >
+      Current-row view over dim_promotion (is_current_row = 1) with SCD2 and internal metadata
+      columns stripped, plus the date-relative is_active_flag. Includes the reserved members
+      0 and -1.
+    columns:
+      - name: promotion_key
+        tests:
+          - is_valid_key:  # EDW-132 section 6, at warn first
+              config:
+                severity: warn

@@ -22,10 +22,54 @@ models:
             combination_of_columns:
               - product_key
               - version_number
+      # EDW-132 sections 1 and 2: one current row per key and no overlapping version ranges, at warn first
+      - one_current_row_per_key:
+          name: dim_product_one_current_row_per_key
+          arguments:
+            key_columns: ['product_key']
+          config:
+            severity: warn
+      - no_overlapping_effective_periods:
+          name: dim_product_no_overlapping_effective_periods
+          arguments:
+            partition_by: ['product_key']
+            from_column: effective_start_datetime
+            to_column: effective_end_datetime
+          config:
+            severity: warn
     columns:
       - name: product_id
         tests:
           - not_null
+      # EDW-132 (spec v1.4, Section 13 item 9), at warn first
+      - name: upc
+        description: Business key with source_system. The reserved members carry their member code ('-1', '0').
+        tests:
+          - not_null:
+              config:
+                severity: warn
+      - name: barcode_id
+        description: D365 item barcode row the UPC resolved through. NULL on the two reserved members only.
+        tests:
+          - not_null:
+              config:
+                where: "product_key not in ('-1', '0')"
+                severity: warn
+      - name: invent_dim_id
+        description: D365 InventDimId of the variant. NULL on the two reserved members only.
+        tests:
+          - not_null:
+              config:
+                where: "product_key not in ('-1', '0')"
+                severity: warn
+      - name: dw_sku_status
+        description: Active or Retired; Retired includes SKUs still holding stock (Sell_to_0). Reserved on the two reserved members.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Active', 'Retired', 'Reserved']
+              config:
+                severity: warn
       - name: reporting_category_group
         description: Daily sales view top level (Costumes, Dancewear, 2Die4 DTC, Revolution Apparel, Other).
         tests:

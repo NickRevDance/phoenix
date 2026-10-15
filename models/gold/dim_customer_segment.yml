@@ -21,6 +21,21 @@ models:
               - customer_segment_id
           config:
             where: "is_current_row = 1"
+      # EDW-132 sections 1 and 2: one current row per key and no overlapping version ranges, at warn first
+      - one_current_row_per_key:
+          name: dim_customer_segment_one_current_row_per_key
+          arguments:
+            key_columns: ['customer_segment_id']
+          config:
+            severity: warn
+      - no_overlapping_effective_periods:
+          name: dim_customer_segment_no_overlapping_effective_periods
+          arguments:
+            partition_by: ['customer_segment_id']
+            from_column: effective_start_datetime
+            to_column: effective_end_datetime
+          config:
+            severity: warn
     columns:
       - name: customer_segment_key
         description: xxhash64(customer_segment_id). One key per segment, held across versions; unique with version_number (spec v1.2, 4.2).
@@ -48,6 +63,17 @@ models:
               arguments:
                 values: [0, 1]
                 quote: false
+
+  - name: v_dim_customer_segment_current
+    description: >
+      Current-row view over dim_customer_segment (is_current_row = 1) with SCD2 and internal
+      metadata columns stripped. One row per segment.
+    columns:
+      - name: customer_segment_key
+        tests:
+          - is_valid_key:  # EDW-132 section 6, at warn first
+              config:
+                severity: warn
 
   - name: silver_stage_dim_customer_segment
     description: >

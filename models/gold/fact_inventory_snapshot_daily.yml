@@ -60,6 +60,23 @@ models:
         tests:
           - unique
           - not_null
+      # EDW-132 section 3: every date key relates to dim_date, at warn first (same as the sales facts on EDW-59).
+      - name: snapshot_date_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+              config:
+                severity: warn
+      - name: inventory_status_code
+        tests:
+          - relationships:  # EDW-132 section 4: every status code is a current REF_INVENTORY_STATUS row
+              arguments:
+                to: ref('v_ref_inventory_status_current')
+                field: inventory_status_code
+              config:
+                severity: warn
       - name: product_key
         description: >
           FK to DIM_PRODUCT (md5(UPC)), resolved through the D365 item barcode table: variant

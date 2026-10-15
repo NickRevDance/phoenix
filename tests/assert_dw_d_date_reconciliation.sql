@@ -1,5 +1,8 @@
+{{ config(enabled = false) }}
+
 -- Spec Section 8, test 7: reconciliation against legacy dw.d_Date.
--- VALIDATION-PHASE ONLY. Rename to remove the .disabled suffix once a
+-- VALIDATION-PHASE ONLY. Disabled by config, not by file name (EDW-132
+-- section 7), so it shows as a deliberate choice. Set enabled = true once a
 -- connection/external table for dw.d_Date (Azure SQL dwhvisualnext) is
 -- available in the Databricks workspace, and adjust the source reference.
 -- Remove the test after validation sign-off, when dw.d_Date is retired.

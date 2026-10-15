@@ -36,6 +36,13 @@ models:
           FK to DIM_DATE. -1 (DIM_DATE's reserved UNKNOWN member) where
           effective_date is null, instead of a literal 19000101 key
           outside DIM_DATE (EDW-94 A4).
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+              config:
+                severity: warn
       - name: vendor_key
         description: >
           FK to DIM_VENDOR. 0 (NO_VENDOR) on non-VENDOR cost_type rows,
