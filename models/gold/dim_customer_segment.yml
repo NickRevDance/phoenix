@@ -3,10 +3,18 @@ version: 2
 models:
   - name: dim_customer_segment
     description: >
-      DIM_CUSTOMER_SEGMENT -- SCD Type 2 customer segmentation
-      mini-dimension. Phase 1 scope (customer_type, lifecycle_stage,
-      is_dso_member_flag, loyalty_enrolled_flag); remaining fields are
-      Phase 2 per spec and null-cast. See README.md.
+      DIM_CUSTOMER_SEGMENT -- customer segmentation mini-dimension, one row
+      per combination of segment attributes. Phase 1 scope (customer_type,
+      lifecycle_stage per C8, is_dso_member_flag, dso_membership_status,
+      is_loyalty_eligible_flag); remaining fields are Phase 2 and null-cast.
+    tests:
+      - dbt_utils.unique_combination_of_columns:  # EDW-72: one current row per segment
+          name: dim_customer_segment_one_current_row_per_segment
+          arguments:
+            combination_of_columns:
+              - customer_segment_id
+          config:
+            where: "is_current_row = 1"
     columns:
       - name: customer_segment_key
         tests:
@@ -14,6 +22,22 @@ models:
       - name: customer_segment_id
         tests:
           - not_null
+      - name: lifecycle_stage
+        description: C8 (EDW-131). Prospect, New, Active, Lapsed, Churned; Reactivated (C9) deferred.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Prospect', 'New', 'Active', 'Lapsed', 'Churned']
+      - name: is_loyalty_eligible_flag
+        description: Copied from DIM_CUSTOMER (renamed from loyalty_enrolled_flag). NULL until the loyalty exclusion list is sourced (EDW-80).
+      - name: is_current_row
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+                quote: false
 
   - name: silver_stage_dim_customer_segment
     description: >
