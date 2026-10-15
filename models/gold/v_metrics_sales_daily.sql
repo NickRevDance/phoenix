@@ -3,7 +3,10 @@
 -- V_METRICS_SALES_DAILY (EDW-133; FACT_SALES_INVOICE spec Section 9 and the shape section of
 -- September 21 2026). The certified daily sales metrics view over FACT_SALES_INVOICE.
 -- Grain: one row per invoice_date_key + product_key + customer_key + sales_channel_key +
--- warehouse_key + transaction_currency_code + invoice_type.
+-- warehouse_key + transaction_currency_code + invoice_type + is_intercompany_flag +
+-- payment_terms_code + payment_mode_code + is_dso_order_flag. The four attributes (EDW-59) are
+-- slicers carried from the fact; they split a row only where they differ inside a customer-day
+-- (about 400 rows over the history on Oct 15 2026).
 -- Coverage: every row of the fact is represented, including unresolved keys and Free Text
 -- lines, so each additive measure summed over the view equals the same sum over the fact
 -- (tests/assert_v_metrics_sales_daily_ties_to_fact.sql).
@@ -15,8 +18,14 @@
 -- and are NULL on the others (the CAD lines). EDW-169 adds the USD amounts: the *_usd measures
 -- can be summed across currencies, and the USD margin pair covers every line with a USD
 -- standard cost, CAD lines included.
--- invoice_type: taken from the fact once EDW-59 populates it. Until then it is derived from
--- order_id, which is blank (never NULL) on free text invoice lines.
+-- invoice_type: taken from the fact (EDW-59). The fallback derivation from order_id stays only
+-- as a guard for a row the fact has not filled.
+-- Intercompany (EDW-59, spec 4.10): carried as is_intercompany_flag and never excluded, so
+-- headline revenue reconciles to the AR ledger; a view of external revenue filters the flag.
+-- payment_terms_code, payment_mode_code and is_dso_order_flag (EDW-59) are attributes only;
+-- nothing is subtracted on their account. customer_segment_key is not carried here: segment at
+-- the time of the invoice is a fact-level attribute (spec 4.14), and customer_type reads the
+-- current DIM_CUSTOMER row below.
 -- Free Text: kept as their own rows so totals reconcile to the AR ledger. Revenue and
 -- discount totals include both types; anything by product, units, ASP, cost or margin filters
 -- invoice_type = 'Sales Order'.
@@ -50,6 +59,10 @@ with invoice_line as (
               f.invoice_type
             , case when nullif(f.order_id, '') is null then 'Free Text' else 'Sales Order' end
           )                                                          as invoice_type
+        , f.is_intercompany_flag  -- EDW-59
+        , f.payment_terms_code  -- EDW-59
+        , f.payment_mode_code  -- EDW-59
+        , f.is_dso_order_flag  -- EDW-59
         , f.invoice_id
         , f.invoiced_qty
         , f.gross_sales_amount
@@ -96,6 +109,10 @@ daily as (
         , l.warehouse_key
         , l.transaction_currency_code
         , l.invoice_type
+        , l.is_intercompany_flag
+        , l.payment_terms_code
+        , l.payment_mode_code
+        , l.is_dso_order_flag
         , max(l.invoice_date)                                        as invoice_date
         , max(l.cost_currency_code)                                  as cost_currency_code
 
@@ -153,6 +170,10 @@ daily as (
         , l.warehouse_key
         , l.transaction_currency_code
         , l.invoice_type
+        , l.is_intercompany_flag
+        , l.payment_terms_code
+        , l.payment_mode_code
+        , l.is_dso_order_flag
 
 ),
 
@@ -229,6 +250,10 @@ select
     , d.warehouse_key
     , d.transaction_currency_code
     , d.invoice_type
+    , d.is_intercompany_flag  -- EDW-59
+    , d.payment_terms_code  -- EDW-59
+    , d.payment_mode_code  -- EDW-59
+    , d.is_dso_order_flag  -- EDW-59
 
     -- Date attributes
     , d.invoice_date

@@ -105,6 +105,102 @@ models:
               arguments:
                 to: ref('dim_customer')
                 field: customer_key
+      - name: customer_segment_key
+        description: >
+          DIM_CUSTOMER_SEGMENT key of the order account when the line was written, held on later
+          merges while the customer is unchanged. History before EDW-59 reads the segment on the day
+          of the refresh, and a full refresh restates it. NULL on the -1 customer. EDW-59.
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customer_segment')
+                field: customer_segment_key
+              config:
+                severity: warn  # same as the dim_customer test (EDW-132), error at a later pass
+      - name: is_dso_order_flag
+        description: >
+          DIM_CUSTOMER is_dso_member_flag on the customer version in effect at the order date.
+          Membership history starts with the first customer snapshot (Oct 14 2026); earlier orders
+          read that first version. NULL on the -1 customer. EDW-59.
+        tests:
+          - not_null:
+              config:
+                where: "customer_key <> -1"
+                severity: warn
+      # EDW-132 section 3 (folded into EDW-59): every date key relates to dim_date, at warn first.
+      # A placeholder date that slips past the 1901 / 2040 bounds would orphan here. 0 orphans on Oct 15 2026.
+      - name: order_date_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+              config:
+                severity: warn
+      - name: requested_ship_date_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+              config:
+                severity: warn
+      - name: confirmed_ship_date_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+              config:
+                severity: warn
+      - name: actual_ship_date_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+              config:
+                severity: warn
+      - name: estimated_ship_date_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+              config:
+                severity: warn
+      - name: delivery_date_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+              config:
+                severity: warn
+      - name: return_date_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+              config:
+                severity: warn
+      - name: return_request_date_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+              config:
+                severity: warn
+      - name: cancel_date_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+              config:
+                severity: warn
       - name: unresolved_upc
         description: D365 barcode (UPC) that had no DIM_PRODUCT row, so product_key is -1. NULL when product_key resolved or no barcode exists. EDW-134.
       - name: product_key
@@ -170,8 +266,6 @@ models:
           - not_null:
               config:
                 where: "not is_return_flag"
-      - name: backordered_qty
-        description: Retired (EDW-57). The backordered quantity is open_qty. Typed NULL.
       - name: actual_ship_date
         description: Earliest invoice date on the line (invoice basis, spec 4.9). NULL unshipped and on return rows. EDW-57.
       - name: estimated_ship_date

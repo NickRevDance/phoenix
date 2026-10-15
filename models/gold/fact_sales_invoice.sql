@@ -52,6 +52,9 @@ jour as (
         , j.PURCHASEORDER
         , j.RETURNREASONCODEID
         , j.EXCHRATE  -- EDW-169: posted exchange rate, per 100 units of the invoice currency (100 on USD)
+        , j.PAYMENT  -- EDW-59: payment terms on the invoice header
+        , j.INTERCOMPANYPOSTED  -- EDW-59: intercompany posting flag
+        , j.CUSTGROUP  -- EDW-59: the invoice account's customer group as posted on the header
 
     from {{ ref('silver_d365_cust_invoice_jour') }} j
 
@@ -72,6 +75,7 @@ sales_line as (
         , sl.REVWEBSITEFEE
         , sl.REVCOMMISSION
         , sl.REVNETCUSTOMPRINTFEE
+        , sl.SHIPPINGDATEREQUESTED  -- EDW-59: requested ship date on the originating sales line
 
     from {{ ref('silver_d365_sales_line') }} sl
     where nullif(sl.INVENTTRANSID, '') is not null
@@ -84,6 +88,7 @@ sales_table as (
 
           st.SALESID
         , st.CREATEDDATE
+        , st.PAYMMODE  -- EDW-59: tender on the originating order (the invoice header carries none)
 
     from {{ ref('silver_d365_sales_table') }} st
 
@@ -161,12 +166,61 @@ customer as (
 
           customer_key
         , customer_id
+        , customer_segment_key  -- EDW-59: Type 1 on dim_customer, so this is the customer's segment today
 
     from {{ ref('dim_customer') }}
     where version_number = 1
       and source_system = 'D365'
 
 ),
+
+customer_dso as (
+
+    -- EDW-59 (spec 4.13): the DSO flag on the DIM_CUSTOMER version in effect at the invoice
+    -- date. is_dso_member_flag is Type 2, so the version ranges hold the membership history and
+    -- the flag rebuilds the same on a full refresh. Ranges are rebuilt from each version's start
+    -- date, the same way as the fx_rate CTE on fact_orders_returns: each version runs to the day
+    -- before the next one starts, the first version reaches back to 1900-01-01 (history before
+    -- the first snapshot reads the first version) and the last stays open (a closed, hard-deleted
+    -- account keeps its last version). Contiguous by construction, so the join cannot fan out.
+    select
+
+          c.customer_key
+        , c.is_dso_member_flag
+        , case
+            when row_number() over (partition by c.customer_key order by c.effective_start_datetime, c.version_number desc) = 1
+            then date'1900-01-01'
+            else cast(c.effective_start_datetime as date)
+          end                                                       as range_start_date
+        , coalesce(
+              lead(cast(c.effective_start_datetime as date)) over (partition by c.customer_key order by c.effective_start_datetime, c.version_number desc)
+            , date'9999-12-31'
+          )                                                         as range_end_date  -- exclusive
+
+    from {{ ref('dim_customer') }} c
+    where c.source_system = 'D365'
+
+),
+
+{% if is_incremental() %}
+-- EDW-59 / EDW-132: values held once written. A matched row keeps its etl_insert_datetime, and
+-- keeps the customer_segment_key it was written with while its customer is unchanged (spec 4.14:
+-- the segment at the time the line was inserted). A NULL is not held, so a line written without
+-- a segment takes one on its next merge. A full refresh restates the segment to the customer's
+-- segment on the day of the refresh, the same way standard_cost_unit restates (spec Section 7).
+existing as (
+
+    select
+
+          sales_invoice_key
+        , customer_key
+        , customer_segment_key
+        , etl_insert_datetime
+
+    from {{ this }}
+
+),
+{% endif %}
 
 warehouse as (
 
@@ -255,6 +309,11 @@ joined as (
         , j.PURCHASEORDER
         , j.RETURNREASONCODEID
         , j.SALESORIGINID
+        , j.PAYMENT
+        , j.INTERCOMPANYPOSTED
+        , j.CUSTGROUP
+        , st.PAYMMODE
+        , sl.SHIPPINGDATEREQUESTED
 
         -- EDW-169: posted rate to USD. 1 on USD (EXCHRATE = 100 on every USD header).
         , case
@@ -275,6 +334,13 @@ joined as (
         , coalesce(prod.product_key, '-1')   as product_key
         , case when prod.product_key is null then bar.ITEMBARCODE end as unresolved_upc
         , cu.customer_key
+        , cu.customer_segment_key                as current_customer_segment_key  -- EDW-59
+        , dso.is_dso_member_flag                 as dso_flag_at_invoice  -- EDW-59
+        {% if is_incremental() %}
+        , ex.customer_key                        as existing_customer_key
+        , ex.customer_segment_key                as existing_customer_segment_key
+        , ex.etl_insert_datetime                 as existing_etl_insert_datetime
+        {% endif %}
         , wh.warehouse_key
         , coalesce(sc.sales_channel_key, -1) as sales_channel_key  -- v1.2 (EDW-15/16, adopted): sales_channel_key is never NULL -- unmapped/blank origins resolve to dim_sales_channel's reserved -1 UNKNOWN member. The 10-14% of lines on a *mapped* origin that still come back with no channel (header-join loss, not an unmapped-origin gap) is an open EDW-23 review item, not fixed by this coalesce.
         , nullif(j.SALESORIGINID, '') as source_sales_origin_id  -- v1.1 (EDW-16, Decision 4): raw D365 origin carried on the fact as a non-key lineage attribute, so an unmapped/blank row can be traced without a join back to silver.
@@ -309,6 +375,17 @@ joined as (
     left join customer cu
         on j.INVOICEACCOUNT = cu.customer_id
 
+    -- EDW-59: the customer version in effect on the invoice date (DSO flag)
+    left join customer_dso dso
+        on cu.customer_key = dso.customer_key
+        and cast(tr.INVOICEDATE as date) >= dso.range_start_date
+        and cast(tr.INVOICEDATE as date) < dso.range_end_date
+
+    {% if is_incremental() %}
+    left join existing ex
+        on xxhash64(tr.RECID, 'D365') = ex.sales_invoice_key
+    {% endif %}
+
     left join warehouse wh
         on d.INVENTLOCATIONID = wh.warehouse_id
         and d.inventsiteid = wh.d365_site_id
@@ -335,7 +412,7 @@ final as (
           xxhash64(j.RECID, 'D365')                                  as sales_invoice_key  -- fixed 2026-09-11: was xxhash64(INVOICEID, LINENUM, 'D365'). That collides whenever a credit memo reuses the original invoice's INVOICEID with an overlapping LINENUM under a *different* CustInvoiceJour header (the same PARENTRECID fan-out this join was already built to handle, per the comment above) -- confirmed live: 107,248 distinct sales_invoice_key values were duplicated across 214,676 rows out of 2,780,550. j.RECID is CustInvoiceTrans's own row identifier and is 100% unique on the source table (2,780,780 of 2,780,780, confirmed live 2026-09-11) -- INVOICEID/LINENUM stay below as descriptive attributes, just no longer the key's inputs.
         , j.INVOICEID                                                as invoice_id
         , cast(j.LINENUM as int)                                     as invoice_line_number
-        , j.SALESID                                                  as order_id
+        , nullif(j.SALESID, '')                                      as order_id  -- EDW-59: NULL on free text lines (was a blank string)
         , cast(null as int) as order_line_number  -- EDW-169: the link to the sales line is now confirmed (INVENTTRANSID, see d365_sales_line_rec_id). Stays a typed NULL INT for now: FACT_DISCOUNT_APPLICATION passes this column through, and filling it at the order facts' DECIMAL(10,4) changes that fact's column type too, so it lands with the discount fact's order-line keys.
         , j.d365_sales_line_rec_id  -- EDW-169: SalesLine RECID through INVENTTRANSID; joins to d365_sales_line_rec_id on FACT_ORDER_LINE and FACT_ORDERS_RETURNS. NULL on free text lines and the few with no link.
         , 'D365'                                                     as source_system
@@ -347,20 +424,32 @@ final as (
         , j.product_key
         , j.unresolved_upc
         , j.customer_key
-        , cast(null as bigint) as ship_to_customer_key  -- Phase 2 per spec -- role-playing DIM_CUSTOMER, not distinguished from bill-to yet
+    -- ship_to_customer_key removed (retired, spec v1.4 O8; EDW-59): ship-to geography replaces it once LogisticsPostalAddress is ingested.
         , j.sales_channel_key
         , j.source_sales_origin_id
         , j.warehouse_key
         , cast(-1 as bigint) as employee_sales_hierarchy_key  -- 2026-09-16 fix (Chris review, Aug 5 note): coalesced to the reserved -1 UNKNOWN member rather than left null -- no worker/sales-rep table found in the warehouse scan; still applies to B2C per spec 4.5
         , cast(null as bigint) as campaign_key  -- Phase 2 per spec -- contingent on DIM_CAMPAIGN, not scoped
         , cast(null as bigint) as vendor_key  -- Phase 2 per spec -- derived from DIM_PRODUCT vendor linkage, not wired yet
-        , cast(null as bigint) as customer_segment_key  -- Phase 2 per spec -- DIM_CUSTOMER_SEGMENT doesn't exist in this project yet
+        {% if is_incremental() %}
+        , case
+            when j.existing_customer_key = j.customer_key
+            then coalesce(j.existing_customer_segment_key, j.current_customer_segment_key)
+            else j.current_customer_segment_key
+          end                                                        as customer_segment_key
+        {% else %}
+        , j.current_customer_segment_key                             as customer_segment_key
+        {% endif %}
+        -- EDW-59 (spec 4.14): the customer's segment when the line is written, held after that (see
+        -- the existing CTE). DIM_CUSTOMER_SEGMENT has no -1 member, so a line on the -1 customer reads NULL.
 
     -- Dates
         , cast(j.INVOICEDATE as date)                                as invoice_date
         , cast(j.order_created_date as date)                         as order_date
         , cast(null as date) as ship_date  -- Source once available: SalesLine.ShippingDateConfirmed -- not wired yet
-        , cast(null as date) as requested_ship_date  -- Phase 2 per spec
+        , case when j.SHIPPINGDATEREQUESTED > timestamp('1901-01-01') and j.SHIPPINGDATEREQUESTED < timestamp('2040-01-01')
+               then cast(j.SHIPPINGDATEREQUESTED as date)
+          end                                                        as requested_ship_date  -- EDW-59: SalesLine.SHIPPINGDATEREQUESTED through INVENTTRANSID (d365_sales_line_rec_id). Placeholder dates read NULL (spec 7.6, same bounds as the order facts). NULL on free text lines.
         , cast(null as date) as delivery_date  -- Phase 3 per spec
 
     -- Quantities
@@ -369,7 +458,7 @@ final as (
 
     -- Revenue
         , j.SALESPRICE                                               as unit_price
-        , j.QTY * j.SALESPRICE                                       as gross_sales_amount
+        , {{ amount("case when nullif(j.SALESID, '') is null then j.LINEAMOUNT else j.QTY * j.SALESPRICE end") }} as gross_sales_amount  -- EDW-59 (spec 4.9): the line amount on free text lines, where PRICEUNIT is 0 and quantity x price reads about zero; quantity x price on sales order lines as before. decimal(38,6), the type the column already has.
         , {{ amount('j.QTY * j.LINEDISC') }}                          as line_discount_amount  -- 2026-09-16 fix (Chris review): LINEDISC is a per-unit amount, not a line total -- the prior LINEDISC-as-is value gave a discounted return line's discount to the credit instead of subtracting it, and undercounted a discounted multi-unit line to one unit's discount. Missed CustInvoiceJour.SALESBALANCE on 62K of 802K invoices (~$6.9M absolute) under the old formula. QTY * LINEDISC ties LINEAMOUNT on 99.2% of lines (a ~21K-line PRICEUNIT=0-with-no-discount residual is unchased -- see README).
         , cast(null as decimal(19,4)) as header_discount_allocated  -- Source once available: Finance Decision F1 (header discount proration basis) -- open, gates margin certification per spec 4.4/12
         , {{ amount('j.QTY * j.LINEDISC') }}                          as total_discount_amount  -- = line_discount_amount + header_discount_allocated once F1 is confirmed; header component contributes 0 today
@@ -406,27 +495,39 @@ final as (
         , {{ amount('j.custom_print_fee_share * j.fx_rate_to_usd') }} as custom_print_fee_amount_usd
 
     -- Order Context
-        , cast(null as string) as order_type  -- Source once available: D365 SalesType enum mapping not confirmed -- Open Decision area, not guessed
-        , cast(null as string) as invoice_type  -- Source once available: D365 InvoiceType_W enum mapping not confirmed
-        , case when j.QTY < 0 then cast(1 as boolean) else cast(0 as boolean) end as is_return_flag  -- derived from qty sign per spec Section 3 grain definition, not from invoice_type/order_type (those stay unmapped above)
+    -- order_type removed (spec v1.3, EDW-59): it never read a SalesType; invoice_type and is_return_flag carry the distinctions.
+        , case when nullif(j.SALESID, '') is null then 'Free Text' else 'Sales Order' end as invoice_type  -- EDW-59 (spec 4.9): Sales Order when the line has a SALESID, Free Text when it does not
+        , case when j.QTY < 0 or j.LINEAMOUNT < 0 then true else false end as is_return_flag  -- EDW-59 (spec 4.3): negative quantity or negative revenue, so a free text credit with no negative quantity reads as a return
         , nullif(j.RETURNREASONCODEID, '')                           as return_reason_code
         , cast(null as string) as return_reason_description  -- Source once available: no reason-code description lookup identified
-        , cast(null as string) as payment_terms_code  -- Phase 2 per spec
-        , cast(null as boolean) as is_intercompany_flag  -- Source once available: Open Decision 7 (include-with-flag vs. exclude) -- open, left null rather than assuming an answer
+        , case
+            when nullif(trim(j.PAYMENT), '') is null then null
+            when upper(trim(j.PAYMENT)) in ('PREPAID', 'NET10', 'NET30', 'NET45', 'NET60') then upper(trim(j.PAYMENT))
+            else 'UNKNOWN'
+          end                                                        as payment_terms_code  -- EDW-59 (spec 4.11): CustInvoiceJour.PAYMENT upper-cased (PrePaid / Prepaid / PREPAID to PREPAID); blank to NULL; anything else UNKNOWN. Same rule as fact_orders_returns.
+        , case when nullif(j.SALESID, '') is not null then nullif(trim(j.PAYMMODE), '') end as payment_mode_code  -- EDW-59 (spec 4.11): SalesTable.PAYMMODE of the originating order as sourced (CC-BT, Credit, RevPoints, Check, ACH); blank to NULL; NULL on free text lines. An attribute, never subtracted from revenue.
+        , case
+            when coalesce(j.INTERCOMPANYPOSTED, 0) = 1 or upper(trim(j.CUSTGROUP)) = 'INTERCO' then true
+            else false
+          end                                                        as is_intercompany_flag  -- EDW-59 (spec 4.10, O7): include with a flag, never a filter. CUSTGROUP is read from the invoice header (the group as posted), which agrees with the customer table on every Interco invoice (checked Oct 15 2026).
 
     -- B2B Context
         , nullif(j.PURCHASEORDER, '')                                as customer_purchase_order
         , cast(null as string) as b2b_account_number  -- Phase 2 per spec
 
     -- DSO / Loyalty
-        , cast(null as boolean) as is_dso_order_flag  -- Phase 2 per spec -- Open Decision 8
+        , j.dso_flag_at_invoice                                      as is_dso_order_flag  -- EDW-59 (spec 4.13): DIM_CUSTOMER is_dso_member_flag on the version in effect at the invoice date (customer_dso CTE). Membership history starts with the first customer snapshot (Oct 14 2026); earlier invoices read that first version.
         , cast(null as decimal(18,4)) as loyalty_points_earned  -- Phase 2 per spec v1.2: source is FACT_LOYALTY_TRANSACTION (EDW-78, order-level earn event), allocated to lines pro-rata by net_sales_amount over qualifying lines on the order (spec 4.8); qualifying-spend scope (costume-only vs. all products) open with Marketing. Stays a typed NULL until FACT_LOYALTY_TRANSACTION exists.
         -- loyalty_points_redeemed retired per spec v1.2 (Revolution Rewards two-step Rev Cash model, adopted 2026-08-19): points convert to a certificate and are spent as tender, so there's no invoice-line redemption event to source. Certificate burn is a FACT_PAYMENT_TRANSACTION event instead -- column dropped, not left as a null scaffold.
 
     -- Audit
         , j.RECID                                                    as d365_invoice_rec_id
         , 'silver_d365_cust_invoice_trans + silver_d365_cust_invoice_jour' as record_source_table
+        {% if is_incremental() %}
+        , coalesce(j.existing_etl_insert_datetime, current_timestamp()) as etl_insert_datetime  -- EDW-59 / EDW-132: kept across merges (existing CTE), same as fact_orders_returns
+        {% else %}
         , current_timestamp()                                        as etl_insert_datetime
+        {% endif %}
         , current_timestamp()                                        as etl_update_datetime
         , j.MODIFIEDDATE                                             as etl_source_modified_datetime
         , sha2(concat_ws('||', j.INVOICEID, cast(j.LINENUM as string), 'D365', cast(j.QTY as string), cast(j.SALESPRICE as string)), 256) as row_hash
