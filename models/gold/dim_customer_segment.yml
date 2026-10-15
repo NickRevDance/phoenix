@@ -8,6 +8,12 @@ models:
       lifecycle_stage per C8, is_dso_member_flag, dso_membership_status,
       is_loyalty_eligible_flag); remaining fields are Phase 2 and null-cast.
     tests:
+      - dbt_utils.unique_combination_of_columns:  # EDW-132: the key is held across versions, so a reopened segment is a second row on the same key
+          name: dim_customer_segment_key_version_unique
+          arguments:
+            combination_of_columns:
+              - customer_segment_key
+              - version_number
       - dbt_utils.unique_combination_of_columns:  # EDW-72: one current row per segment
           name: dim_customer_segment_one_current_row_per_segment
           arguments:
@@ -17,8 +23,12 @@ models:
             where: "is_current_row = 1"
     columns:
       - name: customer_segment_key
+        description: xxhash64(customer_segment_id). One key per segment, held across versions; unique with version_number (spec v1.2, 4.2).
         tests:
-          - is_valid_key
+          - not_null
+      - name: version_number
+        tests:
+          - not_null
       - name: customer_segment_id
         tests:
           - not_null

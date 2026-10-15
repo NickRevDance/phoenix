@@ -37,7 +37,7 @@ models:
       - name: customer_type
         tests:
           - not_null
-          - accepted_values:  # C1; Unknown is the reserved -1 member only
+          - accepted_values:  # C1; Unknown is the -1 member and BigCommerce internal, test and unmapped groups (EDW-147)
               arguments:
                 values: ['Wholesale', 'Consumer', 'Unknown']
       - name: customer_status
@@ -58,6 +58,15 @@ models:
           - accepted_values:
               arguments:
                 values: ['Active', 'Inactive', 'D', 'C']
+      - name: customer_segment_key
+        description: FK to dim_customer_segment, the segment's current row (Type 1). NULL on the -1 member.
+        tests:
+          - relationships:  # EDW-132
+              arguments:
+                to: ref('dim_customer_segment')
+                field: customer_segment_key
+              config:
+                severity: warn  # EDW-132 (2026-10-15): warn while it beds in, error at a later EDW-132 pass (the product_key path on fact_sales_invoice)
       - name: account_created_date
         description: DATE (was TIMESTAMP before spec v1.3). NULL on the -1 member.
       - name: version_number
