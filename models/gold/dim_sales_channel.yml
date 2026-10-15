@@ -27,3 +27,14 @@ models:
         tests:
           - accepted_values:
               values: ['Active', 'Inactive', 'Planned']
+
+  - name: v_dim_sales_channel_current
+    description: >
+      Column-projection pass-through over dim_sales_channel (Type 1, no version history),
+      kept so every dimension exposes a _current view for Power BI.
+    columns:
+      - name: sales_channel_key
+        tests:
+          - is_valid_key:  # EDW-132 section 6, at warn first
+              config:
+                severity: warn

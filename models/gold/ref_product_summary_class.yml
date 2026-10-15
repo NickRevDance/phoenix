@@ -1,0 +1,40 @@
+version: 2
+
+models:
+  - name: ref_product_summary_class
+    description: >
+      REF_PRODUCT_SUMMARY_CLASS -- Finance's summary class for each brand + product_group +
+      product_sub_group combination, built straight from the product_summary_class_map seed
+      (a classification, not history: no effective dating, no snapshot). One row per
+      combination. DIM_PRODUCT reads its summary_class from this mapping; a product with no
+      row keeps a NULL summary_class, which is the DQ signal. Every class here should have a
+      row in ref_summary_class_rollup (tests/summary_class_rollup_covers_every_class.sql).
+      Schema file added under EDW-132 section 5.
+    columns:
+      - name: product_summary_class_key
+        description: xxhash64 of brand | product_group | product_sub_group.
+        tests:
+          - is_valid_key:
+              config:
+                severity: warn
+      - name: brand
+        tests:
+          - not_null:
+              config:
+                severity: warn
+      - name: product_group
+        tests:
+          - not_null:
+              config:
+                severity: warn
+      - name: product_sub_group
+        tests:
+          - not_null:
+              config:
+                severity: warn
+      - name: summary_class
+        description: Finance summary class. The rollup to the reporting categories is ref_summary_class_rollup.
+        tests:
+          - not_null:
+              config:
+                severity: warn

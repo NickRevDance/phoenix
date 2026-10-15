@@ -25,6 +25,21 @@ models:
               - source_system
           config:
             where: "is_current_row = 1"
+      # EDW-132 sections 1 and 2: one current row per key and no overlapping version ranges, at warn first
+      - one_current_row_per_key:
+          name: dim_customer_one_current_row_per_key
+          arguments:
+            key_columns: ['customer_key']
+          config:
+            severity: warn
+      - no_overlapping_effective_periods:
+          name: dim_customer_no_overlapping_effective_periods
+          arguments:
+            partition_by: ['customer_key']
+            from_column: effective_start_datetime
+            to_column: effective_end_datetime
+          config:
+            severity: warn
     columns:
       - name: customer_key
         tests: [not_null]

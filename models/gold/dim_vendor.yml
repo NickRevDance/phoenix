@@ -21,6 +21,22 @@ models:
       are read from the current silver_stage_dim_vendor row; vendor_start_date
       and vendor_end_date are the vendor lifecycle dates (no D365 source
       yet), distinct from the SCD2 effective_*_datetime columns.
+    tests:
+      # EDW-132 sections 1 and 2: one current row per key and no overlapping version ranges, at warn first
+      - one_current_row_per_key:
+          name: dim_vendor_one_current_row_per_key
+          arguments:
+            key_columns: ['vendor_key']
+          config:
+            severity: warn
+      - no_overlapping_effective_periods:
+          name: dim_vendor_no_overlapping_effective_periods
+          arguments:
+            partition_by: ['vendor_key']
+            from_column: effective_start_datetime
+            to_column: effective_end_datetime
+          config:
+            severity: warn
     columns:
       - name: vendor_id
         tests:

@@ -16,6 +16,15 @@ models:
         tests: [not_null]
       - name: source_system
         tests: [not_null]
+      # EDW-132 section 3: every date key relates to dim_date, at warn first (same as the sales facts on EDW-59).
+      - name: order_date_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+              config:
+                severity: warn
       - name: vendor_key
         tests:
           - relationships:

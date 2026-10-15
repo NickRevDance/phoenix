@@ -54,6 +54,23 @@ models:
         tests: [not_null]  # 2026-09-16 (EDW-16 v1.1 rebuild): never NULL
                             # since sales_channel_key is coalesced to -1 above,
                             # same as fact_sales_invoice.
+      # EDW-132 section 3: every date key relates to dim_date, at warn first (same as the sales facts on EDW-59).
+      - name: order_date_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+              config:
+                severity: warn
+      - name: requested_ship_date_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+              config:
+                severity: warn
       - name: ordered_qty
         tests: [not_null]
       - name: net_line_amount
