@@ -13,7 +13,7 @@ with distinct_profiles as (
         , loyalty_tier
         , is_dso_member_flag
         , dso_membership_status
-        , loyalty_enrolled_flag
+        , is_loyalty_eligible_flag
         , purchase_frequency_band
         , avg_order_value_band
         , channel_preference
@@ -34,7 +34,7 @@ final as (
         , loyalty_tier
         , is_dso_member_flag
         , dso_membership_status
-        , loyalty_enrolled_flag
+        , is_loyalty_eligible_flag
         , purchase_frequency_band
         , avg_order_value_band
         , channel_preference
@@ -43,9 +43,9 @@ final as (
 
         , sha2(
             concat_ws('||',
-                coalesce(cast(loyalty_enrolled_flag as string), '')
+                coalesce(cast(is_loyalty_eligible_flag as string), '')
             ), 256
-          ) as profile_change_hash  -- Type 1 attributes not in customer_segment_id; dso_membership_status moved into the id (EDW-72)
+          ) as profile_change_hash  -- every attribute is in customer_segment_id (EDW-72), so this never changes under a fixed id; the snapshot only opens and invalidates segments
 
         , 'silver_stage_dim_customer_segment' as record_source_table
         , current_timestamp() as etl_insert_datetime

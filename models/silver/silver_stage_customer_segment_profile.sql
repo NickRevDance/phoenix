@@ -17,6 +17,7 @@ with customer_current as (
         , customer_type
         , is_dso_member_flag
         , dso_membership_status
+        , is_loyalty_eligible_flag
     from {{ ref('silver_snapshot_dim_customer') }}
     where effective_end_datetime is null
 
@@ -33,7 +34,8 @@ customer_activity as (
     -- back through here.
     select
           j.INVOICEACCOUNT as customer_id
-        , max(t.INVOICEDATE) as most_recent_order_date
+        , cast(min(t.INVOICEDATE) as date) as first_order_date
+        , cast(max(t.INVOICEDATE) as date) as most_recent_order_date
     from {{ ref('silver_d365_cust_invoice_trans') }} t
     inner join {{ ref('silver_d365_cust_invoice_jour') }} j
         on t.PARENTRECID = j.REC
@@ -52,12 +54,12 @@ profile_attrs as (
         , cast(null as string) as customer_segment  -- Source once available: Salesforce CRM / derived logic -- not sourced, Phase 2 per spec
 
         , case
-            when a.most_recent_order_date is null then null
-            when datediff(current_date(), a.most_recent_order_date) <= 90 then 'New'
-            when datediff(current_date(), a.most_recent_order_date) <= 365 then 'Active'
-            when datediff(current_date(), a.most_recent_order_date) <= 548 then 'Lapsed'
+            when a.first_order_date is null then 'Prospect'
+            when a.first_order_date > date_sub(current_date(), 90) then 'New'
+            when a.most_recent_order_date > add_months(current_date(), -12) then 'Active'
+            when a.most_recent_order_date > add_months(current_date(), -24) then 'Lapsed'
             else 'Churned'
-          end as lifecycle_stage  -- NEEDS CONFIRMATION: thresholds per spec section 9, business sign-off pending (section 11 Open Decision #2). "Reactivated" not derived here -- needs prior-state tracking this pass doesn't do.
+          end as lifecycle_stage  -- C8 (EDW-131): Prospect no purchase, New under 90 days from first purchase, Active under 12 months, Lapsed 12 to 24 months, Churned over 24. Reactivated (C9) is deferred until prior state is tracked.
 
         , cast(null as string) as customer_tier  -- Source once available: revenue/frequency tier -- Phase 2 per spec, thresholds TBD
 
@@ -67,7 +69,7 @@ profile_attrs as (
 
         , c.dso_membership_status  -- copied from DIM_CUSTOMER, system of record (Salesforce, EDW-135 item 7)
 
-        , cast(null as boolean) as loyalty_enrolled_flag  -- Source once available: DIM_CUSTOMER.loyalty_enrolled_flag -- DIM_CUSTOMER doesn't carry this field yet despite being system of record per spec
+        , c.is_loyalty_eligible_flag  -- copied from DIM_CUSTOMER (renamed from loyalty_enrolled_flag, DIM_CUSTOMER v1.2); NULL until the exclusion list is sourced (EDW-80)
 
         , cast(null as string) as purchase_frequency_band  -- Source once available: trailing 12mo order count -- Phase 2 per spec field catalog
 
@@ -78,7 +80,7 @@ profile_attrs as (
     from customer_current c
     left join customer_activity a
         on c.customer_id = a.customer_id
-        and c.source_system = 'D365'  -- order history is D365-only, same scope limit as fact_sales_invoice's customer CTE; BigCommerce customers fall into the null/no-orders bucket below
+        and c.source_system = 'D365'  -- order history is D365-only; BigCommerce rows have no invoices under their own key and read Prospect, same as customer_status
 
 ),
 
@@ -97,9 +99,10 @@ final as (
                 coalesce(dso_membership_status, ''),
                 coalesce(purchase_frequency_band, ''),
                 coalesce(avg_order_value_band, ''),
-                coalesce(channel_preference, '')
+                coalesce(channel_preference, ''),
+                coalesce(cast(is_loyalty_eligible_flag as string), '')
             ), 256
-          ) as customer_segment_id  -- EDW-72: every column silver_stage_dim_customer_segment dedupes on is in the hash, so one id is one stage row. dso_membership_status is Type 2 per spec section 4. loyalty_enrolled_flag stays out while it is NULL for everyone; it fans out the same way once sourced
+          ) as customer_segment_id  -- EDW-72: every attribute on the segment row is in the hash, so one id is one stage row. is_loyalty_eligible_flag is Type 1 per spec but is a per-customer value, so it has to be part of the combination
 
         , customer_key
         , customer_type
@@ -109,7 +112,7 @@ final as (
         , loyalty_tier
         , is_dso_member_flag
         , dso_membership_status
-        , loyalty_enrolled_flag
+        , is_loyalty_eligible_flag
         , purchase_frequency_band
         , avg_order_value_band
         , channel_preference
