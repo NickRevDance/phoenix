@@ -19,8 +19,8 @@ with business_vendors as (
         , snap_v.vendor_group
         , snap_v.vendor_category
         , coalesce(stg.primary_contact_name, snap_v.primary_contact_name) as primary_contact_name
-        , coalesce(stg.primary_contact_email, snap_v.primary_contact_email) as primary_contact_email
-        , coalesce(stg.primary_contact_phone, snap_v.primary_contact_phone) as primary_contact_phone
+        , nullif(coalesce(stg.primary_contact_email, snap_v.primary_contact_email), '') as primary_contact_email  -- EDW-132: D365 sends '' where a vendor has no contact; NULL so blank reads as unknown
+        , nullif(coalesce(stg.primary_contact_phone, snap_v.primary_contact_phone), '') as primary_contact_phone  -- EDW-132: same
         , snap_v.vendor_website
         , snap_v.address_line_1
         , coalesce(stg.address_line_2, snap_v.address_line_2) as address_line_2

@@ -3,8 +3,11 @@
     unique_key = 'discount_line_key',
     incremental_strategy = 'merge',
     on_schema_change = 'sync_all_columns',
-    merge_exclude_columns = ['etl_insert_datetime']
+    merge_update_columns = ['product_key', 'etl_update_datetime']
 ) }}
+
+-- EDW-132: insert-only by construction (spec 4.11). On a matched row the merge updates only the
+-- self-heal product_key and etl_update_datetime; every business column and etl_insert_datetime hold.
 
 with parent as (
 
