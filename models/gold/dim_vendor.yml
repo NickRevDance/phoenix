@@ -52,6 +52,17 @@ models:
           - accepted_values:
               arguments:
                 values: ['Active', 'Suspended', 'Blocked', 'Payment Blocked', 'Requisition Blocked', 'Never Blocked', 'Unknown']
+      # EDW-132: no empty strings on the contact fields (the model returns NULL where D365 sends ''), at warn first
+      - name: primary_contact_email
+        tests:
+          - dbt_utils.not_empty_string:
+              config:
+                severity: warn
+      - name: primary_contact_phone
+        tests:
+          - dbt_utils.not_empty_string:
+              config:
+                severity: warn
 
   - name: v_dim_vendor_current
     description: >
