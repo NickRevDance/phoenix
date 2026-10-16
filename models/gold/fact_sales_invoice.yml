@@ -28,8 +28,13 @@ models:
         tests: [is_valid_key]
       - name: invoice_id
         tests: [not_null]
+      - name: d365_invoice_rec_id
+        description: CustInvoiceTrans.RECID, the grain component with invoice_id (D365 reuses an invoice number across the credit memos issued against it). EDW-59.
+        tests: [not_null, unique]
       - name: invoice_line_number
         tests: [not_null]
+      - name: order_id
+        description: Originating SALESID. NULL on free text lines (was a blank string before EDW-59).
       - name: source_system
         tests: [not_null]
       - name: customer_key
@@ -39,6 +44,86 @@ models:
               arguments:
                 to: ref('dim_customer')
                 field: customer_key
+      - name: customer_segment_key
+        description: >
+          DIM_CUSTOMER_SEGMENT key of the invoice account when the line was written, held on later
+          merges while the customer is unchanged. History before EDW-59 reads the segment on the day
+          of the refresh, and a full refresh restates it. NULL on the -1 customer. EDW-59.
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customer_segment')
+                field: customer_segment_key
+              config:
+                severity: warn  # same as the dim_customer test (EDW-132), error at a later pass
+      - name: is_dso_order_flag
+        description: >
+          DIM_CUSTOMER is_dso_member_flag on the customer version in effect at the invoice date.
+          Membership history starts with the first customer snapshot (Oct 14 2026); earlier invoices
+          read that first version. EDW-59.
+        tests:
+          - not_null:
+              config:
+                severity: warn  # coverage: NULL only on the -1 customer, which no invoice line carries today
+      - name: invoice_type
+        description: Sales Order when the line has a SALESID, Free Text when it does not. EDW-59.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Sales Order', 'Free Text']
+      - name: is_return_flag
+        description: True when invoiced_qty < 0 or net_sales_amount < 0, so a free text credit with no negative quantity reads as a return. EDW-59.
+        tests: [not_null]
+      - name: is_intercompany_flag
+        description: >
+          True when CustInvoiceJour.INTERCOMPANYPOSTED = 1 or the header's CUSTGROUP is Interco.
+          Include with a flag, never a filter (spec 4.10). EDW-59.
+        tests: [not_null]
+      - name: payment_terms_code
+        description: CustInvoiceJour.PAYMENT conformed to PREPAID, NET10, NET30, NET45, NET60; NULL when blank; UNKNOWN otherwise. EDW-59.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['PREPAID', 'NET10', 'NET30', 'NET45', 'NET60', 'UNKNOWN']
+      - name: payment_mode_code
+        description: SalesTable.PAYMMODE of the originating order as sourced; blank to NULL; NULL on free text lines. An attribute only. EDW-59.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['CC-BT', 'Credit', 'RevPoints', 'Check', 'ACH']
+              config:
+                severity: warn  # a tender D365 has not used before shows here without stopping the daily job
+      - name: requested_ship_date
+        description: SalesLine.SHIPPINGDATEREQUESTED through d365_sales_line_rec_id; placeholder dates read NULL (spec 7.6). NULL on free text lines. EDW-59.
+      - name: gross_sales_amount
+        description: invoiced_qty x unit_price on sales order lines; the line amount (LINEAMOUNT) on free text lines, where no discount applies (spec 4.9). EDW-59.
+      # EDW-132 section 3 (folded into EDW-59): every date key relates to dim_date, at warn first. 0 orphans on Oct 15 2026.
+      - name: invoice_date_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+              config:
+                severity: warn
+      - name: order_date_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+              config:
+                severity: warn
+      - name: ship_date_key
+        description: Typed NULL; the source is not in silver (spec 4.16).
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+              config:
+                severity: warn
       - name: unresolved_upc
         description: D365 barcode (UPC) that had no DIM_PRODUCT row, so product_key is -1. NULL when product_key resolved or no barcode exists. EDW-134.
       - name: product_key
@@ -104,26 +189,15 @@ models:
               config:
                 severity: warn
 
-# Deferred, not implemented in this pass:
-#   - Reconciliation rule 1 (spec Section 7): sum(net_sales_amount) by invoice_id
-#     vs. D365 CustInvoiceJour.InvoiceAmount. Tolerance (F5, Open Decision 9) is
-#     now adopted at zero (2026-08-27, EDW-63, ratified EDW-97) -- what still
-#     blocks a real test is that CustInvoiceJour.InvoiceAmount itself isn't
-#     ingested yet (not in bronze/silver_d365_cust_invoice_jour). Source it,
-#     then this becomes a real test rather than an exploratory query.
-#   - Reconciliation rule 2 / F5 cross-fact gate: sum(discount_amount) from
-#     FACT_DISCOUNT_APPLICATION per sales_invoice_key vs. total_discount_amount
-#     here. Zero tolerance also adopted (same F5 decision) -- still blocked on
-#     FACT_DISCOUNT_APPLICATION not existing yet (EDW-65).
-#   - header_discount_allocated (F1, Open Decision 1) is also adopted: pro-rata
-#     by gross_sales_amount with a largest-remainder rule on the rounding
-#     residual (2026-08-27, EDW-63, ratified EDW-97). Not implemented this pass
-#     -- no header discount amount is sourced from CustInvoiceJour yet, so
-#     header_discount_allocated stays null and total_discount_amount =
-#     line_discount_amount only. Same basis will apply in
-#     FACT_DISCOUNT_APPLICATION per spec 4.4 so the two can never disagree.
-#   - V_METRICS_SALES_DAILY (Chris review, smaller item): Phase 1 view flagged
-#     as "build right after the fact" -- not built this pass, needs its own
-#     spec/shape decision with Nick before scoping.
-#   - ~21K-line PRICEUNIT = 0 / no-discount residual under the new
-#     QTY * LINEDISC line_discount_amount formula: unchased, see README.
+# Reconciliation (spec Section 7), both zero tolerance (F5, ratified on EDW-97):
+#   - Rule 1: sum(net_sales_amount) per CustInvoiceJour header equals SALESBALANCE --
+#     tests/assert_fact_sales_invoice_reconciles_to_invoice_header.sql (EDW-59).
+#   - Rule 2, the certified gate: sum(discount_amount) on FACT_DISCOUNT_APPLICATION per
+#     sales_invoice_key equals total_discount_amount --
+#     tests/assert_discount_application_reconciles_to_invoice.sql (PR #104).
+# Not built, by design:
+#   - header_discount_allocated (F1, ratified): pro-rata by gross_sales_amount, largest
+#     remainder. Typed NULL while CustInvoiceJour.ENDDISC is zero on every header.
+#   - Free text lines (no item, PRICEUNIT = 0) are classified by invoice_type and carry the
+#     line amount as gross (EDW-59). The few sales order lines where gross less discount does
+#     not equal net (82 in October 2026) are a known residual recorded in the spec, not a rule.

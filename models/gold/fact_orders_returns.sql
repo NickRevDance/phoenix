@@ -231,10 +231,36 @@ customer as (
 
           customer_key
         , customer_id
+        , customer_segment_key  -- EDW-59: Type 1 on dim_customer, so this is the customer's segment today
 
     from {{ ref('dim_customer') }}
     where version_number = 1
       and source_system = 'D365'
+
+),
+
+customer_dso as (
+
+    -- EDW-59: the DSO flag on the DIM_CUSTOMER version in effect at the order date (the
+    -- is_dso_order_flag catalog row). Same ranges as fact_sales_invoice: each version runs to the day
+    -- before the next one starts, the first reaches back to 1900-01-01 and the last stays open.
+    -- Contiguous by construction, so the join cannot fan out.
+    select
+
+          c.customer_key
+        , c.is_dso_member_flag
+        , case
+            when row_number() over (partition by c.customer_key order by c.effective_start_datetime, c.version_number desc) = 1
+            then date'1900-01-01'
+            else cast(c.effective_start_datetime as date)
+          end                                                       as range_start_date
+        , coalesce(
+              lead(cast(c.effective_start_datetime as date)) over (partition by c.customer_key order by c.effective_start_datetime, c.version_number desc)
+            , date'9999-12-31'
+          )                                                         as range_end_date  -- exclusive
+
+    from {{ ref('dim_customer') }} c
+    where c.source_system = 'D365'
 
 ),
 
@@ -324,10 +350,16 @@ fx_rate as (
 -- reset etl_insert_datetime on every touched row.
 existing as (
 
+    -- EDW-59: also holds customer_segment_key once written (the segment at the time the line was
+    -- inserted, the order-date proxy), while the line's customer is unchanged. A NULL is not held,
+    -- so a headerless line on the -1 customer takes a segment once its customer resolves. A full
+    -- refresh restates the segment to the customer's segment on the day of the refresh.
     select
 
           orders_returns_key
         , etl_insert_datetime
+        , customer_key
+        , customer_segment_key
 
     from {{ this }}
 
@@ -393,10 +425,14 @@ joined as (
         , coalesce(prod.product_key, '-1')   as product_key
         , case when prod.product_key is null then bar.ITEMBARCODE end as unresolved_upc
         , coalesce(cu.customer_key, cast(-1 as bigint)) as customer_key  -- EDW-135: headerless lines resolve to the dim_customer -1 member
+        , cu.customer_segment_key                as current_customer_segment_key  -- EDW-59: NULL on the -1 customer
+        , dso.is_dso_member_flag                 as dso_flag_at_order  -- EDW-59: NULL on the -1 customer
         , wh.warehouse_key
         , coalesce(sc.sales_channel_key, -1)     as sales_channel_key
         {% if is_incremental() %}
         , ex.etl_insert_datetime                 as existing_etl_insert_datetime
+        , ex.customer_key                        as existing_customer_key
+        , ex.customer_segment_key                as existing_customer_segment_key
         {% endif %}
 
     from line l
@@ -443,6 +479,22 @@ joined as (
 
     left join customer cu
         on st.CUSTACCOUNT = cu.customer_id
+
+    -- EDW-59: the customer version in effect on the order date as the fact derives it (same
+    -- placeholder bounds as order_date); the line's modified date where the order has no usable
+    -- created date, as in the fx_rate join below.
+    left join customer_dso dso
+        on cu.customer_key = dso.customer_key
+        and coalesce(
+              case when st.CREATEDDATE > timestamp('1901-01-01') and st.CREATEDDATE < timestamp('2040-01-01')
+                   then cast(st.CREATEDDATE as date) end
+            , cast(l.MODIFIEDDATE as date)
+          ) >= dso.range_start_date
+        and coalesce(
+              case when st.CREATEDDATE > timestamp('1901-01-01') and st.CREATEDDATE < timestamp('2040-01-01')
+                   then cast(st.CREATEDDATE as date) end
+            , cast(l.MODIFIEDDATE as date)
+          ) < dso.range_end_date
 
     left join warehouse wh
         on d.INVENTLOCATIONID = wh.warehouse_id
@@ -522,13 +574,23 @@ final as (
         , l.product_key
         , l.unresolved_upc
         , l.customer_key
-        , cast(null as bigint) as ship_to_customer_key  -- Phase 2 per spec
+    -- ship_to_customer_key removed (retired, spec v1.2 O8; EDW-59): ship-to geography replaces it once LogisticsPostalAddress is ingested.
         , l.sales_channel_key
         , l.warehouse_key
         , cast(-1 as bigint)                                          as employee_sales_hierarchy_key  -- Coalesced to the reserved -1 UNKNOWN member rather than left null (same as FACT_ORDER_LINE/FACT_SALES_INVOICE) -- no worker/sales-rep table found, shared gap until EDW-19.
         , cast(null as bigint) as campaign_key  -- Phase 2 per spec
-        , cast(null as bigint) as promotion_key  -- Phase 2 per spec
-        , cast(null as bigint) as customer_segment_key  -- Phase 2 per spec
+    -- promotion_key removed (deprecated, spec v1.2 O1; EDW-59): promotion analysis routes through FACT_DISCOUNT_APPLICATION.
+        {% if is_incremental() %}
+        , case
+            when l.existing_customer_key = l.customer_key
+            then coalesce(l.existing_customer_segment_key, l.current_customer_segment_key)
+            else l.current_customer_segment_key
+          end                                                         as customer_segment_key
+        {% else %}
+        , l.current_customer_segment_key                              as customer_segment_key
+        {% endif %}
+        -- EDW-59: the customer's segment when the line is written, held after that (existing CTE).
+        -- DIM_CUSTOMER_SEGMENT has no -1 member, so a line on the -1 customer reads NULL.
 
     -- Dates
         , case when l.order_created_date is not null and l.order_created_date > timestamp('1901-01-01') and l.order_created_date < timestamp('2040-01-01')
@@ -604,7 +666,7 @@ final as (
           end                                                         as estimated_ship_date_status  -- EDW-57: what the estimated ship date placeholder means. D365 writes 1900-01-01 until a date is assigned and 2040-01-01 on branded lines held for release. NULL on return rows.
         , case when l.SALESTYPE = 3 then l.is_replacement_order end   as is_replacement_flag  -- EDW-58: sales rows, true when the order is named in a return header's RETURNREPLACEMENTID (spec 4.11). NULL on return rows.
         , case when l.SALESTYPE = 4 then coalesce(l.RETURNREPLACEMENTCREATED = 1, false) end as is_exchange_flag  -- EDW-58: return rows, true when the return header has RETURNREPLACEMENTCREATED = 1 (spec 4.11). NULL on sales rows.
-        , cast(null as boolean) as is_dso_order_flag  -- Phase 2 per spec
+        , l.dso_flag_at_order                                         as is_dso_order_flag  -- EDW-59: DIM_CUSTOMER is_dso_member_flag on the version in effect at the order date (customer_dso CTE). Membership history starts with the first customer snapshot (Oct 14 2026); earlier orders read that first version. NULL on the -1 customer.
 
     -- Quantities
         , l.QTYORDERED                                                 as ordered_qty
@@ -614,7 +676,7 @@ final as (
         , cast(null as decimal(18,4)) as delivered_qty  -- Phase 2 per spec
         , l.REVQTYCANCELLED                                            as cancelled_qty
         , case when l.SALESTYPE = 4 then abs(l.QTYORDERED) end        as returned_qty  -- Return lines carry QTYORDERED negative in live data -- abs() to express as a positive returned quantity per spec
-        , cast(null as decimal(18,4)) as backordered_qty  -- EDW-57: retired. The backordered quantity is open_qty: D365's remaining quantity is above 0 only on Backorder lines, so a separate column would equal open_qty on every row.
+    -- backordered_qty removed (retired on EDW-57, dropped on EDW-59): the backordered quantity is open_qty. D365's remaining quantity is above 0 only on Backorder lines, so a separate column would equal open_qty on every row.
         , case when l.SALESTYPE = 3 then {{ amount('l.REMAINSALESPHYSICAL') }} end as open_qty  -- EDW-57: SalesLine.REMAINSALESPHYSICAL, D365's remaining quantity to deliver. Equals ordered - shipped - cancelled on every open line; 0 on closed lines, where that subtraction can leave a remainder (lines closed short) or go negative (a cancel quantity on fully invoiced lines). NULL on return rows.
         , coalesce(nullif(l.SALESUNIT, ''), 'ea')                     as qty_uom
 
