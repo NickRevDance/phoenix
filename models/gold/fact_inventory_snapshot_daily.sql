@@ -2,6 +2,7 @@
     materialized = 'incremental',
     unique_key = 'inventory_snapshot_key',
     incremental_strategy = 'merge',
+    on_schema_change = 'append_new_columns',
     post_hook = [
         "update {{ this }} set product_key = '-1', etl_update_datetime = current_timestamp() where product_key is null"
     ]
@@ -45,6 +46,14 @@
 -- it sets NULL keys to '-1' once and matches no row after that. It does not touch
 -- etl_insert_datetime, which the reconciliation view reads as the capture time.
 -- To reverse: update ... set product_key = null where product_key = '-1'.
+--
+-- EDW-180 (Oct 2026): inventory value at D365 moving average cost. Revolution carries inventory
+-- at moving average; standard_cost_* is the trade agreement purchase price (FACT_PRODUCT_COST
+-- STANDARD), about 45 percent below it, and is kept as an analysis column, not the valuation
+-- basis. moving_avg_cost_unit / moving_avg_cost_amount come from the moving_avg_cost CTE below.
+-- on_schema_change = 'append_new_columns' (config above) is how new columns reach prod on the
+-- nightly merge, since this model is never full-refreshed; append only adds, never drops or retypes.
+-- Native days before the first run carrying these columns are filled in place (rule above).
 
 with on_hand_raw as (
 
@@ -300,6 +309,41 @@ transfer_in_transit_agg as (
 
 ),
 
+moving_avg_cost as (
+
+    -- EDW-180: D365 moving average cost. D365 keeps inventory value at item + site + warehouse
+    -- + colour + size; inventory status and WMS location are not financial dimensions, so the
+    -- unit cost is computed at that grain and applied to every status row's on-hand quantity.
+    -- Value and quantity are the InventTrans legs D365's InventSum itself sums: financially
+    -- updated legs (StatusReceipt Purchased = 1, StatusIssue Sold = 1) at COSTAMOUNTPOSTED +
+    -- COSTAMOUNTADJUSTMENT, plus physical-only legs (Received = 2, Deducted = 2) at
+    -- COSTAMOUNTPHYSICAL. Verified on prod 2026-10-16: quantity ties to InventSum at the same
+    -- sync on 56,797 of 56,818 groups (193 units of 2.39M); posted value ties to InventSum
+    -- POSTEDVALUE within $1.6K of $28.28M, the rest being intraday postings. Keyed-in-error
+    -- legs (about 90 trillion units each way) net to zero inside every group.
+    select
+
+          t.ITEMID
+        , d.INVENTSIZEID
+        , d.INVENTCOLORID
+        , d.INVENTLOCATIONID
+        , d.inventsiteid
+        , sum(case
+                when t.STATUSRECEIPT = 1 or t.STATUSISSUE = 1 then t.COSTAMOUNTPOSTED + t.COSTAMOUNTADJUSTMENT
+                when t.STATUSRECEIPT = 2 or t.STATUSISSUE = 2 then t.COSTAMOUNTPHYSICAL
+                else 0
+              end) as moving_avg_value
+        , sum(t.QTY) as moving_avg_qty
+
+    from {{ ref('silver_d365_inventory_trans') }} t
+    inner join inventory_dim d
+        on t.INVENTDIMID = d.InventDimID
+    where t.STATUSRECEIPT in (1, 2)
+       or t.STATUSISSUE in (1, 2)
+    group by 1, 2, 3, 4, 5
+
+),
+
 snapshot_date_dim as (
 
     select
@@ -352,6 +396,10 @@ joined as (
         , pc.standard_cost_unit
         , pc.cost_currency_code
         , pcl.landed_cost_unit
+        , case
+            when mac.moving_avg_qty > 0 and mac.moving_avg_value > 0
+                then mac.moving_avg_value / mac.moving_avg_qty
+          end as moving_avg_cost_unit_raw  -- EDW-180: NULL where D365 holds no positive value or quantity at the grain (D365 values those units at about zero itself)
         , opo.on_order_qty
         , git.in_transit_inbound_qty
         , tit.in_transit_transfer_qty
@@ -408,6 +456,13 @@ joined as (
         on oh.ItemID = pc.product_id
     left join product_cost_landed pcl
         on oh.ItemID = pcl.product_id
+    -- EDW-180: null-safe on the dimension columns, so a blank or NULL size or colour still matches
+    left join moving_avg_cost mac
+        on oh.ItemID = mac.ITEMID
+        and oh.INVENTSIZEID <=> mac.INVENTSIZEID
+        and oh.INVENTCOLORID <=> mac.INVENTCOLORID
+        and oh.INVENTLOCATIONID <=> mac.INVENTLOCATIONID
+        and oh.inventsiteid <=> mac.inventsiteid
     left join open_po_agg opo
         on oh.ItemID = opo.ITEMID
         and oh.INVENTSIZEID = opo.INVENTSIZEID
@@ -540,6 +595,8 @@ final as (
         , cast(j.on_hand_qty * j.list_price_usd as decimal(19,4)) as retail_value_amount  -- EDW-49: v_product_price_current.list_price_usd on product_key; null where the variant has no current USD list price
         , j.available_qty * j.standard_cost_unit as available_cost_amount
         , cast(null as decimal(19,4)) as damaged_cost_amount  -- = damaged_qty x standard_cost_unit once damaged_qty is sourced
+        , cast(j.moving_avg_cost_unit_raw as decimal(19,4)) as moving_avg_cost_unit  -- EDW-180: D365 moving average cost, the inventory valuation basis
+        , cast(j.on_hand_qty * j.moving_avg_cost_unit_raw as decimal(19,4)) as moving_avg_cost_amount  -- EDW-180: on_hand_qty x the unrounded unit cost; NULL when the unit cost is NULL
         , j.cost_currency_code
 
     -- Status
@@ -625,6 +682,8 @@ final as (
         , cast(null as decimal(19,4)) as retail_value_amount  -- native branch only: current price, no historical price grain
         , cast(null as decimal(19,4)) as available_cost_amount  -- Source once available: depends on available_qty above
         , cast(null as decimal(19,4)) as damaged_cost_amount  -- Source once available: depends on damaged_qty above
+        , cast(null as decimal(19,4)) as moving_avg_cost_unit  -- EDW-180: backfill history is filled in place, never by rebuilding
+        , cast(null as decimal(19,4)) as moving_avg_cost_amount  -- EDW-180: same as moving_avg_cost_unit
         , b.cost_currency_code
 
     -- Status

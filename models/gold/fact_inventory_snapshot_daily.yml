@@ -153,9 +153,47 @@ models:
           then; item + warehouse grain when it lands.
       - name: standard_cost_unit
         description: >
-          Native rows: FACT_PRODUCT_COST current STANDARD cost joined on product_id (item grain,
-          EDW-94 A1). Backfill rows: the legacy report's own historical unit cost. Two cost bases
-          across the seam by design (D012).
+          Purchase price, not the inventory valuation basis (EDW-180; the valuation basis is
+          moving_avg_cost_unit). Native rows: FACT_PRODUCT_COST current STANDARD cost, the D365
+          purchase trade agreement price, joined on product_id (item grain, EDW-94 A1); about 45
+          percent below D365 moving average on 2026-10-16. Backfill rows: the legacy report's own
+          historical unit cost. Two cost bases across the seam by design (D012). Name kept so
+          consumers do not break.
+      - name: standard_cost_amount
+        description: >
+          on_hand_qty x standard_cost_unit: inventory at purchase price, an analysis value. The
+          inventory value is moving_avg_cost_amount (EDW-180).
+      - name: moving_avg_cost_unit
+        description: >
+          EDW-180: D365 moving average cost per unit, the basis Revolution carries inventory at.
+          D365 value / D365 quantity at item + site + warehouse + colour + size from InventTrans:
+          financially updated legs at posted cost plus adjustments, physical-only legs (received,
+          deducted) at physical cost. Applied to every status row at that grain. NULL where D365
+          holds no positive value or quantity at the grain; on 2026-10-16 that was 22,048 stocked
+          units on 41 rows, which D365 itself values at about -$6K. Native rows from the first run
+          carrying the column; earlier days are filled in place.
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "> 0"
+              config:
+                severity: warn
+                where: "moving_avg_cost_unit is not null"
+      - name: moving_avg_cost_amount
+        description: >
+          EDW-180: inventory value, on_hand_qty x moving average cost (computed from the unrounded
+          unit cost). NULL when moving_avg_cost_unit is NULL. On 2026-10-16 the in-scope total
+          (company-owned statuses, stocked items) was $28.02M: Niles $25.00M, Niles-GT $3.02M.
+          Differs from D365's own value only by physical vs financial timing (registered and
+          picked quantities count in on-hand, not in value). Tie test:
+          assert_inventory_moving_avg_value_ties_to_d365.
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "is null"
+              config:
+                severity: warn
+                where: "moving_avg_cost_unit is null"
       - name: landed_cost_unit
         description: >
           From FACT_PRODUCT_COST (cost_type LANDED, current row) on product_id; native rows only.

@@ -20,7 +20,8 @@
 -- population, weekly cadence through 2025 and daily from 2026, with the legacy report's
 -- historical unit cost; native rows (D365 InventSum + InventDim) are all statuses and
 -- warehouses, daily from 2026-09-01, costed at FACT_PRODUCT_COST current STANDARD cost
--- on product_id. This view reads the LATEST snapshot only, so it is always inside the
+-- on product_id (the trade agreement purchase price) and, from EDW-180, at D365 moving
+-- average cost (moving_avg_cost_*), the inventory valuation basis. This view reads the LATEST snapshot only, so it is always inside the
 -- native window; the note is here so anyone who parameterizes the date knows the seam.
 
 with latest_snapshot as (
@@ -132,6 +133,8 @@ final as (
         , s.retail_value_amount
         , s.available_cost_amount
         , s.damaged_cost_amount
+        , s.moving_avg_cost_unit  -- EDW-180: D365 moving average cost, the inventory valuation basis
+        , s.moving_avg_cost_amount  -- EDW-180: inventory value; standard_cost_* above is the purchase price
         , s.cost_currency_code
 
     -- Status
