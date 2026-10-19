@@ -144,13 +144,33 @@ models:
                 where: "record_source_table = 'silver_d365_inventory_sum + silver_d365_inventory_dim' and snapshot_date >= '2026-09-11'"
       - name: reorder_point_qty
         description: >
-          Phase 2. No D365 item-coverage export exists (EDW-126); treated as not maintained unless
-          EDW-126 finds otherwise. Stays NULL; reorder_flag is descoped while it is NULL.
+          Phase 2, reserved. Not maintained in D365 and not in the reflection feed (decision I2c).
+          Stays NULL by decision; reorder_flag is out of scope.
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "is null"
       - name: safety_stock_qty
         description: >
-          Phase 2. Authoritative feed to be established under EDW-126 (the legacy
-          d365_reflection.inventory_onhand.SafetyStock is the known populated source). NULL until
-          then; item + warehouse grain when it lands.
+          Phase 2 (EDW-126). D365 item coverage safety stock as delivered by the reflection feed
+          (d365_reflection.inventory_onhand.SafetyStock, decision I2a), joined on upc + warehouse_id
+          + inventory_site_id. Item + warehouse grain, carried on the rank-1 status row only (spec
+          2.6). NULL where no coverage is maintained (I2b), never 0 and never a seeded default.
+          Native rows only, from the first run carrying it; never backfilled (I2d), so earlier
+          native days stay NULL. Coverage is Niles Costume today (5,701 barcodes on 2026-10-19),
+          so a NULL is a valid value and the column has no not_null test. Tie test:
+          assert_snapshot_safety_stock_reconciles_to_feed.
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "> 0"
+              config:
+                where: "safety_stock_qty is not null"
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "is null"
+              config:
+                where: "record_source_table = 'silver_kpi_inventory_value'"
       - name: standard_cost_unit
         description: >
           Purchase price, not the inventory valuation basis (EDW-180; the valuation basis is
@@ -282,8 +302,10 @@ models:
       by positive available_qty, so it can be summed. Demand stays net of returns, floored at
       zero (ruling I5). inventory_turnover averages on-hand standard cost over snapshot points
       from the row's own branch only (the branches carry different cost bases), leaving out points
-      where stock has no cost. below_safety_stock_flag is NULL while safety_stock_qty is NULL
-      (EDW-126); has_safety_stock_flag is 0 until then. reorder_flag is out of scope (I2c).
+      where stock has no cost. below_safety_stock_flag compares item + warehouse available_qty
+      to safety_stock_qty and is NULL where the item has no maintained safety stock (I2b);
+      has_safety_stock_flag scopes the alert to covered items (Niles Costume today, EDW-126).
+      reorder_flag is out of scope (I2c).
     columns:
       - name: stockout_flag
         tests:
