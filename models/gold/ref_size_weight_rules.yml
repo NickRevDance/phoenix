@@ -9,9 +9,9 @@ models:
       ref_sla_target pattern: size_weight_rule_key hashes rule_id +
       effective_start_date (version-distinct, not stable across versions);
       is_active (seed-maintained) is the current-row indicator -- no
-      version_number, no row_hash, no separate current-row view; filter
-      ref_size_weight_rules directly. See README.md for priority-matching
-      logic and open items.
+      version_number, no row_hash. v_ref_size_weight_rules_current is the
+      active-row view. See README.md for the priority-matching ladder and
+      the seed refresh path.
     columns:
       - name: size_weight_rule_key
         tests: [not_null, unique]
@@ -30,6 +30,8 @@ models:
               field: size
               config:
                 severity: warn  # spec 8.1: unmatched sizes are expected/reportable, not a hard failure -- feeds unmatched_size_count downstream (EDW-53)
+      - name: size_weight
+        tests: [not_null]
       - name: is_active
         tests:
           - not_null

@@ -45,7 +45,7 @@ latest_snapshot as (
 
 product_scope as (
 
-    -- in-scope subgroups only -- see header comment
+    -- subgroups with a size curve; erp_status per EDW-45 D4
     select
           product_key
         , style_number
@@ -65,6 +65,7 @@ product_scope as (
           ('Dancewear', 'Shoes'),
           ('Dancewear', 'Tights')
       )
+      and erp_status in ('Active', 'Sell_to_0')
 
 ),
 

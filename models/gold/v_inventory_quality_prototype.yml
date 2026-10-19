@@ -9,22 +9,40 @@ models:
       DIM_PRODUCT + REF_INVENTORY_STATUS + the EDW-47/48 config tables.
       Scoped to the 4 product_group/product_sub_group combos with
       size-weight curve coverage (Costume/Costume, Dancewear/Bodywear,
-      Dancewear/Shoes, Dancewear/Tights). See the model's header comment
-      for the full formula and README.md for build status/open items.
+      Dancewear/Shoes, Dancewear/Tights) and to sizes with erp_status
+      Active or Sell_to_0 (EDW-45 D4). Superseded by
+      fact_inventory_quality_code_color_daily / v_current_inventory_quality
+      (EDW-53); kept until the Inventory Executive report moves over. See
+      README.md for scope, formula and validation.
     columns:
       - name: inventory_quality_key
+        description: Surrogate key on code_color (latest snapshot only, so one row per code_color).
         tests:
           - not_null
           - unique
       - name: code_color
+        description: Style + colour, the scoring grain.
         tests:
           - not_null
+      - name: snapshot_date
+        description: Latest snapshot_date on fact_inventory_snapshot_daily.
+      - name: sizes_carried_total
+        description: In-scope sizes (DIM_PRODUCT rows) for the code_color.
+      - name: sizes_unmatched_to_rule
+        description: Carried sizes with no matching size-weight rule; left out of the score.
+      - name: core_sizes_total
+        description: Carried sizes flagged core (style-level cumulative weight below core_size_cumulative_pct).
+      - name: core_sizes_in_stock
+        description: Core sizes with sellable available_qty above available_qty_threshold.
+      - name: sizes_in_stock_total
+        description: Carried sizes with sellable available_qty above available_qty_threshold.
       - name: product_subgroup
         tests:
           - not_null
           - accepted_values:
               values: ['Costume', 'Bodywear', 'Shoes', 'Tights']
       - name: inventory_quality_score
+        description: Sum of in-stock size weights over sum of matched size weights, 0 to 1, rounded to 4 places. NULL when no size matched a rule.
         tests:
           - dbt_utils.accepted_range:
               min_value: 0
@@ -33,11 +51,13 @@ models:
               config:
                 severity: warn   # null (UNSCORED) rows pass this test trivially; only checks the 0-1 bound on scored rows
       - name: broken_size_run_flag
+        description: 1 when core-size completeness is below broken_size_run_threshold; 0 when complete or when the code_color has no core sizes.
         tests:
           - not_null
           - accepted_values:
               values: [0, 1]
       - name: quality_band
+        description: Healthy / At Risk / Broken from healthy_threshold and at_risk_threshold; UNSCORED when the score is NULL.
         tests:
           - not_null
           - accepted_values:

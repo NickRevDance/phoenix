@@ -8,8 +8,10 @@ models:
       shared_gold, presentation-facing (never joined to facts).
       Effective-dated, not SCD2-snapshotted: a target change closes the
       current row and opens a new one; a mis-keyed row is corrected
-      Type 1 in place. See README.md for what's loaded vs. blocked on
-      open spec decisions.
+      Type 1 in place. No current-row view by design: the table is imported
+      disconnected into the semantic model, which filters is_current_flag
+      itself. See README.md for what's loaded vs. blocked on open spec
+      decisions.
     tests:
       - dbt_utils.unique_combination_of_columns:
           combination_of_columns:
@@ -33,6 +35,8 @@ models:
           - not_null
           - accepted_values:
               values: ['ABANDON_RATE', 'ASA', 'ATT', 'EMAIL_SLA_PCT', 'CALL_VOLUME', 'EMAIL_VOLUME']
+      - name: metric_name
+        tests: [not_null]
       - name: business_unit_code
         tests: [not_null]
       - name: scope_type

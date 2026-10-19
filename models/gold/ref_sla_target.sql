@@ -47,7 +47,7 @@ final as (
         , b.approved_date
         , b.target_notes
 
-        , 'ref_sla_target' as record_source
+        , 'sla_target' as record_source
         , current_timestamp() as etl_insert_datetime
         , current_timestamp() as etl_update_datetime
 

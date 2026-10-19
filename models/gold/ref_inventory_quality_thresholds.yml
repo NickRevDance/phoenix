@@ -18,8 +18,13 @@ models:
         tests: [not_null, unique]
       - name: setting_name
         tests: [not_null]
+      - name: scope_product_subgroup
+        tests: [not_null]
+      - name: setting_value
+        tests: [not_null]
       - name: setting_type
         tests:
+          - not_null
           - accepted_values:
               values: ['number', 'percentage', 'text']
       - name: is_active
@@ -27,3 +32,5 @@ models:
           - not_null
           - accepted_values:
               values: [0, 1]
+      - name: effective_start_date
+        tests: [not_null]
