@@ -1,0 +1,105 @@
+version: 2
+
+models:
+  - name: fact_inventory_quality_code_color_daily
+    description: >
+      Daily inventory quality at code/color grain: one row per snapshot_date + code_color +
+      warehouse_key, plus an all-warehouse row (warehouse_key NULL) that carries the headline
+      Inventory Quality Score (Class 2 certified metric: size-run weighted availability).
+      Built from the native snapshot days of fact_inventory_snapshot_daily, company-owned
+      statuses only, MADE_TO_ORDER items excluded. Rules and thresholds are read as of the
+      snapshot date from ref_size_weight_rules and ref_inventory_quality_thresholds.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: ['snapshot_date', 'code_color', 'warehouse_key']
+    columns:
+      - name: inventory_quality_key
+        description: Surrogate key, xxhash64 of snapshot_date, code_color and warehouse_key ('ALL' for the all-warehouse row).
+        tests: [is_valid_key]
+      - name: snapshot_date_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+      - name: snapshot_date
+        tests:
+          - not_null
+      - name: code_color
+        tests:
+          - not_null
+      - name: product_hierarchy_key
+        description: Reserved. DIM_PRODUCT_HIERARCHY has no spec; hierarchy rollup resolves to DIM_PRODUCT attributes in v_current_inventory_quality.
+      - name: warehouse_key
+        description: NULL on the all-warehouse row.
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_warehouse')
+                field: warehouse_key
+      - name: source_system
+        tests:
+          - not_null
+      - name: season_phase
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Pre-season', 'Peak', 'Off-season']
+      - name: is_month_start_snapshot
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+      - name: is_month_end_snapshot
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+      - name: total_on_hand_qty
+        tests:
+          - not_null
+      - name: total_available_qty
+        tests:
+          - not_null
+      - name: size_count_total
+        tests:
+          - not_null
+      - name: size_count_in_stock
+        tests:
+          - not_null
+      - name: unmatched_size_count
+        description: Sizes on the product with no row in the matched rule set; excluded from the score (coverage exception).
+        tests:
+          - not_null
+      - name: broken_size_run_flag
+        description: 1 when any core size is out (completeness below broken_size_run_threshold). NULL when the code_color has no matched rule set.
+        tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+      - name: inventory_quality_score
+        description: Class 2 certified metric. size_weight_in_stock / size_weight_total; NULL when no rule set matches.
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1
+                inclusive: true
+      - name: inventory_quality_status
+        description: Healthy, At Risk or Broken from the D7 thresholds; NULL when the score is NULL.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Healthy', 'At Risk', 'Broken']
+      - name: quality_band
+        description: Same banding as inventory_quality_status with 'UNSCORED' for a NULL score. Prototype column name, kept so the Inventory Executive report can swap source.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Healthy', 'At Risk', 'Broken', 'UNSCORED']
