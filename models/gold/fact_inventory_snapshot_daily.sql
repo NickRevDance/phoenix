@@ -344,6 +344,20 @@ moving_avg_cost as (
 
 ),
 
+item_coverage as (
+
+    -- EDW-126: safety_stock_qty from the reflection feed (decision I2a), item + site + location grain
+    select
+
+          c.upc
+        , c.warehouse_id
+        , c.inventory_site_id
+        , c.safety_stock_qty
+
+    from {{ ref('silver_reflection_item_coverage') }} c
+
+),
+
 snapshot_date_dim as (
 
     select
@@ -406,6 +420,7 @@ joined as (
         , dd.date_key as snapshot_date_key
         , pp.list_price_usd
         , ls.last_sale_date
+        , cov.safety_stock_qty
 
         -- EDW-46 fan-out guard: on_order/in-transit are item+warehouse-level supply
         -- quantities, but 91% of item+warehouse combos carry >1 status row (confirmed
@@ -488,6 +503,10 @@ joined as (
     left join last_sale_agg ls
         on pr.product_key = ls.product_key
         and wh.warehouse_key = ls.warehouse_key
+    left join item_coverage cov
+        on coalesce(pr.upc, pb.upc) = cov.upc
+        and oh.INVENTLOCATIONID = cov.warehouse_id
+        and oh.inventsiteid = cov.inventory_site_id
 
 ),
 
@@ -581,8 +600,8 @@ final as (
         , case when j.item_warehouse_supply_rank = 1 then coalesce(j.in_transit_inbound_qty, 0) else 0 end as in_transit_inbound_qty  -- Phase 2 per spec -- sourced 2026-09-10, see goods_in_transit_agg above (EDW-46); supply_rank guard above prevents double counting across status rows
         , case when j.item_warehouse_supply_rank = 1 then coalesce(j.in_transit_transfer_qty, 0) else 0 end as in_transit_transfer_qty  -- Phase 2 per spec -- sourced 2026-09-10, see transfer_in_transit_agg above (EDW-46) -- reads 0 today, source table has no live rows yet
         , case when j.item_warehouse_supply_rank = 1 then coalesce(j.on_order_qty, 0) else 0 end as on_order_qty  -- Phase 2 per spec -- sourced 2026-09-10, see open_po_agg above (EDW-46); supply_rank guard above prevents double counting across status rows
-        , cast(null as decimal(18,4)) as reorder_point_qty  -- Phase 2 per spec -- EDW-46: no D365 item-coverage export exists anywhere in the warehouse yet (confirmed via a full dwhvisualnext table scan, 2026-09-10) -- needs a new BYOD export, pair with D365 admin per EDW-46's own scope note
-        , cast(null as decimal(18,4)) as safety_stock_qty  -- Phase 2 per spec -- EDW-46: same gap as reorder_point_qty, no source table exists yet
+        , cast(null as decimal(18,4)) as reorder_point_qty  -- reserved (I2c): no reorder point is maintained in D365 or carried by the reflection feed
+        , case when j.item_warehouse_supply_rank = 1 then cast(j.safety_stock_qty as decimal(18,4)) end as safety_stock_qty  -- EDW-126 (I2a): reflection feed value, item + warehouse grain on the rank-1 status row; NULL where no coverage is maintained (I2b), never backfilled (I2d)
         , cast(null as decimal(18,4)) as backorder_qty  -- Source once available: no column identified
         , cast(null as string) as qty_uom  -- Source once available: no UOM column identified on these tables
 
@@ -668,8 +687,8 @@ final as (
         , cast(null as decimal(18,4)) as in_transit_inbound_qty  -- Phase 2 per spec -- EDW-46 sources (PurchLine/GoodsInTransit) reflect today's live D365 state only, no historical grain to backfill against
         , cast(null as decimal(18,4)) as in_transit_transfer_qty  -- Phase 2 per spec -- same reason as in_transit_inbound_qty above
         , cast(null as decimal(18,4)) as on_order_qty  -- Phase 2 per spec -- same reason as in_transit_inbound_qty above
-        , cast(null as decimal(18,4)) as reorder_point_qty  -- Phase 2 per spec -- EDW-46: no source table exists yet (see native branch note)
-        , cast(null as decimal(18,4)) as safety_stock_qty  -- Phase 2 per spec -- source has SafetyStock but withheld to match Phase 1 scope of the native rows
+        , cast(null as decimal(18,4)) as reorder_point_qty  -- reserved (I2c), see native branch
+        , cast(null as decimal(18,4)) as safety_stock_qty  -- never backfilled (I2d): a current-state planning parameter, go-live literal only
         , cast(null as decimal(18,4)) as backorder_qty  -- Source once available: no column on f_KPI_InventoryValue
         , cast(null as string) as qty_uom  -- Source once available: no UOM column on f_KPI_InventoryValue
 

@@ -11,6 +11,19 @@ sources:
       - name: kpi_inventory_value
         identifier: f_KPI_InventoryValue
 
+  # EDW-126 (decision I2a): legacy reflection feed, the source of record for D365 item coverage
+  # safety stock until a BYOD item-coverage entity exists. Reloaded daily around 08:10 UTC.
+  - name: d365_reflection
+    database: dwhvisualnext
+    schema: d365_reflection
+    tables:
+      - name: inventory_onhand
+        config:
+          loaded_at_field: SnapshotDateTime
+          freshness:
+            warn_after: {count: 30, period: hour}
+            error_after: {count: 54, period: hour}
+
   - name: byod
     database: dwhvisualnext
     schema: d365_byod
