@@ -10,6 +10,7 @@ SELECT
     , TRIM(target_unit)                     AS target_unit
     , TRIM(goal_direction)                  AS goal_direction
     , CAST(is_monitor_only_flag AS BOOLEAN) AS is_monitor_only_flag
+    , CAST(is_active AS INT)                AS is_active
     , CAST(effective_from_date AS DATE)     AS effective_from_date
     , CAST(effective_to_date AS DATE)       AS effective_to_date
     , NULLIF(TRIM(approved_by_role), '')    AS approved_by_role
