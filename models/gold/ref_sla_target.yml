@@ -6,10 +6,14 @@ models:
       REF_SLA_TARGET -- governed, seed-managed reference of SLA and
       performance targets for department scorecards and alerting.
       shared_gold, presentation-facing (never joined to facts).
-      Effective-dated, not SCD2-snapshotted: a target change closes the
-      current row and opens a new one; a mis-keyed row is corrected
-      Type 1 in place. See README.md for what's loaded vs. blocked on
-      open spec decisions.
+      Effective-dated, not SCD2-snapshotted, on the project ref-table
+      convention: is_active (from the seed) marks the row in force and
+      effective_to_date is 9999-12-31 while current. A target change sets
+      the old row to is_active 0 with an end date and adds a new row; a
+      mis-keyed row is corrected Type 1 in place. No current-row view by
+      design: the table is imported disconnected into the semantic model,
+      which filters is_active itself. See README.md for what's loaded vs. blocked on open spec
+      decisions.
     tests:
       - dbt_utils.unique_combination_of_columns:
           combination_of_columns:
@@ -18,7 +22,7 @@ models:
             - scope_type
             - scope_code
           config:
-            where: "is_current_flag = true"
+            where: "is_active = 1"
       - no_overlapping_effective_periods:
           partition_by:
             - metric_code
@@ -33,6 +37,8 @@ models:
           - not_null
           - accepted_values:
               values: ['ABANDON_RATE', 'ASA', 'ATT', 'EMAIL_SLA_PCT', 'CALL_VOLUME', 'EMAIL_VOLUME']
+      - name: metric_name
+        tests: [not_null]
       - name: business_unit_code
         tests: [not_null]
       - name: scope_type
@@ -64,7 +70,12 @@ models:
               values: ['LOWER_IS_BETTER', 'HIGHER_IS_BETTER', 'MONITOR']
       - name: is_monitor_only_flag
         tests: [not_null]
+      - name: is_active
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
       - name: effective_from_date
         tests: [not_null]
-      - name: is_current_flag
+      - name: effective_to_date
         tests: [not_null]
