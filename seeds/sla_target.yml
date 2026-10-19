@@ -14,6 +14,7 @@ seeds:
         target_unit: string
         goal_direction: string
         is_monitor_only_flag: string
+        is_active: string
         effective_from_date: string
         effective_to_date: string
         approved_by_role: string

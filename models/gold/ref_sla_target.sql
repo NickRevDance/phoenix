@@ -14,6 +14,7 @@ with base as (
         , s.target_unit
         , s.goal_direction
         , s.is_monitor_only_flag
+        , s.is_active
         , s.effective_from_date
         , s.effective_to_date
         , s.approved_by_role
@@ -40,9 +41,9 @@ final as (
         , b.target_unit
         , b.goal_direction
         , b.is_monitor_only_flag
+        , b.is_active
         , b.effective_from_date
         , b.effective_to_date
-        , case when b.effective_to_date is null then true else false end as is_current_flag  -- derived, not seed-stored: see README
         , b.approved_by_role
         , b.approved_date
         , b.target_notes
