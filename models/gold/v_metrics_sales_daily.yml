@@ -5,7 +5,8 @@ models:
     description: >
       V_METRICS_SALES_DAILY (EDW-133) -- the certified daily sales metrics view over
       FACT_SALES_INVOICE. One row per invoice_date_key + product_key + customer_key +
-      sales_channel_key + warehouse_key + transaction_currency_code + invoice_type. Every row of
+      sales_channel_key + warehouse_key + transaction_currency_code + invoice_type +
+      is_intercompany_flag + payment_terms_code + payment_mode_code + is_dso_order_flag. Every row of
       the fact is represented, including unresolved keys and Free Text lines, so each additive
       measure summed over the view equals the same sum over the fact. Ratios ship as numerator
       and denominator and are divided by the consumer. Transaction amounts are in
@@ -23,6 +24,10 @@ models:
               - warehouse_key
               - transaction_currency_code
               - invoice_type
+              - is_intercompany_flag  # EDW-59
+              - payment_terms_code  # EDW-59
+              - payment_mode_code  # EDW-59
+              - is_dso_order_flag  # EDW-59
     columns:
       # Grain
       - name: invoice_date_key
@@ -47,14 +52,22 @@ models:
         description: Currency of the transaction amounts on the row (USD or CAD). In the grain so the two are never summed in one cell.
         tests: [not_null]
       - name: invoice_type
-        description: >
-          Sales Order or Free Text. Taken from the fact once EDW-59 populates it; until then
-          derived from order_id, which is blank on free text invoice lines.
+        description: Sales Order or Free Text, from the fact (EDW-59).
         tests:
           - not_null
           - accepted_values:
               arguments:
                 values: ['Sales Order', 'Free Text']
+      - name: is_intercompany_flag
+        description: >
+          From the fact (EDW-59). Carried, never excluded, so headline revenue reconciles to the AR
+          ledger; a view of external revenue filters it.
+      - name: payment_terms_code
+        description: Invoice payment terms from the fact (PREPAID, NET10, NET30, NET45, NET60, UNKNOWN; NULL on free text). EDW-59.
+      - name: payment_mode_code
+        description: Tender of the originating order from the fact (CC-BT, Credit, RevPoints, Check, ACH; NULL when blank or free text). Attribute only. EDW-59.
+      - name: is_dso_order_flag
+        description: DSO program membership of the invoice account at the invoice date, from the fact. EDW-59.
 
       # Date attributes
       - name: invoice_date
@@ -152,7 +165,7 @@ models:
 
       # Returns
       - name: return_qty
-        description: Sum of the absolute invoiced_qty on return lines (is_return_flag). Positive.
+        description: Sum of the absolute invoiced_qty on return lines (is_return_flag, which includes negative-revenue free text credits from EDW-59). Positive.
       - name: return_amount
         description: >
           Sum of the absolute net_sales_amount on return lines (is_return_flag). Positive. Return
@@ -179,6 +192,6 @@ models:
       - name: freight_cost_amount
         description: Typed NULL until EDW-60.
       - name: net_sales_amount_usd
-        description: Typed NULL until EDW-169 populates the USD amounts on the fact.
+        description: Sum of net_sales_amount_usd (the line as booked in USD). Summable across currencies. EDW-169.
       - name: loyalty_points_earned
         description: Typed NULL until the loyalty transaction fact exists (EDW-78).
