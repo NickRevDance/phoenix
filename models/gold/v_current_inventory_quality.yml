@@ -1,0 +1,22 @@
+version: 2
+
+models:
+  - name: v_current_inventory_quality
+    description: >
+      Latest snapshot_date of fact_inventory_quality_code_color_daily with DIM_PRODUCT hierarchy
+      attributes. Filter is_all_warehouse_row = 1 for the headline score per code/color.
+    columns:
+      - name: inventory_quality_key
+        tests: [is_valid_key]
+      - name: code_color
+        tests:
+          - not_null
+      - name: is_all_warehouse_row
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+      - name: quality_band
+        tests:
+          - not_null
