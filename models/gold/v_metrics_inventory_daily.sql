@@ -7,8 +7,10 @@
 -- V_METRICS_INVENTORY_DAILY (spec v2.7, Section 5.2). Company-owned scope, daily grain, one row
 -- per snapshot status row. Item + warehouse metrics (supply, demand, flags) repeat on every
 -- status row of the same barcode + warehouse; never sum them across status rows.
--- Seam: backfill rows (legacy KPI population, available_qty NULL, historical cost) vs native
--- rows are told apart by record_source_table; a trend across 2026-09-01 steps as an artefact.
+-- Seam: backfill rows (legacy KPI population, available_qty NULL, weekly cadence through 2025)
+-- vs native rows are told apart by record_source_table; a trend across 2026-09-01 steps as an
+-- artefact. Since EDW-180 both branches value stock at D365 moving average
+-- (moving_avg_cost_amount), filled in place for history on 2026-10-22.
 -- Demand: trailing {{ demand_window_days }} days before snapshot_date, FACT_SALES_INVOICE net of returns, all channels,
 -- attributed on product_key + warehouse_key (same join as last_sale_date). NULL when the
 -- snapshot row has no resolved product_key (the unknown member, '-1', EDW-151) or warehouse_key.
@@ -26,10 +28,15 @@
 -- they are run-rate measures and are meant to move with the season.
 -- Demand basis (ruling I5, ratified 2026-10-07, EDW-172, same record): demand stays net of
 -- returns received in the window, floored at zero. Unchanged from the build.
--- Turnover: average on-hand standard cost uses snapshot points from the row's own branch only
--- (native rows average native days, backfill rows average backfill days), because the two
--- branches carry different cost bases; a point where stock has no cost is left out rather than
--- averaged in as zero. Early native days therefore average over fewer than {{ demand_window_days }} days.
+-- Turnover (EDW-182, decision record I6): both legs at D365 moving average. COGS is
+-- FACT_SALES_INVOICE.moving_avg_cost_amount (D365's posted cost on the invoice line's legs) and
+-- the average inventory is on-hand moving_avg_cost_amount over the snapshot points in the window.
+-- Before EDW-182 both legs read purchase price on native dates, and on backfill dates the
+-- inventory leg was already D365's value, so turnover there read about a third low. The average
+-- uses snapshot points from the row's own branch only (native rows average native days, backfill
+-- rows average backfill days): the branches differ in population and cadence at the 2026-09-01
+-- seam; a point where stock has no cost is left out rather than averaged in as zero. Early native
+-- days therefore average over fewer than {{ demand_window_days }} days.
 -- Stocking policy (EDW-144, Merchandising decision M2): items marked MADE_TO_ORDER in
 -- ref_stocking_policy carry a seeded placeholder quantity that is not stock, and are left out
 -- on every date. The rule is keyed on product_id because the family is not in DIM_PRODUCT.
@@ -94,7 +101,7 @@ item_warehouse as (
         , sum(s.available_qty)          as available_qty_iw
         , sum(greatest(s.available_qty, 0)) as available_pos_qty_iw  -- I4: allocation base for excess_qty
         , sum(s.on_hand_qty)            as on_hand_qty_iw
-        , sum(s.standard_cost_amount)   as inventory_cost_iw
+        , sum(s.moving_avg_cost_amount) as inventory_cost_iw  -- EDW-182: D365 moving average (was standard_cost_amount, purchase price)
         , max(s.safety_stock_qty)       as safety_stock_qty_iw
         , max(case when s.record_source_table = {{ inventory_snapshot_branch_label('native') }} then 1 else 0 end) as is_native_branch  -- a snapshot date is one branch (seam 2026-09-01)
     from snapshot_scoped s
@@ -131,7 +138,7 @@ demand_events as (
         , si.warehouse_key
         , datediff(si.invoice_date, date'1970-01-01') as day_num
         , cast(si.invoiced_qty as decimal(18,4))         as units_sold
-        , cast(si.standard_cost_amount as decimal(19,4)) as cogs_amount
+        , cast(si.moving_avg_cost_amount as decimal(19,4)) as cogs_amount  -- EDW-182: D365 posted cost (was standard_cost_amount, purchase price)
         , cast(null as decimal(19,4))   as inventory_cost
         , 0                             as is_snapshot_point
         , cast(null as int)             as is_native_branch
@@ -304,7 +311,7 @@ final as (
         , case
             when m.cogs_window is not null and m.avg_inventory_cost_window > 0
                 then cast((m.cogs_window * 365.0 / {{ demand_window_days }}) / m.avg_inventory_cost_window as decimal(18,4))
-          end as inventory_turnover  -- annualized trailing COGS (standard cost) / average on-hand standard cost over the window, same-branch costed points only
+          end as inventory_turnover  -- annualized trailing COGS at D365 posted cost / average on-hand moving average cost over the window, same-branch costed points only (EDW-182, I6)
         , case
             when m.units_sold_window is null or m.available_qty_iw is null then cast(null as int)
             when m.available_qty_iw <= 0 and m.units_sold_window > 0 then 1

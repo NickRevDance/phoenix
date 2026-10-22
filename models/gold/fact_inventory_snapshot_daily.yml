@@ -320,9 +320,10 @@ models:
       in those 365 days; an item first sold under 180 days before snapshot_date is not assessed
       (0). excess_qty is the units above that one-year line, spread over the pair's status rows
       by positive available_qty, so it can be summed. Demand stays net of returns, floored at
-      zero (ruling I5). inventory_turnover averages on-hand standard cost over snapshot points
-      from the row's own branch only (the branches carry different cost bases), leaving out points
-      where stock has no cost. below_safety_stock_flag compares item + warehouse available_qty
+      zero (ruling I5). inventory_turnover (EDW-182, I6) is annualized trailing COGS at D365's
+      posted cost (FACT_SALES_INVOICE.moving_avg_cost_amount) over the average on-hand
+      moving_avg_cost_amount at snapshot points from the row's own branch only (the branches
+      differ in population and cadence at the seam), leaving out points where stock has no cost. below_safety_stock_flag compares item + warehouse available_qty
       to safety_stock_qty and is NULL where the item has no maintained safety stock (I2b);
       has_safety_stock_flag scopes the alert to covered items (Niles Costume today, EDW-126).
       reorder_flag is out of scope (I2c).

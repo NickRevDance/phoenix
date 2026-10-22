@@ -143,6 +143,61 @@ models:
         tests: [not_null]
       - name: net_sales_amount
         tests: [not_null]
+      - name: standard_cost_unit
+        description: >
+          Purchase price, not the COGS basis (EDW-182; the COGS basis is moving_avg_cost_unit).
+          FACT_PRODUCT_COST current STANDARD cost, the D365 purchase trade agreement price, joined
+          on product_id (item grain) and restated to the current price whenever the line is merged
+          again or the fact is refreshed. USD. NULL where the item has no current agreement price.
+      - name: standard_cost_amount
+        description: >
+          invoiced_qty x standard_cost_unit, the line at purchase price, an analysis value. The
+          COGS basis is moving_avg_cost_amount (EDW-182). Over Oct 2025 to Sep 2026 it ran at
+          $17.57M against $26.67M at D365's posted cost on the same lines, so a margin on this
+          column reads about 13 points above the finance basis (75 against 63 percent).
+      - name: moving_avg_cost_unit
+        description: >
+          EDW-182 (I6): D365's posted cost per unit on the line's InventTrans legs, posted cost /
+          posted quantity of the legs (cost and quantity carry the same sign, so the unit is
+          positive on sales and credits alike). USD, the accounting currency, on every line. NULL
+          on free text lines and on the 22 sales order lines with no INVENTTRANSID; 0 on the
+          non-merchandise items D365 carries at no cost (fees, catalogs, welcome packs).
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: ">= 0"
+              config:
+                severity: warn
+      - name: moving_avg_cost_amount
+        description: >
+          EDW-182 (I6): D365's posted cost of the line's legs, -(COSTAMOUNTPOSTED +
+          COSTAMOUNTADJUSTMENT) summed over the legs of this INVENTTRANSID invoiced under this
+          INVOICEID, so it carries the line's sign (negative on credit lines). The COGS basis and
+          the number the ledger posted: as of posting, never restated to a later price, and the
+          same basis as the legacy f_InvoicesD365 COGS. USD. Adjustments are zero on every sold
+          leg (moving average) and reach only returned legs, up to months after the credit; the
+          model re-reads lines whose legs changed inside sales_invoice_cost_lookback_days (2).
+          History before the build was filled in place on the EDW-182 fill (D012, backup clone
+          first). Equals moving_avg_cost_unit x invoiced_qty on every line: on the 32 lines (475
+          units, Jul to Oct 2026) where silver still holds legs D365 replaced on a re-split, so
+          the legs read double, the unit cost x invoiced_qty is taken, which is what the ledger
+          carries; elsewhere that is the same number as the legs' posted cost.
+        tests:
+          - not_null:
+              config:
+                where: "invoice_type = 'Sales Order' and d365_sales_line_rec_id is not null and invoice_date < current_date() - interval 3 days"
+                severity: warn  # a line whose legs have not reached silver; the self-heal re-reads it for sales_invoice_cost_heal_days
+          - dbt_utils.expression_is_true:  # EDW-182: free text lines carry no stock and no cost
+              arguments:
+                expression: "is null"
+              config:
+                where: "invoice_type = 'Free Text'"
+          - dbt_utils.expression_is_true:  # EDW-182: the cost carries the line's sign (column-relative, as every column test here)
+              arguments:
+                expression: "* sign(invoiced_qty) > 0"
+              config:
+                where: "moving_avg_cost_amount <> 0 and invoiced_qty <> 0"
+                severity: warn
       - name: fx_rate_to_usd
         description: Posted rate from the invoice header (CustInvoiceJour.EXCHRATE / 100), 1 on USD. EDW-169.
         tests:
