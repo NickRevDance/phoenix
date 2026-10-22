@@ -1,0 +1,41 @@
+version: 2
+
+models:
+  - name: v_inventory_movement_reconciliation
+    description: >
+      V_INVENTORY_MOVEMENT_RECONCILIATION (Inventory spec Section 5.7) -- delta
+      reconciliation of FACT_INVENTORY_MOVEMENT against
+      FACT_INVENTORY_SNAPSHOT_DAILY per snapshot-date pair x product x warehouse x
+      inventory status, 0-unit tolerance. Every VARIANCE row carries a
+      variance_cause (EDW-50); UNEXPLAINED rows in the last seven days of pairs are
+      the DQ exception and land in the dq_exceptions schema on every run. The
+      model header carries the window and cause rules.
+    tests:
+      # EDW-50: the reconciliation variance is alerted on, not passed. Warn, never error:
+      # an open UNEXPLAINED population is a known item to investigate, not a broken build.
+      - dbt_utils.expression_is_true:
+          name: v_inventory_movement_reconciliation_unexplained_variance
+          arguments:
+            expression: "variance_cause <> 'UNEXPLAINED'"
+          config:
+            where: "reconciliation_status = 'VARIANCE' and period_end_date_key >= cast(date_format(date_sub(current_date(), 7), 'yyyyMMdd') as int)"
+            severity: warn
+    columns:
+      - name: reconciliation_status
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['MATCHED', 'VARIANCE']
+      - name: variance_cause
+        description: >
+          NULL on MATCHED rows. On VARIANCE rows, first match wins:
+          GT_TRANSIT_OFFSET (nets to zero across the warehouse and its -GT
+          location in this pair or with the adjacent pair), TIMING_OFFSET (the
+          row reverses exactly in the adjacent pair), GT_LOCATION (other -GT
+          rows, structural), PENDING_NEXT_PERIOD (latest pair, not yet
+          judgeable), UNEXPLAINED (the exception).
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['GT_TRANSIT_OFFSET', 'TIMING_OFFSET', 'GT_LOCATION', 'PENDING_NEXT_PERIOD', 'UNEXPLAINED']

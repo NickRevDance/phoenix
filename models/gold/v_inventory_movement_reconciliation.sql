@@ -33,6 +33,16 @@
 --      snapshot change and the two variances cancel across periods.
 --   3. Mid-day captures: a snapshot captured during the working day holds
 --      part of that day's movement, and no date cutoff can split a day.
+-- VARIANCE CAUSE (EDW-50): every VARIANCE row is classified, first match wins, so the alert
+-- is the residue rather than the whole population:
+--   GT_TRANSIT_OFFSET  the product and status net to zero across a warehouse and its -GT
+--                      location in this pair, or with the same pair of locations in the
+--                      adjacent pair (cause 1, and cause 2 for voyage receipts)
+--   TIMING_OFFSET      the same row's variance reverses exactly in the adjacent pair
+--                      (causes 2 and 3: back-dated postings and mid-day captures)
+--   GT_LOCATION        any other -GT row (structural: the ITMGIT layer is excluded)
+--   PENDING_NEXT_PERIOD  the latest pair; it cannot be judged until the next pair lands
+--   UNEXPLAINED        everything else. These rows are the DQ exception (yml test, warn).
 -- Grain note: spec's "activity on either side" is read here as either the
 -- snapshot or the movement side, not snapshot alone -- a movement-only combo
 -- with no snapshot footprint at either end is exactly the kind of gap this
@@ -143,6 +153,8 @@ date_pairs as (
         , snapshot_date     as period_end_date
         , period_start_movement_cutoff_date_key
         , movement_cutoff_date_key as period_end_movement_cutoff_date_key
+        , row_number() over (order by period_start_date_key) as period_seq  -- EDW-50: adjacency for the variance cause
+        , max(period_start_date_key) over () as latest_period_start_date_key
 
     from snapshot_dates
     where period_start_date_key is not null  -- the earliest native date has no prior pair
@@ -280,7 +292,7 @@ combined as (
 
 ),
 
-final as (
+reconciled as (
 
     select
 
@@ -309,11 +321,111 @@ final as (
             when c.movement_net_qty - (c.snapshot_qty_end - c.snapshot_qty_start) = 0 then 'MATCHED'
             else 'VARIANCE'
           end as reconciliation_status
+        , dp.period_seq
+        , dp.latest_period_start_date_key
+        , regexp_replace(c.warehouse_id, '-GT$', '') as location_group_id  -- a warehouse and its -GT location
 
     from combined c
     inner join date_pairs dp
         on  c.period_start_date_key = dp.period_start_date_key
         and c.period_end_date_key   = dp.period_end_date_key
+
+),
+
+location_group as (
+
+    -- EDW-50: variance netted across a warehouse and its -GT location, per pair x product x status
+
+    select
+
+          r.*
+        , sum(r.variance_qty) over (partition by r.period_seq, r.product_key, r.inventory_status_code, r.location_group_id) as location_group_variance_qty
+        , count(*) over (partition by r.period_seq, r.product_key, r.inventory_status_code, r.location_group_id) as location_group_rows
+
+    from reconciled r
+
+),
+
+location_group_totals as (
+
+    select distinct
+
+          lg.period_seq
+        , lg.product_key
+        , lg.inventory_status_code
+        , lg.location_group_id
+        , lg.location_group_variance_qty
+
+    from location_group lg
+
+),
+
+adjacent as (
+
+    select
+
+          lg.*
+        , lag(lg.period_seq)    over (partition by lg.product_key, lg.warehouse_key, lg.inventory_status_code order by lg.period_seq) as prev_period_seq
+        , lag(lg.variance_qty)  over (partition by lg.product_key, lg.warehouse_key, lg.inventory_status_code order by lg.period_seq) as prev_variance_qty
+        , lead(lg.period_seq)   over (partition by lg.product_key, lg.warehouse_key, lg.inventory_status_code order by lg.period_seq) as next_period_seq
+        , lead(lg.variance_qty) over (partition by lg.product_key, lg.warehouse_key, lg.inventory_status_code order by lg.period_seq) as next_variance_qty
+        , lgp.location_group_variance_qty as prev_location_group_variance_qty
+        , lgn.location_group_variance_qty as next_location_group_variance_qty
+
+    from location_group lg
+    left join location_group_totals lgp
+        on  lgp.period_seq            = lg.period_seq - 1
+        and lgp.product_key           = lg.product_key
+        and lgp.inventory_status_code = lg.inventory_status_code
+        and lgp.location_group_id     = lg.location_group_id
+    left join location_group_totals lgn
+        on  lgn.period_seq            = lg.period_seq + 1
+        and lgn.product_key           = lg.product_key
+        and lgn.inventory_status_code = lg.inventory_status_code
+        and lgn.location_group_id     = lg.location_group_id
+
+),
+
+final as (
+
+    select
+
+          a.period_start_date_key
+        , a.period_end_date_key
+        , a.period_start_movement_cutoff_date_key
+        , a.period_end_movement_cutoff_date_key
+        , a.product_key
+        , a.product_id
+        , a.warehouse_key
+        , a.warehouse_id
+        , a.inventory_status_code
+        , a.snapshot_qty_start
+        , a.snapshot_qty_end
+        , a.snapshot_delta
+        , a.movement_net_qty
+        , a.receipt_net
+        , a.shipment_net
+        , a.return_net
+        , a.transfer_net
+        , a.status_change_net
+        , a.adjustment_net
+        , a.unknown_net
+        , a.variance_qty
+        , a.reconciliation_status
+        , case
+            when a.reconciliation_status = 'MATCHED' then null
+            when a.location_group_rows > 1 and a.location_group_variance_qty = 0 then 'GT_TRANSIT_OFFSET'
+            when (a.prev_period_seq = a.period_seq - 1 and a.variance_qty + a.prev_variance_qty = 0)
+              or (a.next_period_seq = a.period_seq + 1 and a.variance_qty + a.next_variance_qty = 0) then 'TIMING_OFFSET'
+            when a.location_group_variance_qty <> a.variance_qty
+             and (a.location_group_variance_qty + a.prev_location_group_variance_qty = 0
+               or a.location_group_variance_qty + a.next_location_group_variance_qty = 0) then 'GT_TRANSIT_OFFSET'
+            when a.warehouse_id like '%-GT' then 'GT_LOCATION'
+            when a.period_start_date_key = a.latest_period_start_date_key then 'PENDING_NEXT_PERIOD'
+            else 'UNEXPLAINED'
+          end as variance_cause  -- EDW-50, see header
+
+    from adjacent a
 
 )
 

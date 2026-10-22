@@ -1,0 +1,41 @@
+version: 2
+
+models:
+  - name: ref_movement_reason
+    description: >
+      REF_MOVEMENT_REASON (Inventory spec Section 8.5, Decision Record I1b,
+      EDW-50) -- SCD Type 2 reference of D365 InventTrans ReferenceCategory
+      codes: enum name, friendly description, and the movement type the
+      movement model maps each code to. Built from the movement_reason seed
+      through silver_snapshot_ref_movement_reason. It describes; the movement
+      model classifies (assert_movement_reason_default_type_matches_model checks
+      the two agree). Current rows: v_ref_movement_reason_current.
+    tests:
+      - one_current_row_per_key:
+          arguments:
+            key_columns: ['movement_reason_code']
+    columns:
+      - name: movement_reason_key
+        tests: [not_null]
+      - name: movement_reason_code
+        tests: [not_null]
+      - name: movement_reason_desc
+        tests: [not_null]
+      - name: default_movement_type
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['RECEIPT', 'SHIPMENT', 'RETURN', 'TRANSFER_OUT', 'TRANSFER_IN', 'STATUS_CHANGE', 'ADJUSTMENT', 'UNKNOWN', 'EXCLUDED']
+      - name: is_included_flag
+        tests: [not_null]
+
+  - name: v_ref_movement_reason_current
+    description: >
+      Current row per movement_reason_code from ref_movement_reason. The
+      movement fact reads movement_reason_desc from here at load.
+    columns:
+      - name: movement_reason_key
+        tests: [is_valid_key]
+      - name: movement_reason_code
+        tests: [unique, not_null]

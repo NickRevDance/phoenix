@@ -61,6 +61,18 @@
 --   loaded; widen the variable for one run to catch up after an outage. A full refresh is safe
 --   (silver holds every leg) and is the way to restate history after a rule change.
 --
+-- PHASE 2 FIELDS (EDW-50, Inventory Movement Decision Record v1.0)
+--   movement_reason_desc: current REF_MOVEMENT_REASON row on movement_reason_code at load; a code
+--   with no row takes the UNKNOWN row's description and shows on the relationships test.
+--   lot_id: InventBatchId, blank to NULL. Batch tracking is off for every item, so it is NULL on
+--   every row today (I1c), not a defect.
+--   retail_amount_change: quantity_change x the current USD list price at load (the snapshot's
+--   retail_value_amount basis). NULL where the variant has no current USD list price.
+--   from/to_availability_status: STATUS_CHANGE legs only, the availability_class of the
+--   from-status and to-status (current REF_INVENTORY_STATUS rows); NULL on every other type.
+--   quantity_before/after are reserved (I1a). from/to_lifecycle_status stay NULL: no movement
+--   changes a product's lifecycle tier, so there is nothing to source.
+--
 -- KNOWN DATA POINTS
 --   Cost: unit_cost_at_movement and cost_amount_change are the posted physical cost. A zero is a
 --   posted zero (made-to-order studio apparel and other zero-cost items), not a missing value:
@@ -146,6 +158,7 @@ inventory_dim as (
         , INVENTSIZEID
         , INVENTCOLORID
         , INVENTSTATUSID
+        , InventBatchId
 
     from {{ ref('silver_d365_inventory_dim') }}
 
@@ -196,6 +209,40 @@ product as (
 
 ),
 
+product_price as (
+
+    -- EDW-50: current USD list price, one row per product_key (same CTE as the snapshot fact)
+    select
+
+          pp.product_key
+        , pp.list_price_usd
+
+    from {{ ref('v_product_price_current') }} pp
+
+),
+
+movement_reason as (
+
+    select
+
+          r.movement_reason_code
+        , r.movement_reason_desc
+
+    from {{ ref('v_ref_movement_reason_current') }} r
+
+),
+
+status_availability as (
+
+    select
+
+          s.inventory_status_code
+        , s.availability_class
+
+    from {{ ref('v_ref_inventory_status_current') }} s
+
+),
+
 joined as (
 
     select
@@ -210,6 +257,7 @@ joined as (
         , d.INVENTSIZEID
         , d.INVENTCOLORID
         , d.INVENTSTATUSID
+        , d.InventBatchId
 
     from trans tr
     left join origin o
@@ -357,7 +405,7 @@ final as (
         , c.movement_type
         , c.movement_subtype
         , cast(c.ReferenceCategory as string)    as movement_reason_code
-        , cast(null as string) as movement_reason_desc  -- Phase 2 (EDW-50): lookup on REF_MOVEMENT_REASON once it is built
+        , coalesce(mr.movement_reason_desc, mr_unknown.movement_reason_desc) as movement_reason_desc  -- EDW-50: an unmapped code reads the UNKNOWN description
 
     -- Traceability
         , c.source_document_type
@@ -365,7 +413,7 @@ final as (
         , cast(null as int) as source_document_line_number  -- Source once available: no line-level column identified on InventTrans/InventTransOrigin
         , nullif(trim(c.INVENTTRANSID), '')      as transaction_id
         , nullif(trim(c.PACKINGSLIPID), '')      as receipt_document_id  -- D365 packing slip id; NULL when the leg posted without one (see header)
-        , cast(null as string) as lot_id         -- Source once available: silver_d365_inventory_dim.InventBatchId -- Phase 2 per spec
+        , nullif(trim(c.InventBatchId), '')      as lot_id  -- EDW-50 (I1c): NULL on every row while batch tracking is off
 
     -- Transfer
         , case
@@ -384,7 +432,7 @@ final as (
         , cast(null as string) as qty_uom        -- Source once available: no UOM column identified on bronze_d365_inventory_trans
         , cast(null as decimal(18,4)) as quantity_before  -- reserved, Phase 3 (Inventory Movement Decision Record v1.0, I1a)
         , cast(null as decimal(18,4)) as quantity_after   -- reserved, Phase 3 (Inventory Movement Decision Record v1.0, I1a)
-        , cast(null as decimal(19,4)) as retail_amount_change  -- Phase 2 per spec
+        , cast(c.QTY * pp.list_price_usd as decimal(19,4))   as retail_amount_change  -- EDW-50: current USD list price at load
         , abs(c.QTY) >= {{ anomaly_qty }}                    as is_quantity_anomaly_flag  -- EDW-93 item C: D365 keying errors stay in the fact, flagged (see header)
 
     -- Status
@@ -393,10 +441,10 @@ final as (
             when c.movement_type = 'STATUS_CHANGE' and c.QTY < 0 then sc.to_status_code
             when c.movement_type = 'STATUS_CHANGE' and c.QTY >= 0 then sc.from_status_code
           end as counterparty_inventory_status_code
-        , cast(null as string) as from_availability_status  -- Phase 2 per spec
-        , cast(null as string) as to_availability_status    -- Phase 2 per spec
-        , cast(null as string) as from_lifecycle_status     -- Phase 2 per spec
-        , cast(null as string) as to_lifecycle_status       -- Phase 2 per spec
+        , case when c.movement_type = 'STATUS_CHANGE' then sa_from.availability_class end as from_availability_status  -- EDW-50
+        , case when c.movement_type = 'STATUS_CHANGE' then sa_to.availability_class end as to_availability_status      -- EDW-50
+        , cast(null as string) as from_lifecycle_status     -- no movement changes a product's lifecycle tier (see header)
+        , cast(null as string) as to_lifecycle_status       -- as above
 
     -- Audit
         , 'silver_d365_inventory_trans + silver_d365_inventory_trans_origin + silver_d365_inventory_dim' as record_source_table
@@ -420,6 +468,16 @@ final as (
         on c.VOUCHER = sc.VOUCHER
         and c.ReferenceId = sc.ReferenceId
         and date(c.DATEPHYSICAL) = sc.phys_date
+    left join movement_reason mr
+        on cast(c.ReferenceCategory as string) = mr.movement_reason_code
+    left join movement_reason mr_unknown
+        on mr_unknown.movement_reason_code = 'UNKNOWN'
+    left join product_price pp
+        on c.product_key = pp.product_key
+    left join status_availability sa_from
+        on sc.from_status_code = sa_from.inventory_status_code
+    left join status_availability sa_to
+        on sc.to_status_code = sa_to.inventory_status_code
 
 )
 

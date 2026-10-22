@@ -31,6 +31,13 @@ models:
           config:
             where: "movement_type = 'STATUS_CHANGE'"
             severity: warn
+      # EDW-50: every status change carries both availability classes
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "from_availability_status is not null and to_availability_status is not null"
+          config:
+            where: "movement_type = 'STATUS_CHANGE'"
+            severity: warn
     columns:
       - name: inventory_movement_key
         description: "Surrogate key: xxhash64 of the D365 InventTrans RECID. The incremental merge key."
@@ -106,3 +113,51 @@ models:
                 field: inventory_status_code
               config:
                 severity: warn
+      - name: movement_reason_code
+        description: >
+          D365 ReferenceCategory code (InventTransType), on every row. Natural key into
+          REF_MOVEMENT_REASON.
+        tests:
+          - relationships:  # EDW-50 (I1b): a code with no REF_MOVEMENT_REASON row is a DQ exception; the fact reads UNKNOWN meanwhile
+              arguments:
+                to: ref('v_ref_movement_reason_current')
+                field: movement_reason_code
+              config:
+                severity: warn
+      - name: movement_reason_desc
+        description: >
+          Friendly reason description from the current REF_MOVEMENT_REASON row at load. A code
+          with no row reads the UNKNOWN row's description. EDW-50.
+        tests:
+          # warn: NULL on history until the fact is full-refreshed once
+          - not_null:
+              config:
+                severity: warn
+      - name: lot_id
+        description: >
+          D365 batch id (InventDim.InventBatchId), NULL when blank. Batch tracking is not
+          switched on for any item, so this is NULL on every row today (Decision Record I1c).
+      - name: retail_amount_change
+        description: >
+          quantity_change x the variant's current USD list price (v_product_price_current), priced
+          at load: the same basis as the snapshot's retail_value_amount. NULL where the variant
+          has no current USD list price or the product is the unknown member. A full refresh
+          reprices history at the prices current then. EDW-50.
+      - name: from_availability_status
+        description: >
+          STATUS_CHANGE legs only: availability_class of the from-status (current
+          REF_INVENTORY_STATUS row). The same value on both legs of the pair. NULL on every
+          other type. EDW-50.
+      - name: to_availability_status
+        description: >
+          STATUS_CHANGE legs only: availability_class of the to-status, as above. EDW-50.
+      - name: from_lifecycle_status
+        description: >
+          Reserved, NULL. No movement changes a product's lifecycle tier, so there is no
+          before and after to record.
+      - name: to_lifecycle_status
+        description: Reserved, NULL, as from_lifecycle_status.
+      - name: quantity_before
+        description: Reserved, NULL (Decision Record I1a). The day-grain balance is on V_INVENTORY_MOVEMENT_RECONCILIATION.
+      - name: quantity_after
+        description: Reserved, NULL (Decision Record I1a), as quantity_before.
