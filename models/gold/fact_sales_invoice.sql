@@ -5,7 +5,46 @@
     on_schema_change = 'sync_all_columns'
 ) }}
 
-with trans as (
+with posted_cost as (
+
+    -- EDW-182: D365's posted cost on the invoice line's InventTrans legs, the COGS basis (decision
+    -- record I6: inventory and COGS at D365 moving average). The line reaches its legs through its
+    -- own INVENTTRANSID (InventTransOrigin.INVENTTRANSID, unique on the origin table) and the
+    -- INVOICEID the leg was invoiced under, so a sales line invoiced in parts (8,336 lines on two
+    -- or more invoices, Oct 22 2026) takes only the legs of this invoice. Sale lines carry sold
+    -- legs (STATUSISSUE = 1, negative quantity and cost); credit lines carry the returned receipt
+    -- legs (STATUSRECEIPT = 1, positive quantity and cost), so -(posted + adjustment) carries the
+    -- line's sign on both. Several legs per line are normal (231,289 lines, up to 30) and are
+    -- summed. Checked Oct 22 2026 over the whole fact: 2,877,847 of 2,877,869 sales order lines
+    -- match (the other 22 have no INVENTTRANSID); no leg disagrees with its line's sign; every leg
+    -- is posted in USD; COSTAMOUNTSTD equals COSTAMOUNTPOSTED on every leg, so this is also the
+    -- legacy f_InvoicesD365 COGS basis (monthly within $10K). COSTAMOUNTADJUSTMENT is zero on
+    -- every sold leg (moving average, no inventory close) and non-zero only on 30,557 returned
+    -- legs, posting up to months after the credit; trans re-reads lines whose legs changed.
+    -- Leg quantity equals the line's on all but 32 lines, where silver holds both the legs D365
+    -- replaced on a re-split (Oct 12 and 14 2026) and their replacements; the amount column
+    -- guards that with the unit cost x invoiced_qty.
+    select
+
+          o.INVENTTRANSID
+        , it.INVOICEID
+        , sum(coalesce(it.COSTAMOUNTPOSTED, 0) + coalesce(it.COSTAMOUNTADJUSTMENT, 0)) as posted_cost_amount
+        , sum(it.QTY)                                                                 as posted_qty
+        , max(it.MODIFIEDDATE)                                                        as legs_modified_datetime
+
+    from {{ ref('silver_d365_inventory_trans') }} it
+
+    inner join {{ ref('silver_d365_inventory_trans_origin') }} o
+        on it.INVENTTRANSORIGIN = o.RECID
+
+    where nullif(it.INVOICEID, '') is not null
+      and (it.STATUSISSUE = 1 or it.STATUSRECEIPT = 1)  -- financially posted legs only
+
+    group by 1, 2
+
+),
+
+trans as (
 
     select
 
@@ -35,6 +74,27 @@ with trans as (
         t.MODIFIEDDATE > (select coalesce(max(etl_source_modified_datetime), timestamp('1900-01-01')) from {{ this }}) - interval 2 days
         -- EDW-134 self-heal: re-pull invoice lines that still hold an Unknown product (EDW-173: match on the line RECID, not the header PARENTRECID)
         or t.RECID in (select d365_invoice_rec_id from {{ this }} where product_key = '-1')
+        -- EDW-182: lines whose InventTrans legs changed inside the lookback, so a cost adjustment
+        -- posted to a returned leg after the credit, or a leg that landed after its line, restates
+        -- the posted cost. Same shape as the other facts' lookback vars.
+        or nullif(t.INVENTTRANSID, '') in (
+            select pc.INVENTTRANSID
+            from posted_cost pc
+            where pc.legs_modified_datetime > (select coalesce(max(etl_source_modified_datetime), timestamp('1900-01-01')) from {{ this }}) - interval {{ var('sales_invoice_cost_lookback_days', 2) }} days
+        )
+        {% if 'moving_avg_cost_amount' in (adapter.get_columns_in_relation(this) | map(attribute='name') | map('lower') | list) %}
+        -- EDW-182 self-heal: recent sales order lines still without a posted cost (legs that
+        -- reached silver more than the lookback after the line did). Bounded by invoice date so
+        -- history filled in place (D012) is never re-read here. Guarded on the column existing,
+        -- because this select runs before sync_all_columns adds the column on the first merge.
+        or t.RECID in (
+            select d365_invoice_rec_id
+            from {{ this }}
+            where moving_avg_cost_amount is null
+              and invoice_type = 'Sales Order'
+              and invoice_date >= current_date() - interval {{ var('sales_invoice_cost_heal_days', 7) }} days
+        )
+        {% endif %}
     )
     {% endif %}
 
@@ -346,6 +406,8 @@ joined as (
         , nullif(j.SALESORIGINID, '') as source_sales_origin_id  -- v1.1 (EDW-16, Decision 4): raw D365 origin carried on the fact as a non-key lineage attribute, so an unmapped/blank row can be traced without a join back to silver.
         , pc.standard_cost_unit
         , pc.cost_currency_code
+        , pst.posted_cost_amount  -- EDW-182
+        , pst.posted_qty          -- EDW-182
 
     from trans tr
 
@@ -398,6 +460,12 @@ joined as (
 
     left join product_cost pc
         on tr.ITEMID = pc.product_id
+
+    -- EDW-182: one row per INVENTTRANSID + INVOICEID (grouped above), and no pair lands on more
+    -- than one invoice line (checked Oct 22 2026), so this join cannot fan out.
+    left join posted_cost pst
+        on nullif(tr.INVENTTRANSID, '') = pst.INVENTTRANSID
+        and tr.INVOICEID = pst.INVOICEID
 
     left join sales_line sl
         on nullif(tr.INVENTTRANSID, '') = sl.INVENTTRANSID
@@ -468,8 +536,13 @@ final as (
         , {{ amount('j.LINEAMOUNT + coalesce(j.TAXAMOUNT, 0)') }}        as total_invoice_line_amount  -- shipping_revenue term omitted while null per above; base term now net_sales_amount (LINEAMOUNT) rather than the re-derived formula
 
     -- Costs
+    -- standard_cost_* is the purchase price (FACT_PRODUCT_COST current STANDARD, the D365 purchase
+    -- trade agreement price), an analysis value restated to the current price on every merge of
+    -- the line. The COGS basis is moving_avg_cost_* (EDW-182, I6).
         , j.standard_cost_unit
         , j.QTY * j.standard_cost_unit                               as standard_cost_amount
+        , {{ amount('try_divide(j.posted_cost_amount, j.posted_qty)') }}  as moving_avg_cost_unit  -- EDW-182: D365's posted cost per unit on the line's legs (cost / quantity of the legs, both signed alike). USD. NULL on free text lines and the 22 lines with no INVENTTRANSID; 0 on the non-merchandise items D365 carries at no cost.
+        , {{ amount("case when j.posted_qty = -j.QTY then -j.posted_cost_amount else try_divide(j.posted_cost_amount, j.posted_qty) * j.QTY end") }} as moving_avg_cost_amount  -- EDW-182: D365's posted cost of the line's legs, -(COSTAMOUNTPOSTED + COSTAMOUNTADJUSTMENT) with the line's sign (negative on credit lines). The COGS basis (I6); as of posting, never restated to a later price. Where the legs' quantity is not the line's (32 lines, 475 units, Jul to Oct 2026: D365 re-split the legs and silver still holds the rows it replaced, so the legs read double), the unit cost x invoiced_qty, which is what the ledger carries; on every other line the two are the same number.
         , cast(null as decimal(19,4)) as landed_cost_unit  -- Phase 2 per spec
         , cast(null as decimal(19,4)) as landed_cost_amount  -- Phase 2 per spec
         , cast(null as decimal(19,4)) as freight_cost_amount  -- Phase 2 per spec

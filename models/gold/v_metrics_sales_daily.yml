@@ -147,21 +147,57 @@ models:
       - name: tax_amount
         description: Sum of tax_amount.
 
-      # Standard cost and margin
+      # Purchase price cost and margin (analysis basis, EDW-182)
       - name: cost_currency_code
         description: Currency of standard_cost_amount (USD).
       - name: standard_cost_amount
-        description: Sum of standard_cost_amount where the line has a standard cost. In cost_currency_code on every row, including CAD rows.
+        description: >
+          PURCHASE PRICE basis, not COGS (EDW-182): sum of standard_cost_amount, the line at
+          FACT_PRODUCT_COST's current STANDARD cost (the D365 purchase trade agreement price,
+          restated to the current price on every merge of the line), where the line has one. In
+          cost_currency_code on every row, including CAD rows. Name kept so consumers do not break.
+          The COGS basis is moving_avg_cost_amount.
       - name: net_sales_amount_with_cost
         description: >
-          Sum of net_sales_amount on lines that have a standard cost in the transaction currency.
-          The margin denominator. NULL on rows where the transaction currency is not the cost
-          currency (CAD) until the USD amounts land with EDW-169.
+          Sum of net_sales_amount on lines that have a purchase price in the transaction currency.
+          The purchase price margin denominator. NULL on rows where the transaction currency is not
+          the cost currency (CAD); the USD pair covers those.
       - name: gross_margin_std_amount
         description: >
-          Standard-cost gross margin: net_sales_amount less standard_cost_amount on the lines
-          counted in net_sales_amount_with_cost. Margin percent = gross_margin_std_amount /
-          net_sales_amount_with_cost, divided by the consumer. NULL on CAD rows until EDW-169.
+          PURCHASE PRICE margin, an analysis number (EDW-182): net_sales_amount less
+          standard_cost_amount on the lines counted in net_sales_amount_with_cost. Margin percent =
+          gross_margin_std_amount / net_sales_amount_with_cost, divided by the consumer. NULL on
+          CAD rows. Reads about 13 points above the finance basis (75 against 63 percent over
+          Oct 2025 to Sep 2026); margin on a page reads gross_margin_moving_avg_amount.
+      - name: net_sales_amount_usd_with_cost
+        description: Sum of net_sales_amount_usd on lines that have a purchase price (USD on every line), CAD lines included. EDW-169.
+      - name: gross_margin_std_amount_usd
+        description: Purchase price margin in USD, net_sales_amount_usd less standard_cost_amount on the lines counted in net_sales_amount_usd_with_cost. EDW-169.
+
+      # D365 posted cost and margin (EDW-182, decision record I6): the finance basis
+      - name: moving_avg_cost_amount
+        description: >
+          COGS: sum of moving_avg_cost_amount, D365's posted cost on the invoice lines' InventTrans
+          legs (I6), the number the ledger posted and the legacy f_InvoicesD365 COGS basis. USD on
+          every row. Net of credit lines. NULL on free text rows.
+      - name: net_sales_amount_with_moving_avg_cost
+        description: >
+          Sum of net_sales_amount on USD lines that have a posted cost. The denominator of the
+          transaction-currency posted-cost margin. NULL on CAD rows (the posted cost is USD); the
+          USD pair covers those.
+      - name: gross_margin_moving_avg_amount
+        description: >
+          Gross margin at D365's posted cost, the finance basis: net_sales_amount less
+          moving_avg_cost_amount on the lines counted in net_sales_amount_with_moving_avg_cost.
+          Margin percent = gross_margin_moving_avg_amount / net_sales_amount_with_moving_avg_cost,
+          divided by the consumer.
+      - name: net_sales_amount_usd_with_moving_avg_cost
+        description: Sum of net_sales_amount_usd on lines that have a posted cost, CAD lines included. The USD posted-cost margin denominator.
+      - name: gross_margin_moving_avg_amount_usd
+        description: >
+          Gross margin at D365's posted cost in USD, summable across currencies: net_sales_amount_usd
+          less moving_avg_cost_amount on the lines counted in net_sales_amount_usd_with_moving_avg_cost.
+          The margin for the Orders and Sales Executive report.
 
       # Returns
       - name: return_qty
@@ -171,11 +207,12 @@ models:
           Sum of the absolute net_sales_amount on return lines (is_return_flag). Positive. Return
           rate = return_amount / (net_sales_amount + return_amount), divided by the consumer.
 
-      # Below cost (EDW-146)
+      # Below cost (EDW-146; stays on the purchase price basis under EDW-182)
       - name: below_cost_line_count
         description: >
-          Count of lines where standard_cost_unit >= unit_price, among lines with a standard cost
-          in the transaction currency. Includes zero-price lines. NULL on CAD rows until EDW-169.
+          Count of lines where standard_cost_unit >= unit_price (priced under the purchase
+          agreement price, the question EDW-146 asked), among lines with a purchase price in the
+          transaction currency. Includes zero-price lines. NULL on CAD rows.
       - name: below_cost_net_sales_amount
         description: Sum of net_sales_amount on the below-cost lines. Below-Cost Net Sales.
       - name: below_cost_standard_cost_amount

@@ -3,6 +3,7 @@ version: 2
 # EDW-117 item 9 (Inventory Gold Layer spec v2.6): description blocks for the snapshot fact
 # and its four certified companion views, the spec-grain test, and the branch / seam rules.
 # EDW-49: retail_value_amount / last_sale_date wiring and derivation tests.
+# EDW-180: cost column descriptions by branch and date after the 2026-10-22 history fill.
 
 models:
   - name: fact_inventory_snapshot_daily
@@ -173,25 +174,40 @@ models:
                 where: "record_source_table = 'silver_kpi_inventory_value'"
       - name: standard_cost_unit
         description: >
-          Purchase price, not the inventory valuation basis (EDW-180; the valuation basis is
-          moving_avg_cost_unit). Native rows: FACT_PRODUCT_COST current STANDARD cost, the D365
-          purchase trade agreement price, joined on product_id (item grain, EDW-94 A1); about 45
-          percent below D365 moving average on 2026-10-16. Backfill rows: the legacy report's own
-          historical unit cost. Two cost bases across the seam by design (D012). Name kept so
+          Not the inventory valuation basis (EDW-180; the valuation basis is moving_avg_cost_unit).
+          Native rows: purchase price, FACT_PRODUCT_COST current STANDARD cost (the D365 purchase
+          trade agreement price) joined on product_id (item grain, EDW-94 A1); D365 moving average
+          ran about 45 percent above it on 2026-10-16. Backfill rows: the legacy report's UnitCost,
+          which is not value / quantity (on_hand_qty x UnitCost is about half the value, e.g.
+          $12.2M against $26.1M on 2026-06-30) and should not be used as a unit cost. Name kept so
           consumers do not break.
       - name: standard_cost_amount
         description: >
-          on_hand_qty x standard_cost_unit: inventory at purchase price, an analysis value. The
-          inventory value is moving_avg_cost_amount (EDW-180).
+          Native rows: on_hand_qty x standard_cost_unit, inventory at purchase price, an analysis
+          value. Backfill rows: the legacy feed's InventoryAmount, which is D365's own Inventory
+          value report output (within $235 on all 2,137 date and warehouse pairs to 2026-08-31), so
+          on those rows it is D365's valuation and does NOT equal on_hand_qty x standard_cost_unit.
+          The inventory value on every branch is moving_avg_cost_amount (EDW-180).
       - name: moving_avg_cost_unit
         description: >
           EDW-180: D365 moving average cost per unit, the basis Revolution carries inventory at.
-          D365 value / D365 quantity at item + site + warehouse + colour + size from InventTrans:
-          financially updated legs at posted cost plus adjustments, physical-only legs (received,
-          deducted) at physical cost. Applied to every status row at that grain. NULL where D365
-          holds no positive value or quantity at the grain; on 2026-10-16 that was 22,048 stocked
-          units on 41 rows, which D365 itself values at about -$6K. Native rows from the first run
-          carrying the column; earlier days are filled in place.
+          Source by branch and date:
+          (1) Native rows from 2026-10-17, nightly: D365 value / D365 quantity at item + site +
+          warehouse + colour + size from InventTrans (financially updated legs at posted cost plus
+          adjustments, physical-only legs at physical cost), applied to every status row at that
+          grain.
+          (2) Native rows 2026-09-01 to 2026-10-16: filled in place on 2026-10-22 (D012, backup
+          clone first) from D365's Inventory value report (silver_kpi_inventory_value) for the same
+          snapshot date, value / quantity at UPC + warehouse, or the next day's report run where the
+          same day has no positive value (1,314 rows on 24 dates).
+          2026-09-04 to 2026-09-09 have no rows (spec 2.7).
+          (3) Backfill rows 2024-06-30 to 2026-08-31: filled in place on 2026-10-22 as
+          standard_cost_amount / on_hand_qty at snapshot date + UPC + warehouse, i.e. D365's own
+          Inventory value report; on every date the filled groups tie to D365's value within cents.
+          NULL on every branch where D365 holds no positive value or quantity at the grain (e.g.
+          16,696 stocked units in v_current_inventory scope on 2026-10-22, mostly variants with no
+          barcode); do not fall back to purchase price. Not an InventTrans as-of rebuild for
+          history, and never the legacy UnitCost.
         tests:
           - dbt_utils.expression_is_true:
               arguments:
@@ -201,11 +217,15 @@ models:
                 where: "moving_avg_cost_unit is not null"
       - name: moving_avg_cost_amount
         description: >
-          EDW-180: inventory value, on_hand_qty x moving average cost (computed from the unrounded
-          unit cost). NULL when moving_avg_cost_unit is NULL. On 2026-10-16 the in-scope total
-          (company-owned statuses, stocked items) was $28.02M: Niles $25.00M, Niles-GT $3.02M.
-          Differs from D365's own value only by physical vs financial timing (registered and
-          picked quantities count in on-hand, not in value). Tie test:
+          EDW-180: inventory value, on_hand_qty x moving average cost, on every branch, computed from
+          the unit cost before it is rounded to the 4 decimals stored in moving_avg_cost_unit, so
+          on_hand_qty x moving_avg_cost_unit can differ from it by cents on a row. NULL when moving_avg_cost_unit is NULL.
+          In-scope totals (company-owned statuses, stocked items): 2026-06-30 fiscal close
+          (2026-07-01 row) $26.08M, Niles $24.80M and Niles-GT $1.28M; 2026-10-16 $27.99M, Niles
+          $24.97M and Niles-GT $3.02M. Month-end close rows: the month-end row through Jan 2026,
+          the 1st of the next month from Feb 2026 (EDW-183). Nightly rows differ from D365's own
+          value only by physical vs financial timing (registered and picked quantities count in
+          on-hand, not in value). Tie test on the latest day:
           assert_inventory_moving_avg_value_ties_to_d365.
         tests:
           - dbt_utils.expression_is_true:
@@ -300,9 +320,10 @@ models:
       in those 365 days; an item first sold under 180 days before snapshot_date is not assessed
       (0). excess_qty is the units above that one-year line, spread over the pair's status rows
       by positive available_qty, so it can be summed. Demand stays net of returns, floored at
-      zero (ruling I5). inventory_turnover averages on-hand standard cost over snapshot points
-      from the row's own branch only (the branches carry different cost bases), leaving out points
-      where stock has no cost. below_safety_stock_flag compares item + warehouse available_qty
+      zero (ruling I5). inventory_turnover (EDW-182, I6) is annualized trailing COGS at D365's
+      posted cost (FACT_SALES_INVOICE.moving_avg_cost_amount) over the average on-hand
+      moving_avg_cost_amount at snapshot points from the row's own branch only (the branches
+      differ in population and cadence at the seam), leaving out points where stock has no cost. below_safety_stock_flag compares item + warehouse available_qty
       to safety_stock_qty and is NULL where the item has no maintained safety stock (I2b);
       has_safety_stock_flag scopes the alert to covered items (Niles Costume today, EDW-126).
       reorder_flag is out of scope (I2c).

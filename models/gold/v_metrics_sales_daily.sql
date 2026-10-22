@@ -13,11 +13,19 @@
 -- Ratios: every ratio ships as its numerator and denominator and is never pre-divided here.
 -- ASP, discount rate, margin percent and return rate are divided by the consumer.
 -- Currency: transaction amounts are in transaction_currency_code. Never sum them across
--- currencies. Standard cost is carried in cost_currency_code (USD on every line today), so the
--- margin and below-cost measures are computed only on lines where the two currencies match
--- and are NULL on the others (the CAD lines). EDW-169 adds the USD amounts: the *_usd measures
--- can be summed across currencies, and the USD margin pair covers every line with a USD
--- standard cost, CAD lines included.
+-- currencies. Both costs are in USD (cost_currency_code on the purchase price; the posted cost
+-- is in the accounting currency), so the transaction-currency margin and below-cost measures are
+-- computed only on lines where the transaction currency is the cost currency and are NULL on the
+-- others (the CAD lines). EDW-169 adds the USD amounts: the *_usd measures can be summed across
+-- currencies, and the USD margin pairs cover every line with a cost, CAD lines included.
+-- Cost bases (EDW-182, decision record I6): standard_cost_amount and gross_margin_std_amount
+-- are the PURCHASE PRICE basis (FACT_PRODUCT_COST current STANDARD, the D365 purchase trade
+-- agreement price, restated to the current price on every merge of the line), an analysis
+-- margin; names kept so consumers do not break. moving_avg_cost_amount and
+-- gross_margin_moving_avg_amount are D365's POSTED COST on the invoice line's InventTrans legs,
+-- the finance basis: the number the ledger posted, as of posting, the same basis as the legacy
+-- f_InvoicesD365 COGS. Over Oct 2025 to Sep 2026 the posted basis gave about 63 percent margin
+-- against 75 at purchase price. Margin on a page reads the moving average pair.
 -- invoice_type: taken from the fact (EDW-59). The fallback derivation from order_id stays only
 -- as a guard for a row the fact has not filled.
 -- Intercompany (EDW-59, spec 4.10): carried as is_intercompany_flag and never excluded, so
@@ -31,8 +39,10 @@
 -- invoice_type = 'Sales Order'.
 -- Returns: credit lines net into the same row as sales for the key and are also broken out
 -- as return_qty and return_amount (positive values).
--- Below cost (EDW-146): a line is below cost when standard_cost_unit >= unit_price. Reported
--- as-is beside the unfiltered margin, never excluded. Zero-price lines with a cost count here.
+-- Below cost (EDW-146): a line is below cost when standard_cost_unit >= unit_price, i.e. priced
+-- under the purchase agreement price, which is the question EDW-146 asked; it stays on the
+-- purchase price basis under EDW-182. Reported as-is beside the unfiltered margin, never
+-- excluded. Zero-price lines with a cost count here.
 -- Dimension attributes: the latest version of each dimension row (version_number = 1), so a
 -- member that has since been closed at the source still describes its history. They are
 -- carried so the view reads on its own in Excel and SQL; Power BI relates on the keys.
@@ -73,6 +83,7 @@ with invoice_line as (
         , f.tax_amount
         , f.standard_cost_amount
         , f.cost_currency_code
+        , f.moving_avg_cost_amount  -- EDW-182
         , f.is_return_flag
         , f.net_sales_amount_usd
         , f.nimbly_fee_amount
@@ -93,6 +104,16 @@ with invoice_line as (
                then 1 else 0
           end                                                        as has_comparable_cost
         , case when f.standard_cost_unit >= f.unit_price then 1 else 0 end as is_below_cost
+        -- EDW-182: the posted cost is USD, so it compares with the transaction amount on USD lines
+        -- and with the USD amount on every line
+        , case when f.moving_avg_cost_amount is not null
+                and f.transaction_currency_code = 'USD'
+               then 1 else 0
+          end                                                        as has_comparable_moving_avg_cost
+        , case when f.moving_avg_cost_amount is not null
+                and f.net_sales_amount_usd is not null
+               then 1 else 0
+          end                                                        as has_usd_moving_avg_cost
 
     from {{ ref('fact_sales_invoice') }} f
 
@@ -138,6 +159,17 @@ daily as (
                                                                      as net_sales_amount_usd_with_cost
         , {{ amount('sum(case when l.has_usd_cost = 1 then l.net_sales_amount_usd - l.standard_cost_amount end)') }}
                                                                      as gross_margin_std_amount_usd
+
+        -- EDW-182: margin at D365's posted cost, the finance basis (I6)
+        , {{ amount('sum(l.moving_avg_cost_amount)') }}              as moving_avg_cost_amount
+        , {{ amount('sum(case when l.has_comparable_moving_avg_cost = 1 then l.net_sales_amount end)') }}
+                                                                     as net_sales_amount_with_moving_avg_cost
+        , {{ amount('sum(case when l.has_comparable_moving_avg_cost = 1 then l.net_sales_amount - l.moving_avg_cost_amount end)') }}
+                                                                     as gross_margin_moving_avg_amount
+        , {{ amount('sum(case when l.has_usd_moving_avg_cost = 1 then l.net_sales_amount_usd end)') }}
+                                                                     as net_sales_amount_usd_with_moving_avg_cost
+        , {{ amount('sum(case when l.has_usd_moving_avg_cost = 1 then l.net_sales_amount_usd - l.moving_avg_cost_amount end)') }}
+                                                                     as gross_margin_moving_avg_amount_usd
 
         , {{ amount('sum(l.nimbly_fee_amount)') }}                   as nimbly_fee_amount
         , {{ amount('sum(l.nimbly_commission_amount)') }}            as nimbly_commission_amount
@@ -299,7 +331,7 @@ select
     , d.net_sales_amount
     , d.tax_amount
 
-    -- Standard cost and margin
+    -- Purchase price cost and margin (analysis basis; see the header)
     , d.cost_currency_code
     , d.standard_cost_amount
     , d.net_sales_amount_with_cost
@@ -309,6 +341,13 @@ select
     , d.net_sales_amount_usd
     , d.net_sales_amount_usd_with_cost
     , d.gross_margin_std_amount_usd
+
+    -- D365 posted cost and margin (EDW-182, I6): the finance basis
+    , d.moving_avg_cost_amount
+    , d.net_sales_amount_with_moving_avg_cost
+    , d.gross_margin_moving_avg_amount
+    , d.net_sales_amount_usd_with_moving_avg_cost
+    , d.gross_margin_moving_avg_amount_usd
 
     -- Nimbly and wholesale (EDW-169)
     , d.nimbly_fee_amount
