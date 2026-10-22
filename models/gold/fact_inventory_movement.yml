@@ -57,6 +57,14 @@ models:
               config:
                 severity: warn
       - name: inventory_status_code
+        description: >
+          The leg's own D365 inventory status (InventDim.INVENTSTATUSID, blank read as UNKNOWN).
+          STATUS_CHANGE follows the spec v2.2 rule, which replaced the v2.1 destination-status rule:
+          a status change is two legs, an issue leg out of the from-status (negative quantity) and
+          a receipt leg into the to-status (positive), so each leg carries its own status here and
+          the other side's in counterparty_inventory_status_code. Both legs carry the same
+          from/to_availability_status pair. The legs net to zero at product x warehouse x date and
+          move quantity between statuses (assert_fact_inventory_movement_status_change_pairs).
         tests:
           - relationships:  # EDW-132 section 4: every status code is a current REF_INVENTORY_STATUS row
               arguments:
