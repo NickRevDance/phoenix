@@ -1,7 +1,8 @@
 -- EDW-133 (shape section, build notes): V_METRICS_SALES_DAILY represents every row of
 -- FACT_SALES_INVOICE, so each additive measure summed over the view equals the same sum over
 -- the fact. A difference means a filter crept into the view or a dimension join fanned out.
--- Returns a row for each measure that does not tie. EDW-169 adds the USD, Nimbly and wholesale measures.
+-- Returns a row for each measure that does not tie. EDW-169 adds the USD, Nimbly and wholesale measures;
+-- EDW-182 adds the posted cost.
 
 with fact_totals as (
 
@@ -12,6 +13,7 @@ with fact_totals as (
         , coalesce(sum(total_discount_amount), 0)                    as total_discount_amount
         , coalesce(sum(net_sales_amount), 0)                         as net_sales_amount
         , coalesce(sum(standard_cost_amount), 0)                     as standard_cost_amount
+        , coalesce(sum(moving_avg_cost_amount), 0)                   as moving_avg_cost_amount
         , coalesce(sum(net_sales_amount_usd), 0)        as net_sales_amount_usd
         , coalesce(sum(nimbly_fee_amount), 0)           as nimbly_fee_amount
         , coalesce(sum(nimbly_commission_amount), 0)    as nimbly_commission_amount
@@ -34,6 +36,7 @@ view_totals as (
         , coalesce(sum(total_discount_amount), 0)                    as total_discount_amount
         , coalesce(sum(net_sales_amount), 0)                         as net_sales_amount
         , coalesce(sum(standard_cost_amount), 0)                     as standard_cost_amount
+        , coalesce(sum(moving_avg_cost_amount), 0)                   as moving_avg_cost_amount
         , coalesce(sum(net_sales_amount_usd), 0)        as net_sales_amount_usd
         , coalesce(sum(nimbly_fee_amount), 0)           as nimbly_fee_amount
         , coalesce(sum(nimbly_commission_amount), 0)    as nimbly_commission_amount
@@ -194,3 +197,13 @@ select
 from view_totals v
 cross join fact_totals f
 where v.custom_print_fee_amount_usd <> f.custom_print_fee_amount_usd
+
+union all
+
+select
+      'moving_avg_cost_amount'
+    , cast(v.moving_avg_cost_amount as decimal(38,6))
+    , cast(f.moving_avg_cost_amount as decimal(38,6))
+from view_totals v
+cross join fact_totals f
+where v.moving_avg_cost_amount <> f.moving_avg_cost_amount
