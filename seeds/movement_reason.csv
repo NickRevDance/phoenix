@@ -1,0 +1,16 @@
+movement_reason_code,reference_category_name,movement_reason_desc,default_movement_type,default_movement_subtype,is_included_flag,notes
+0,Sales,Customer sales order shipment or return,SHIPMENT,,1,Issue legs are SHIPMENT and receipt legs RETURN; the model splits on the sign of the quantity
+3,Purch,Vendor purchase order receipt,RECEIPT,,1,VPO- references
+4,InventTransaction,Inventory movement journal adjustment,ADJUSTMENT,MOVEMENT_JOURNAL,1,Includes Blocked write-offs
+5,InventLossProfit,Inventory profit and loss journal adjustment,ADJUSTMENT,PROFIT_LOSS,1,
+6,InventTransfer,Inventory transfer journal,ADJUSTMENT,TRANSFER_JOURNAL,1,Legs do not pair by origin; reclassify to TRANSFER if reconciliation variance points here
+13,InventCounting,Inventory count adjustment,ADJUSTMENT,COUNT_ADJ,1,
+15,QuarantineOrder,Quarantine order disposal,ADJUSTMENT,QUARANTINE_DISPOSAL,1,Location-based quarantine flow ending in disposal
+21,TransferOrderShip,Transfer order shipment from the source warehouse,TRANSFER_OUT,,1,Receipts into the -T transit location are excluded as in-transit position
+22,TransferOrderReceive,Transfer order receipt at the destination warehouse,TRANSFER_IN,,1,Issues from the -T transit location are excluded as in-transit position
+202,WHSQuarantine,Inventory status change,STATUS_CHANGE,,1,Two legs paired on voucher + ReferenceId + date
+26,Blocking,Inventory blocking (unposted),EXCLUDED,,0,Not in the movement fact: never physically posted
+110,ITMGIT,Landed-cost goods in transit,EXCLUDED,,0,Not in the movement fact: nets to zero between each warehouse and its -GT location; in-transit quantity is on the snapshot fact
+201,WHSWork,Warehouse work (bin-level),EXCLUDED,,0,Not in the movement fact: offsetting bin-level pairs
+203,WHSContainer,Warehouse container packing (bin-level),EXCLUDED,,0,Not in the movement fact: offsetting bin-level pairs
+UNKNOWN,Unknown,Unclassified movement reason,UNKNOWN,,1,Default member: a code with no row here reads this description and shows on the relationships test until it is added

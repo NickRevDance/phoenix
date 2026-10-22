@@ -1,0 +1,22 @@
+version: 2
+
+seeds:
+  - name: movement_reason
+    description: >
+      BI-maintained source of record for REF_MOVEMENT_REASON (Inventory spec
+      Section 8.5, Inventory Movement Decision Record v1.0 I1b, EDW-50). One row
+      per D365 InventTransType (ReferenceCategory) code: the ten codes in the
+      movement fact, the four documented exclusions (is_included_flag = 0) and
+      the UNKNOWN default member. Names follow the InventTransType enum
+      dictionary (d365_byod.Rev_srsanalysisenumStaging); BYOD exports no labels,
+      so the descriptions are maintained here. A change is a row edit here; the
+      snapshot versions it. All columns loaded as string; the silver stage casts.
+    config:
+      column_types:
+        movement_reason_code: string
+        reference_category_name: string
+        movement_reason_desc: string
+        default_movement_type: string
+        default_movement_subtype: string
+        is_included_flag: string
+        notes: string

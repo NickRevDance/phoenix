@@ -1,0 +1,25 @@
+version: 2
+
+snapshots:
+  - name: silver_snapshot_ref_movement_reason
+    relation: ref('silver_stage_ref_movement_reason')
+
+    description: >
+      Type 2 history of REF_MOVEMENT_REASON. A new version is cut when a
+      code's enum name, description, default movement type or subtype, or
+      included flag changes in the movement_reason seed.
+
+    config:
+      schema: silver_history
+      unique_key: movement_reason_key
+      strategy: check
+      hard_deletes: invalidate
+
+      check_cols:
+        - movement_reason_change_hash
+
+      snapshot_meta_column_names:
+        dbt_valid_from: effective_start_datetime
+        dbt_valid_to: effective_end_datetime
+        dbt_scd_id: row_hash
+        dbt_updated_at: etl_update_datetime
