@@ -201,6 +201,10 @@ models:
                 field: date_key
               config:
                 severity: warn
+      - name: order_date
+        description: Central calendar day (America/Chicago) of SalesTable.CREATEDDATE, which D365 stores in UTC. NULL on placeholder dates. EDW-184 (was the UTC day, which put orders created after 7 PM Central, 6 PM in winter, on the next day).
+      - name: return_request_date
+        description: The return order's CREATEDDATE on return rows, Central calendar day as order_date. NULL on sales rows. EDW-58, EDW-184.
       - name: unresolved_upc
         description: D365 barcode (UPC) that had no DIM_PRODUCT row, so product_key is -1. NULL when product_key resolved or no barcode exists. EDW-134.
       - name: product_key
@@ -307,6 +311,22 @@ models:
               config:
                 where: "not is_return_flag"
                 severity: warn  # coverage: a currency with no spot rate surfaces here without stopping the run
+      - name: inventory_status_code
+        description: >
+          D365 inventory status on the line's inventory dimension (InventDim.INVENTSTATUSID through
+          SalesLine.INVENTDIMID), blank read as UNKNOWN. On a sales line, the inventory the line was
+          ordered from: Available (regular stock) or a program status such as Tippi Toes; it matches the
+          status issued at shipment. On a return line, the status the return is received into. SUP-11.
+        tests:
+          - not_null:
+              config:
+                severity: warn
+          - relationships:  # every status code is a current REF_INVENTORY_STATUS row, as on the inventory facts
+              arguments:
+                to: ref('v_ref_inventory_status_current')
+                field: inventory_status_code
+              config:
+                severity: warn
 
   - name: v_metrics_order_fulfillment
     description: >

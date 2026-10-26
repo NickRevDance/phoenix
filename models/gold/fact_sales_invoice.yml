@@ -80,6 +80,17 @@ models:
           True when CustInvoiceJour.INTERCOMPANYPOSTED = 1 or the header's CUSTGROUP is Interco.
           Include with a flag, never a filter (spec 4.10). EDW-59.
         tests: [not_null]
+      - name: is_replacement_order_flag
+        description: >
+          True when the line's order is a replacement order, named in a return header's
+          RETURNREPLACEMENTID (the rule of is_replacement_flag on fact_orders_returns); false on every
+          other Sales Order line; NULL on free text lines. D365 posts the sale lines on these orders to
+          the returns account, so the Executive Summary counts them as returns (BS-367 D8). EDW-184.
+        tests:
+          - not_null:
+              config:
+                where: "invoice_type = 'Sales Order'"
+                severity: warn
       - name: payment_terms_code
         description: CustInvoiceJour.PAYMENT conformed to PREPAID, NET10, NET30, NET45, NET60; NULL when blank; UNKNOWN otherwise. EDW-59.
         tests:
