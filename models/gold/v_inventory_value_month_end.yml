@@ -1,0 +1,126 @@
+version: 2
+
+# EDW-183 step 1 (Inventory Gold Layer spec v2.14, Section 5.9; decision record I6 point 6).
+# Tests land at warn first, as the EDW-132 tests did; promotion to error is parked on EDW-121.
+
+models:
+  - name: v_inventory_value_month_end
+    description: >
+      Month-end inventory value at D365 moving average (spec 5.9, decision record I6). One row
+      per snapshot row on each month's close date, in the certified scope: company-owned
+      statuses (REF_INVENTORY_STATUS include_in_std_metrics_flag) and stocked items only
+      (REF_STOCKING_POLICY, MADE_TO_ORDER out on product_id and, on backfill rows, on UPC), so on
+      a close date it holds exactly the rows V_METRICS_INVENTORY_DAILY carries. Close row (I6
+      point 6): the month-end row through January 2026; from February 2026 the row dated the 1st
+      of the next month, because D365's Inventory value report and the nightly capture both run
+      just after midnight. month_end_date is the calendar month-end the row stands for, so a
+      consumer relates month_end_date_key to DIM_DATE and needs no date logic. Closes run from
+      June 2024 (the first snapshot date) at the backfill branch through July 2026 and the native
+      branch from August 2026. The month in progress has no row until its close row is captured.
+      Sum moving_avg_cost_amount for the inventory value at each close; NULL where D365 carries
+      no positive value (no fallback, I6 point 5).
+    tests:
+      - dbt_utils.expression_is_true:
+          name: v_inventory_value_month_end_month_end_date_is_month_end
+          arguments:
+            expression: "month_end_date = last_day(month_end_date)"
+          config:
+            severity: warn
+      - dbt_utils.expression_is_true:
+          name: v_inventory_value_month_end_close_row_matches_rule
+          arguments:
+            expression: >
+              (close_rule = 'MONTH_END_ROW' and close_snapshot_date = month_end_date)
+              or (close_rule = 'NEXT_MONTH_FIRST_ROW' and close_snapshot_date = date_add(month_end_date, 1))
+          config:
+            severity: warn
+    columns:
+      - name: inventory_snapshot_key
+        description: >
+          The snapshot fact's surrogate key for the close row. Each snapshot date is the close of
+          at most one month, so the key is unique in the view.
+        tests:
+          - unique:
+              config:
+                severity: warn
+          - not_null:
+              config:
+                severity: warn
+      - name: month_end_date_key
+        description: >
+          month_end_date as yyyymmdd: the relationship to DIM_DATE. A February 2026 close read
+          from the 2026-03-01 row carries 20260228.
+        tests:
+          - not_null:
+              config:
+                severity: warn
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+              config:
+                severity: warn
+      - name: month_end_date
+        description: Calendar month-end the close stands for.
+      - name: close_snapshot_date_key
+        description: snapshot_date_key of the row the close is read from.
+      - name: close_snapshot_date
+        description: >
+          snapshot_date of the row the close is read from: the month-end date through January
+          2026, the 1st of the next month from February 2026.
+      - name: close_rule
+        description: MONTH_END_ROW (through January 2026) or NEXT_MONTH_FIRST_ROW (from February 2026).
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['MONTH_END_ROW', 'NEXT_MONTH_FIRST_ROW']
+              config:
+                severity: warn
+      - name: is_close_captured_late_flag
+        description: >
+          1 when the close row is a native row captured at or after 6 AM Chicago on its date (the
+          latest etl_insert_datetime on the date's rows), so it may hold part of that day's
+          movement as well as the close. 0 on 1 AM captures and on every backfill row (D365's own
+          report output). A capture-time marker, not a measure of the gap to D365: native closes
+          read within about 1 percent of D365's report on 1 AM captures as well. Set on the August
+          and September 2026 closes (the 2026-09-01 row, captured at 6:20 PM, and the 2026-10-01
+          row, latest capture 2:33 PM with 689 rows left from the 1:11 AM run).
+        tests:
+          - not_null:
+              config:
+                severity: warn
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+              config:
+                severity: warn
+      - name: record_source_table
+        description: Snapshot branch (spec 2.5); backfill through the July 2026 close, native from August 2026.
+      - name: product_key
+        description: >
+          DIM_PRODUCT key; '-1' (Unknown Product) on unresolved rows. upc tells those apart where
+          it is set; native rows with no barcode have a NULL upc and only product_id, and
+          inventory_snapshot_key is the row key.
+      - name: product_id
+        description: D365 item id; NULL on backfill rows whose UPC is not in DIM_PRODUCT.
+      - name: upc
+        description: UPC from the barcode path (native) or the legacy report (backfill); NULL on native rows with no barcode.
+      - name: warehouse_key
+        description: DIM_WAREHOUSE key.
+      - name: warehouse_id
+        description: D365 warehouse code.
+      - name: inventory_status_code
+        description: D365 inventory status; company-owned statuses only (include_in_std_metrics_flag).
+      - name: on_hand_qty
+        description: On-hand quantity on the close row.
+      - name: moving_avg_cost_unit
+        description: D365 moving average unit cost on the close row (EDW-180).
+      - name: moving_avg_cost_amount
+        description: >
+          The inventory value at the close, D365 moving average (I6). NULL where D365 carries no
+          positive value or quantity at the cost grain; never filled from the purchase price.
+      - name: standard_cost_amount
+        description: >
+          Purchase price value on native rows (the August 2026 close on). On backfill rows (closes
+          through July 2026) it is D365's own value from the legacy report, so it is not a purchase
+          price trend across the seam (spec 2.5).
