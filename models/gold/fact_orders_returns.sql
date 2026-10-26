@@ -182,6 +182,7 @@ inventory_dim as (
         , INVENTLOCATIONID
         , INVENTSIZEID
         , INVENTCOLORID
+        , INVENTSTATUSID  -- SUP-11: inventory status the sales line was ordered from
 
     from {{ ref('silver_d365_inventory_dim') }}
 
@@ -405,7 +406,8 @@ joined as (
         , st.CUSTACCOUNT
         , st.SALESORIGINID
         , st.PURCHORDERFORMNUM
-        , st.CREATEDDATE                         as order_created_date
+        , st.CREATEDDATE                         as order_created_date  -- UTC as D365 stores it; the placeholder bounds below read this
+        , from_utc_timestamp(st.CREATEDDATE, 'America/Chicago') as order_created_datetime_ct  -- EDW-184: the same moment on the Central clock, the basis of every order and return request date
         , st.PAYMENT
         , st.RETURNITEMNUM
         , st.RETURNREASONCODEID
@@ -421,6 +423,7 @@ joined as (
         , rrc.return_reason_category
 
         , d.INVENTLOCATIONID
+        , d.INVENTSTATUSID                       -- SUP-11
         -- EDW-134: UPCs missing from dim_product resolve to Unknown ('-1'); UPC kept in unresolved_upc
         , coalesce(prod.product_key, '-1')   as product_key
         , case when prod.product_key is null then bar.ITEMBARCODE end as unresolved_upc
@@ -481,18 +484,18 @@ joined as (
         on st.CUSTACCOUNT = cu.customer_id
 
     -- EDW-59: the customer version in effect on the order date as the fact derives it (same
-    -- placeholder bounds as order_date); the line's modified date where the order has no usable
-    -- created date, as in the fx_rate join below.
+    -- placeholder bounds as order_date, Central day since EDW-184); the line's modified date where
+    -- the order has no usable created date, as in the fx_rate join below.
     left join customer_dso dso
         on cu.customer_key = dso.customer_key
         and coalesce(
               case when st.CREATEDDATE > timestamp('1901-01-01') and st.CREATEDDATE < timestamp('2040-01-01')
-                   then cast(st.CREATEDDATE as date) end
+                   then cast(from_utc_timestamp(st.CREATEDDATE, 'America/Chicago') as date) end
             , cast(l.MODIFIEDDATE as date)
           ) >= dso.range_start_date
         and coalesce(
               case when st.CREATEDDATE > timestamp('1901-01-01') and st.CREATEDDATE < timestamp('2040-01-01')
-                   then cast(st.CREATEDDATE as date) end
+                   then cast(from_utc_timestamp(st.CREATEDDATE, 'America/Chicago') as date) end
             , cast(l.MODIFIEDDATE as date)
           ) < dso.range_end_date
 
@@ -507,13 +510,14 @@ joined as (
         on som.channel_code = sc.channel_code
 
     -- EDW-169: rate at the order date as the fact derives it (same placeholder bounds as
-    -- order_date); the line's modified date where the order has no usable created date.
+    -- order_date, Central day since EDW-184); the line's modified date where the order has no
+    -- usable created date.
     left join fx_rate fx
         on l.CURRENCYCODE = fx.from_currency_code
         and l.CURRENCYCODE <> 'USD'
         and coalesce(
               case when st.CREATEDDATE > timestamp('1901-01-01') and st.CREATEDDATE < timestamp('2040-01-01')
-                   then cast(st.CREATEDDATE as date) end
+                   then cast(from_utc_timestamp(st.CREATEDDATE, 'America/Chicago') as date) end
             , cast(l.MODIFIEDDATE as date)
           ) between fx.rate_start_date and fx.rate_end_date
 
@@ -549,8 +553,8 @@ final as (
 
     -- Dim FKs
         , case when l.order_created_date is not null and l.order_created_date > timestamp('1901-01-01') and l.order_created_date < timestamp('2040-01-01')
-               then cast(date_format(l.order_created_date, 'yyyyMMdd') as int)
-               else null end                                          as order_date_key
+               then cast(date_format(l.order_created_datetime_ct, 'yyyyMMdd') as int)
+               else null end                                          as order_date_key  -- EDW-184: Central calendar day
         , case when l.SHIPPINGDATEREQUESTED is not null and l.SHIPPINGDATEREQUESTED > timestamp('1901-01-01') and l.SHIPPINGDATEREQUESTED < timestamp('2040-01-01')
                then cast(date_format(l.SHIPPINGDATEREQUESTED, 'yyyyMMdd') as int)
                else null end                                          as requested_ship_date_key  -- Placeholder dates on/after 2040-01-01 or on/before 1901-01-01 null out with their key per spec 7.6 (152 rows live).
@@ -568,8 +572,8 @@ final as (
                then cast(date_format(l.RETURNARRIVALDATE, 'yyyyMMdd') as int)
                else null end                                          as return_date_key  -- Same placeholder rule as requested_ship_date_key (spec 7.6) -- 1901 floor paired with a 2040 ceiling (25,020 rows live sit below the floor; none currently sit above the ceiling).
         , case when l.SALESTYPE = 4 and l.order_created_date is not null and l.order_created_date > timestamp('1901-01-01') and l.order_created_date < timestamp('2040-01-01')
-               then cast(date_format(l.order_created_date, 'yyyyMMdd') as int)
-               else null end                                          as return_request_date_key  -- EDW-58: DIM_DATE key on return_request_date.
+               then cast(date_format(l.order_created_datetime_ct, 'yyyyMMdd') as int)
+               else null end                                          as return_request_date_key  -- EDW-58: DIM_DATE key on return_request_date. EDW-184: Central calendar day.
         , cast(null as int) as cancel_date_key  -- Source once available: no dedicated cancellation-date field found on SalesLine -- MODIFIEDDATE reflects the row's last change generally, not confirmed to be the cancellation event specifically
         , l.product_key
         , l.unresolved_upc
@@ -594,8 +598,8 @@ final as (
 
     -- Dates
         , case when l.order_created_date is not null and l.order_created_date > timestamp('1901-01-01') and l.order_created_date < timestamp('2040-01-01')
-               then cast(l.order_created_date as date)
-               else null end                                          as order_date
+               then cast(l.order_created_datetime_ct as date)
+               else null end                                          as order_date  -- EDW-184: the Central calendar day of SalesTable.CREATEDDATE, which D365 stores in UTC. Was the UTC day, which put orders created after 7 PM Central (6 PM in winter) on the next day.
         , case when l.SHIPPINGDATEREQUESTED is not null and l.SHIPPINGDATEREQUESTED > timestamp('1901-01-01') and l.SHIPPINGDATEREQUESTED < timestamp('2040-01-01')
                then cast(l.SHIPPINGDATEREQUESTED as date)
                else null end                                          as requested_ship_date
@@ -615,8 +619,8 @@ final as (
                then cast(l.RETURNARRIVALDATE as date)
                else null end                                          as return_date
         , case when l.SALESTYPE = 4 and l.order_created_date is not null and l.order_created_date > timestamp('1901-01-01') and l.order_created_date < timestamp('2040-01-01')
-               then cast(l.order_created_date as date)
-               else null end                                          as return_request_date  -- EDW-58: the return order's CREATEDDATE on return rows (equals order_date there; kept so return metrics read one column).
+               then cast(l.order_created_datetime_ct as date)
+               else null end                                          as return_request_date  -- EDW-58: the return order's CREATEDDATE on return rows (equals order_date there; kept so return metrics read one column). EDW-184: Central calendar day.
         , case when l.SALESTYPE = 4 and l.RETURNDEADLINE is not null and l.RETURNDEADLINE > timestamp('1901-01-01') and l.RETURNDEADLINE < timestamp('2040-01-01')
                then cast(l.RETURNDEADLINE as date)
                else null end                                          as return_deadline  -- EDW-58: SalesTable.RETURNDEADLINE on return rows, placeholder rule (spec 7.6).
@@ -785,6 +789,14 @@ final as (
             , coalesce(case when l.SALESTYPE = 3 then cast(cast(l.REVESTIMATEDSHIPDATE as date) as string) end, '')
             , coalesce(case when l.SALESTYPE = 3 then cast(cast(l.REVOGESTIMATEDSHIPDATE as date) as string) end, '')
           ), 256) as row_hash
+
+    -- SUP-11: the D365 inventory status on the line's inventory dimension (Available = regular stock,
+    -- Tippi Toes = the reserved Tippi Toes stock, and so on), blank read as UNKNOWN, the same rule as
+    -- the inventory facts. On a sales line it is the inventory the line was ordered from (it matches
+    -- the status issued at shipment); on a return line, the status the return is received into.
+    -- Appended after row_hash so a full refresh and the in-place column add give the same position.
+    -- Not in row_hash: the line watermark already re-pulls a line when its dimension changes.
+        , coalesce(nullif(trim(l.INVENTSTATUSID), ''), 'UNKNOWN')      as inventory_status_code
 
     from joined l
 

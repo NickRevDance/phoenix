@@ -154,6 +154,24 @@ sales_table as (
 
 ),
 
+-- EDW-184: the sales orders that replace a return, the same rule as fact_orders_returns (EDW-58,
+-- spec 4.11): every order named in a return header's RETURNREPLACEMENTID. D365 posts the sale
+-- lines on these orders to the returns account, so the Executive Summary counts them as returns
+-- (BS-367 decision D8). Read from the full header table, so a line gets its flag on any run; the
+-- replacement order exists before it is invoiced, so the flag is known when the line lands.
+replacement_order as (
+
+    select distinct
+
+          rt.RETURNREPLACEMENTID as SALESID
+
+    from {{ ref('silver_d365_sales_table') }} rt
+    where rt.SALESTYPE = 4
+      and rt.RETURNREPLACEMENTCREATED = 1
+      and nullif(rt.RETURNREPLACEMENTID, '') is not null
+
+),
+
 inventory_dim as (
 
     select
@@ -408,6 +426,7 @@ joined as (
         , pc.cost_currency_code
         , pst.posted_cost_amount  -- EDW-182
         , pst.posted_qty          -- EDW-182
+        , ro.SALESID is not null  as is_replacement_order  -- EDW-184
 
     from trans tr
 
@@ -421,6 +440,10 @@ joined as (
 
     left join sales_table st
         on tr.SALESID = st.SALESID
+
+    -- EDW-184: one row per order (distinct above), so this join cannot fan out.
+    left join replacement_order ro
+        on tr.SALESID = ro.SALESID
 
     left join inventory_dim d
         on tr.INVENTDIMID = d.InventDimID
@@ -604,6 +627,14 @@ final as (
         , current_timestamp()                                        as etl_update_datetime
         , j.MODIFIEDDATE                                             as etl_source_modified_datetime
         , sha2(concat_ws('||', j.INVOICEID, cast(j.LINENUM as string), 'D365', cast(j.QTY as string), cast(j.SALESPRICE as string)), 256) as row_hash
+
+    -- EDW-184: true when the line's order is a replacement order (is_replacement_flag on
+    -- fact_orders_returns), false on every other Sales Order line, NULL on free text lines. A
+    -- property of the order, so it reads on every line of it; the sale lines are the ones that
+    -- matter (BS-367 D8: report Sales Amount leaves them out and Return Amount takes them in, as the
+    -- GL does). Appended after row_hash so a full refresh and the in-place column add give the same
+    -- position. Not in row_hash: it does not change once the line is invoiced.
+        , case when nullif(j.SALESID, '') is not null then j.is_replacement_order end as is_replacement_order_flag
 
     from joined j
 
