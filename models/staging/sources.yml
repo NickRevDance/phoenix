@@ -165,6 +165,22 @@ sources:
       - name: d365_logistics_electronic_address
         identifier: Rev_LogisticsElectronicAddressStaging
 
+      - name: d365_general_journal_entry
+        identifier: Rev_GeneralJournalEntryStaging
+        config:
+          loaded_at_field: SYNCSTARTDATETIME
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 48, period: hour}
+
+      - name: d365_general_journal_account_entry
+        identifier: Rev_GeneralJournalAccountEntryStaging
+        config:
+          loaded_at_field: SYNCSTARTDATETIME
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 48, period: hour}
+
   - name: bc
     database: dwhvisualnext
     schema: bc
