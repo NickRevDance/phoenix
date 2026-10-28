@@ -23,8 +23,8 @@ d365_value as (
                 else 0
            end) as d365_value
     from {{ ref('silver_d365_inventory_trans') }} t
-    where t.STATUSRECEIPT in (1, 2)
-       or t.STATUSISSUE in (1, 2)
+    where (t.STATUSRECEIPT in (1, 2) or t.STATUSISSUE in (1, 2))
+      and coalesce(t.is_deleted, 0) = 0  -- EDW-177
 
 )
 

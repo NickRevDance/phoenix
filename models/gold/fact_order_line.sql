@@ -7,12 +7,19 @@
         'product_key', 'unresolved_upc',
         'customer_key', 'customer_segment_key', 'is_dso_order_flag',
         'order_date', 'order_date_key', 'sales_channel_key', 'source_sales_origin_id',
-        'customer_purchase_order', 'shipping_method', 'payment_terms_code', 'payment_mode_code'
+        'customer_purchase_order', 'shipping_method', 'payment_terms_code', 'payment_mode_code',
+        'is_source_deleted_flag'
+    ],
+    post_hook = [
+        "{{ sync_source_deleted_flag('order_line_key', ref('silver_d365_sales_line'), 'REC', key_salt='D365') }}"
     ]
 ) }}
 
 -- EDW-56: insert-only (spec 4.1). A matched row updates only the self-heal columns above, and each of
 -- those holds its first resolved value (existing CTE), so business columns and etl_insert_datetime never move.
+-- EDW-177: a line deleted in D365 stays on the fact (spec Open Decision 9) with is_source_deleted_flag = true.
+-- The flag is the one column that follows the source after insert; the post-hook keeps it in step with
+-- silver on every row, since a delete doesn't move MODIFIEDDATE.
 
 with line as (
 
@@ -32,6 +39,7 @@ with line as (
         , l.SALESSTATUS
         , l.SHIPPINGDATEREQUESTED
         , l.MODIFIEDDATE
+        , coalesce(l.is_deleted, 0) = 1 as is_source_deleted  -- EDW-177
 
     from {{ ref('silver_d365_sales_line') }} l
 
@@ -279,6 +287,7 @@ joined as (
         , l.SALESSTATUS
         , l.SHIPPINGDATEREQUESTED
         , l.MODIFIEDDATE
+        , l.is_source_deleted
 
         , st.CUSTACCOUNT
         , st.SALESORIGINID
@@ -466,6 +475,10 @@ final as (
         , current_timestamp()                                        as etl_insert_datetime  -- set at insert only; not in merge_update_columns
         , l.MODIFIEDDATE                                              as etl_source_modified_datetime  -- not a spec field; needed as the incremental-merge watermark (spec 6/Audit says etl_insert_datetime is the only timestamp needed since rows are immutable, but the ETL mechanics still need a change-detection column upstream)
         , sha2(concat_ws('||', l.SALESID, cast(l.LINENUM as string), 'D365', cast(l.QTYORDERED as string), cast(l.SALESPRICE as string)), 256) as row_hash
+
+    -- EDW-177: true when D365 has deleted the line. Current-demand reads filter it. Appended after row_hash
+    -- so a full refresh and the in-place column add give the same position. Not in row_hash.
+        , l.is_source_deleted                                         as is_source_deleted_flag
 
     from held l
 

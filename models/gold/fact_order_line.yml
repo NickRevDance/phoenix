@@ -110,6 +110,12 @@ models:
         tests: [not_null]
       - name: net_line_amount
         tests: [not_null]
+      - name: is_source_deleted_flag
+        description: >
+          True when D365 has deleted the sales line. The line stays on this fact (Open Decision 9);
+          current-demand reads such as V_DEMAND_PLANNING filter it. Kept in step with the silver
+          delete mark by the model's post-hook. EDW-177.
+        tests: [not_null]
 
 # EDW-21 v1.1 (2026-10-07): uniqueness is tested on order_id +
 # d365_sales_line_rec_id (model-level test above) and on order_line_key.

@@ -105,6 +105,7 @@ order_line as (
         on o.order_line_key = r.orders_returns_key
 
     where o.order_date is not null
+      and not coalesce(o.is_source_deleted_flag, false)  -- EDW-177: lines D365 has deleted aren't demand
 
 ),
 
