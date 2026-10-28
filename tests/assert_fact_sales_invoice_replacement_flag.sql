@@ -14,6 +14,7 @@ with replacement_order as (
     where rt.SALESTYPE = 4
       and rt.RETURNREPLACEMENTCREATED = 1
       and nullif(rt.RETURNREPLACEMENTID, '') is not null
+      and coalesce(rt.is_deleted, 0) = 0  -- EDW-177
 
 )
 

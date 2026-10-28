@@ -169,3 +169,10 @@ models:
         description: Reserved, NULL (Decision Record I1a). The day-grain balance is on V_INVENTORY_MOVEMENT_RECONCILIATION.
       - name: quantity_after
         description: Reserved, NULL (Decision Record I1a), as quantity_before.
+      - name: is_source_deleted_flag
+        description: >
+          True when D365 has deleted the InventTrans leg, including the original RECID when D365
+          splits a leg into new ones. The leg stays on the fact; net movement reads such as
+          V_INVENTORY_MOVEMENT_RECONCILIATION filter it, and pairing skips it. Kept in step with the
+          silver delete mark by the model's post-hook. EDW-177.
+        tests: [not_null]

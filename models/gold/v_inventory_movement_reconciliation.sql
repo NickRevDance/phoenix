@@ -255,6 +255,7 @@ movement_net as (
     inner join {{ ref('fact_inventory_movement') }} m
         on  m.movement_date_key >  dp.period_start_movement_cutoff_date_key
         and m.movement_date_key <= dp.period_end_movement_cutoff_date_key
+        and not coalesce(m.is_source_deleted_flag, false)  -- EDW-177: legs D365 has deleted aren't movement
 
     group by 1, 2, 3, 5, 7
 

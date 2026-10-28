@@ -2,8 +2,15 @@
     materialized = 'incremental',
     unique_key = 'orders_returns_key',
     incremental_strategy = 'merge',
-    on_schema_change = 'sync_all_columns'
+    on_schema_change = 'sync_all_columns',
+    post_hook = [
+        "delete from {{ this }} where orders_returns_key in (select xxhash64(s.REC, 'D365') from {{ ref('silver_d365_sales_line') }} s where s.is_deleted = 1)"
+    ]
 ) }}
+
+-- EDW-177: a current-state fact, so a line deleted in D365 leaves it. The line CTE skips marked lines
+-- and the post-hook removes the ones already loaded (a delete doesn't move MODIFIEDDATE, so the merge
+-- never revisits them). A line whose mark clears is re-pulled by the not-exists clause below.
 
 with line as (
 
@@ -45,10 +52,14 @@ with line as (
     -- unlike FACT_ORDER_LINE, which filters to 3 only. See spec Section 4.9
     -- (combined orders-and-returns design) and README.
     where l.SALESTYPE in (3, 4)
+      and coalesce(l.is_deleted, 0) = 0  -- EDW-177
 
     {% if is_incremental() %}
     and (
         l.MODIFIEDDATE > (select coalesce(max(etl_source_modified_datetime), timestamp('1900-01-01')) from {{ this }}) - interval 2 days
+        -- EDW-177: re-pull a live line that isn't on the fact (its delete mark cleared, or it came back into SALESTYPE 3/4).
+        -- not exists, not not in: a NOT IN inside this OR plans as a null-aware nested-loop join.
+        or not exists (select 1 from {{ this }} x where x.orders_returns_key = xxhash64(l.REC, 'D365'))
         -- EDW-134 self-heal: re-pull lines that still hold an Unknown product
         or cast(l.REC as bigint) in (select d365_sales_line_rec_id from {{ this }} where product_key = '-1')
         -- EDW-135 self-heal: re-pull lines that still hold a null or Unknown customer
@@ -61,6 +72,7 @@ with line as (
                 select h.SALESID
                 from {{ ref('silver_d365_sales_table') }} h
                 where h.SALESTYPE = 4
+                  and coalesce(h.is_deleted, 0) = 0  -- EDW-177
                   and h.MODIFIEDDATE > (select coalesce(max(etl_source_modified_datetime), timestamp('1900-01-01')) from {{ this }}) - interval 2 days
             )
         )
@@ -120,6 +132,7 @@ replacement_order as (
     where rt.SALESTYPE = 4
       and rt.RETURNREPLACEMENTCREATED = 1
       and nullif(rt.RETURNREPLACEMENTID, '') is not null
+      and coalesce(rt.is_deleted, 0) = 0  -- EDW-177: a deleted return no longer names a replacement
 
 ),
 
@@ -138,6 +151,7 @@ original_line as (
     from {{ ref('silver_d365_sales_line') }} ol
     where ol.SALESTYPE in (3, 4)
       and nullif(ol.INVENTTRANSID, '') is not null
+      and coalesce(ol.is_deleted, 0) = 0  -- EDW-177: a deleted original isn't on this fact to link to
 
 ),
 

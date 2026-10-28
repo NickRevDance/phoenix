@@ -13,6 +13,7 @@ with fact_totals as (
         , cast(coalesce(sum(ordered_qty), 0) as decimal(38,6))        as ordered_qty
     from {{ ref('fact_order_line') }}
     where order_date is not null
+      and not coalesce(is_source_deleted_flag, false)  -- EDW-177: the view leaves deleted lines out
 
 ),
 

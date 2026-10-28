@@ -9,6 +9,7 @@ from {{ ref('silver_d365_sales_table') }} s
 left join {{ ref('ref_return_reason_category') }} r
     on r.return_reason_code = s.RETURNREASONCODEID
 where s.SALESTYPE = 4
+  and coalesce(s.is_deleted, 0) = 0  -- EDW-177
   and nullif(trim(s.RETURNREASONCODEID), '') is not null
   and r.return_reason_code is null
 group by s.RETURNREASONCODEID

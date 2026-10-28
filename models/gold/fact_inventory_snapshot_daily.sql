@@ -338,8 +338,8 @@ moving_avg_cost as (
     from {{ ref('silver_d365_inventory_trans') }} t
     inner join inventory_dim d
         on t.INVENTDIMID = d.InventDimID
-    where t.STATUSRECEIPT in (1, 2)
-       or t.STATUSISSUE in (1, 2)
+    where (t.STATUSRECEIPT in (1, 2) or t.STATUSISSUE in (1, 2))
+      and coalesce(t.is_deleted, 0) = 0  -- EDW-177: InventSum doesn't count legs D365 has deleted
     group by 1, 2, 3, 4, 5
 
 ),

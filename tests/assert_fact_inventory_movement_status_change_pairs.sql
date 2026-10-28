@@ -22,6 +22,7 @@ with legs as (
 
     from {{ ref('fact_inventory_movement') }} f
     where f.movement_type = 'STATUS_CHANGE'
+      and not coalesce(f.is_source_deleted_flag, false)  -- EDW-177: pairing skips legs D365 has deleted
 
 ),
 

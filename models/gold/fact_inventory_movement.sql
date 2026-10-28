@@ -4,7 +4,8 @@
     incremental_strategy = 'merge',
     on_schema_change = 'sync_all_columns',
     post_hook = [
-        "update {{ this }} set product_key = '-1', etl_update_datetime = current_timestamp() where product_key is null"
+        "update {{ this }} set product_key = '-1', etl_update_datetime = current_timestamp() where product_key is null",
+        "{{ sync_source_deleted_flag('inventory_movement_key', ref('silver_d365_inventory_trans'), 'RECID', update_audit_column='etl_update_datetime') }}"
     ]
 ) }}
 
@@ -55,6 +56,11 @@
 --   re-read whatever their modified date, so a leg whose partner posts or changes later is
 --   corrected on the next run instead of keeping a NULL counterparty.
 --
+-- SOURCE DELETES (EDW-177)
+--   A leg D365 deletes (or replaces with new RECIDs when it splits a leg) stays in the fact with
+--   is_source_deleted_flag = true, kept in step with the silver mark by the post-hook on every row.
+--   Flagged legs are left out of transfer and status-change pairing; net movement reads filter them.
+--
 -- INCREMENTAL
 --   Merge on inventory_movement_key. Each run re-reads legs modified in the last
 --   inventory_movement_lookback_days days (default 2) before the newest modified datetime already
@@ -104,6 +110,7 @@ with posted_legs as (
         , t.ReferenceCategory
         , t.ReferenceId
         , t.VOUCHER
+        , coalesce(t.is_deleted, 0) = 1 as is_source_deleted  -- EDW-177
 
     from {{ ref("silver_d365_inventory_trans") }} t
 
@@ -302,6 +309,7 @@ transfer_legs as (
 
     where t.ReferenceCategory in (21, 22)
       and d.INVENTLOCATIONID not like '%-T'
+      and coalesce(t.is_deleted, 0) = 0  -- EDW-177
 
 ),
 
@@ -382,6 +390,7 @@ status_change_pairs as (
 
     from classified
     where ReferenceCategory = 202
+      and not is_source_deleted  -- EDW-177
     group by VOUCHER, ReferenceId, date(DATEPHYSICAL)
 
 ),
@@ -460,6 +469,7 @@ final as (
               , coalesce(cast(c.product_key as string), '')
             ), 256
           )                                      as row_hash
+        , c.is_source_deleted                    as is_source_deleted_flag  -- EDW-177: appended after row_hash, not in it
 
     from classified c
     left join transfer_pairs tp
