@@ -1,0 +1,22 @@
+version: 2
+
+models:
+  - name: silver_d365_general_journal_entry
+    description: >
+      D365 GeneralJournalEntry -- one row per posted general ledger voucher (header).
+      DATAAREAID is SUBLEDGERVOUCHERDATAAREAID uppercased. Lines are in
+      silver_d365_general_journal_account_entry.
+    columns:
+      - name: RECID
+        data_tests:
+          - unique
+          - not_null
+      - name: LEDGER
+        data_tests:
+          - not_null
+      - name: DATAAREAID
+        data_tests:
+          - not_null
+      - name: ACCOUNTINGDATE
+        data_tests:
+          - not_null
