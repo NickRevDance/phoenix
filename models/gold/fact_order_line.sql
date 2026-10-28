@@ -2,8 +2,17 @@
     materialized = 'incremental',
     unique_key = 'order_line_key',
     incremental_strategy = 'merge',
-    on_schema_change = 'sync_all_columns'
+    on_schema_change = 'sync_all_columns',
+    merge_update_columns = [
+        'product_key', 'unresolved_upc',
+        'customer_key', 'customer_segment_key', 'is_dso_order_flag',
+        'order_date', 'order_date_key', 'sales_channel_key', 'source_sales_origin_id',
+        'customer_purchase_order', 'shipping_method', 'payment_terms_code', 'payment_mode_code'
+    ]
 ) }}
+
+-- EDW-56: insert-only (spec 4.1). A matched row updates only the self-heal columns above, and each of
+-- those holds its first resolved value (existing CTE), so business columns and etl_insert_datetime never move.
 
 with line as (
 
@@ -61,6 +70,8 @@ sales_table as (
         , st.DLVMODE
         , st.PURCHORDERFORMNUM
         , st.CREATEDDATE
+        , st.PAYMENT  -- EDW-56: payment terms
+        , st.PAYMMODE  -- EDW-56: tender
 
     from {{ ref('silver_d365_sales_table') }} st
 
@@ -132,12 +143,37 @@ customer as (
 
     select
 
-          customer_key
-        , customer_id
+          c.customer_key
+        , c.customer_id
+        , c.customer_segment_key  -- EDW-56: Type 1 on dim_customer, so this is the customer's segment today
 
-    from {{ ref('dim_customer') }}
-    where version_number = 1
-      and source_system = 'D365'
+    from {{ ref('dim_customer') }} c
+    where c.version_number = 1
+      and c.source_system = 'D365'
+
+),
+
+customer_dso as (
+
+    -- EDW-56: the DSO flag on the DIM_CUSTOMER version in effect at the order date, same ranges as
+    -- fact_orders_returns: each version runs to the day before the next starts, the first reaches
+    -- back to 1900-01-01 and the last stays open, so the join cannot fan out.
+    select
+
+          c.customer_key
+        , c.is_dso_member_flag
+        , case
+            when row_number() over (partition by c.customer_key order by c.effective_start_datetime, c.version_number desc) = 1
+            then date'1900-01-01'
+            else cast(c.effective_start_datetime as date)
+          end                                                       as range_start_date
+        , coalesce(
+              lead(cast(c.effective_start_datetime as date)) over (partition by c.customer_key order by c.effective_start_datetime, c.version_number desc)
+            , date'9999-12-31'
+          )                                                         as range_end_date  -- exclusive
+
+    from {{ ref('dim_customer') }} c
+    where c.source_system = 'D365'
 
 ),
 
@@ -181,6 +217,52 @@ sales_channel as (
 
 ),
 
+existing as (
+
+    -- EDW-56: values already on the fact, held on later merges (see the held columns in final).
+    -- Empty on a full refresh, so every row resolves fresh.
+    select
+
+          t.order_line_key
+        , t.product_key
+        , t.unresolved_upc
+        , t.customer_key
+        , t.customer_segment_key
+        , t.is_dso_order_flag
+        , t.order_date
+        , t.order_date_key
+        , t.sales_channel_key
+        , t.source_sales_origin_id
+        , t.customer_purchase_order
+        , t.shipping_method
+        , t.payment_terms_code
+        , t.payment_mode_code
+
+    {% if is_incremental() %}
+    from {{ this }} t
+    {% else %}
+    from (
+        select
+              cast(null as bigint)  as order_line_key
+            , cast(null as string)  as product_key
+            , cast(null as string)  as unresolved_upc
+            , cast(null as bigint)  as customer_key
+            , cast(null as bigint)  as customer_segment_key
+            , cast(null as boolean) as is_dso_order_flag
+            , cast(null as date)    as order_date
+            , cast(null as int)     as order_date_key
+            , cast(null as bigint)  as sales_channel_key
+            , cast(null as string)  as source_sales_origin_id
+            , cast(null as string)  as customer_purchase_order
+            , cast(null as string)  as shipping_method
+            , cast(null as string)  as payment_terms_code
+            , cast(null as string)  as payment_mode_code
+    ) t
+    where 1 = 0
+    {% endif %}
+
+),
+
 joined as (
 
     select
@@ -203,12 +285,17 @@ joined as (
         , st.DLVMODE
         , st.PURCHORDERFORMNUM
         , st.CREATEDDATE                         as order_created_date
+        , from_utc_timestamp(st.CREATEDDATE, 'America/Chicago') as order_created_datetime_ct  -- EDW-56: Central clock, same basis as fact_orders_returns (EDW-184)
+        , st.PAYMENT
+        , st.PAYMMODE
 
         , d.INVENTLOCATIONID
         -- EDW-134: UPCs missing from dim_product resolve to Unknown ('-1'); UPC kept in unresolved_upc
         , coalesce(prod.product_key, '-1')   as product_key
         , case when prod.product_key is null then bar.ITEMBARCODE end as unresolved_upc
         , coalesce(cu.customer_key, cast(-1 as bigint)) as customer_key  -- EDW-135: headerless lines resolve to the dim_customer -1 member
+        , cu.customer_segment_key                as current_customer_segment_key  -- EDW-56: NULL on the -1 customer
+        , dso.is_dso_member_flag                 as dso_flag_at_order  -- EDW-56: NULL on the -1 customer
         , wh.warehouse_key
         , coalesce(sc.sales_channel_key, -1)      as sales_channel_key  -- 2026-09-16 fix (Chris review, same as EDW-23/fact_sales_invoice v1.2): sales_channel_key is never NULL -- unmapped/blank origins resolve to dim_sales_channel's reserved -1 UNKNOWN member.
 
@@ -232,6 +319,11 @@ joined as (
     left join customer cu
         on st.CUSTACCOUNT = cu.customer_id
 
+    left join customer_dso dso
+        on cu.customer_key = dso.customer_key
+        and coalesce(cast(from_utc_timestamp(st.CREATEDDATE, 'America/Chicago') as date), cast(l.MODIFIEDDATE as date)) >= dso.range_start_date
+        and coalesce(cast(from_utc_timestamp(st.CREATEDDATE, 'America/Chicago') as date), cast(l.MODIFIEDDATE as date)) < dso.range_end_date
+
     left join warehouse wh
         on d.INVENTLOCATIONID = wh.warehouse_id
         and d.inventsiteid = wh.d365_site_id
@@ -241,6 +333,38 @@ joined as (
 
     left join sales_channel sc
         on som.channel_code = sc.channel_code
+
+),
+
+held as (
+
+    -- EDW-56: three hold rules, one per self-heal family. A product holds once it resolves (EDW-134),
+    -- a customer and its segment/DSO values hold once the customer resolves (EDW-135), and the
+    -- header columns hold once a header has been seen, so a later header delete can't blank them.
+    select
+
+          j.*
+        , ex.order_line_key is not null and ex.product_key <> '-1'                as is_product_held
+        , ex.order_line_key is not null and ex.customer_key <> -1                 as is_customer_held
+        , ex.order_line_key is not null and ex.order_date is not null             as is_header_held
+        , ex.product_key                         as existing_product_key
+        , ex.unresolved_upc                      as existing_unresolved_upc
+        , ex.customer_key                        as existing_customer_key
+        , ex.customer_segment_key                as existing_customer_segment_key
+        , ex.is_dso_order_flag                   as existing_is_dso_order_flag
+        , ex.order_date                          as existing_order_date
+        , ex.order_date_key                      as existing_order_date_key
+        , ex.sales_channel_key                   as existing_sales_channel_key
+        , ex.source_sales_origin_id              as existing_source_sales_origin_id
+        , ex.customer_purchase_order             as existing_customer_purchase_order
+        , ex.shipping_method                     as existing_shipping_method
+        , ex.payment_terms_code                  as existing_payment_terms_code
+        , ex.payment_mode_code                   as existing_payment_mode_code
+
+    from joined j
+
+    left join existing ex
+        on xxhash64(j.REC, 'D365') = ex.order_line_key
 
 ),
 
@@ -263,37 +387,36 @@ final as (
         , cast(null as string) as bigcommerce_order_id  -- Source once available: no confirmed field -- SalesTable.REVINTEGRATIONID is 78.5% populated but not confirmed to be BigCommerce-specific; SUNECOMMORDERID (0% populated) ruled out
 
     -- Dim FKs
-        , cast(date_format(l.order_created_date, 'yyyyMMdd') as int)  as order_date_key
+        , case when l.is_header_held then l.existing_order_date_key
+               else coalesce(cast(date_format(l.order_created_datetime_ct, 'yyyyMMdd') as int), -1)
+          end                                                         as order_date_key  -- EDW-56 (spec 7.11): a line with no order header goes to the DIM_DATE -1 member; order_date stays NULL
         , case when l.SHIPPINGDATEREQUESTED is not null and l.SHIPPINGDATEREQUESTED > timestamp('1901-01-01') and l.SHIPPINGDATEREQUESTED < timestamp('2040-01-01')
                then cast(date_format(l.SHIPPINGDATEREQUESTED, 'yyyyMMdd') as int)
                else null end                                          as requested_ship_date_key  -- EDW-21 v1.1 (2026-10-07): placeholder dates on/after 2040-01-01 or on/before 1901-01-01 null out with their key (spec 4.7 / 7.8). Same rule as FACT_ORDERS_RETURNS.
-        , l.product_key
-        , l.unresolved_upc
-        , l.customer_key
-        , cast(null as bigint) as ship_to_customer_key  -- Phase 2 per spec
-        , l.sales_channel_key
-        , nullif(l.SALESORIGINID, '') as source_sales_origin_id  -- v1.1 (EDW-16, Decision 4): raw D365 origin carried on the fact as a non-key lineage attribute, so an unmapped/blank row can be traced without a join back to silver.
+        , case when l.is_product_held then l.existing_product_key else l.product_key end         as product_key
+        , case when l.is_product_held then l.existing_unresolved_upc else l.unresolved_upc end   as unresolved_upc
+        , case when l.is_customer_held then l.existing_customer_key else l.customer_key end      as customer_key
+    -- ship_to_customer_key removed (retired, spec v1.2 O8; EDW-56)
+        , case when l.is_header_held then l.existing_sales_channel_key else l.sales_channel_key end as sales_channel_key
+        , case when l.is_header_held then l.existing_source_sales_origin_id else nullif(l.SALESORIGINID, '') end as source_sales_origin_id  -- v1.1 (EDW-16, Decision 4): raw D365 origin carried on the fact as a non-key lineage attribute, so an unmapped/blank row can be traced without a join back to silver.
         , l.warehouse_key
         , cast(-1 as bigint) as employee_sales_hierarchy_key  -- 2026-09-16 fix (Chris review, same as EDW-23/fact_sales_invoice): coalesced to the reserved -1 UNKNOWN member rather than left null -- no worker/sales-rep table found in the warehouse scan, shared gap with fact_sales_invoice
         , cast(null as bigint) as campaign_key  -- Phase 2 per spec
-        , cast(null as bigint) as promotion_key  -- Phase 2 per spec
-        , cast(null as bigint) as customer_segment_key  -- Phase 2 per spec -- DIM_CUSTOMER_SEGMENT doesn't exist in this project yet
+    -- promotion_key removed (deprecated, spec v1.2 O1; EDW-56): promotion analysis routes through FACT_DISCOUNT_APPLICATION.
+        , case when l.is_customer_held then coalesce(l.existing_customer_segment_key, l.current_customer_segment_key)
+               else l.current_customer_segment_key
+          end                                                         as customer_segment_key  -- EDW-56 (spec 4.11): the customer's segment when the line is written, held after that. NULL on the -1 customer.
 
     -- Dates
-        , cast(l.order_created_date as date)                         as order_date
+        , case when l.is_header_held then l.existing_order_date else cast(l.order_created_datetime_ct as date) end as order_date  -- EDW-56: Central calendar day
         , case when l.SHIPPINGDATEREQUESTED is not null and l.SHIPPINGDATEREQUESTED > timestamp('1901-01-01') and l.SHIPPINGDATEREQUESTED < timestamp('2040-01-01')
                then cast(l.SHIPPINGDATEREQUESTED as date)
                else null end                                          as requested_ship_date  -- EDW-21 v1.1 (2026-10-07): placeholder rule, see requested_ship_date_key
         , cast(null as date) as requested_delivery_date  -- Phase 2 per spec
 
     -- Status
-    -- D365 SalesStatus enum: 0=None, 1=Backorder, 2=Delivered, 3=Invoiced,
-    -- 4=Canceled (confirmed 2026-09-11). This is the line's CURRENT status
-    -- as of this initial load, not a true point-in-time-at-creation value --
-    -- D365 BYOD carries no status-change history, so an already-invoiced
-    -- historical order line (97.5% of this population) reads as "Invoiced"
-    -- here rather than whatever it was the day it was placed. Spec Section
-    -- 7.5 anticipates this exact late-arriving-line scenario.
+    -- D365 SalesStatus enum: 0=None, 1=Backorder, 2=Delivered, 3=Invoiced, 4=Canceled.
+    -- Status at first observation (spec 7.5); held after insert since EDW-56. A full refresh restates it to current.
         , case l.SALESSTATUS
             when 0 then 'None'
             when 1 then 'Backorder'
@@ -304,7 +427,9 @@ final as (
           end                                                         as order_line_status_at_creation
         , cast(null as boolean) as is_backordered_at_creation_flag  -- Source once available: Open Decision 6 -- SALESSTATUS=1 ("Backorder") exists but reflects current, not at-creation, state
         , cast(null as boolean) as is_expedited_flag  -- Source once available: no expedite indicator found (DLVMODE is a shipping method code, not an urgency flag)
-        , cast(null as boolean) as is_dso_order_flag  -- Phase 2 per spec -- Open Decision 7
+        , case when l.is_customer_held then coalesce(l.existing_is_dso_order_flag, l.dso_flag_at_order)
+               else l.dso_flag_at_order
+          end                                                         as is_dso_order_flag  -- EDW-56 (spec 4.9): DIM_CUSTOMER is_dso_member_flag on the version in effect at the order date. Membership history starts Oct 14 2026; earlier orders read that first version. NULL on the -1 customer.
 
     -- Quantities
         , l.QTYORDERED                                                as ordered_qty
@@ -319,20 +444,30 @@ final as (
         , cast(null as decimal(19,8)) as fx_rate_to_usd  -- Phase 2 per spec
         , cast(null as decimal(19,4)) as net_line_amount_usd  -- Phase 2 per spec
 
+    -- Payment (EDW-56, spec 4.8 / 7.9)
+        , case when l.is_header_held then l.existing_payment_terms_code
+               when nullif(trim(l.PAYMENT), '') is null then null
+               when upper(trim(l.PAYMENT)) in ('PREPAID', 'NET10', 'NET30', 'NET45', 'NET60') then upper(trim(l.PAYMENT))
+               else 'UNKNOWN'
+          end                                                         as payment_terms_code  -- SalesTable.PAYMENT upper-cased; blank to NULL; anything else UNKNOWN. Same rule as fact_orders_returns / fact_sales_invoice.
+        , case when l.is_header_held then l.existing_payment_mode_code
+               else nullif(trim(l.PAYMMODE), '')
+          end                                                         as payment_mode_code  -- SalesTable.PAYMMODE as sourced (CC-BT, Credit, RevPoints, Check, ACH); blank to NULL.
+
     -- B2B Context
-        , nullif(l.PURCHORDERFORMNUM, '')                             as customer_purchase_order
+        , case when l.is_header_held then l.existing_customer_purchase_order else nullif(l.PURCHORDERFORMNUM, '') end as customer_purchase_order
 
     -- Fulfillment Context
-        , nullif(l.DLVMODE, '')                                       as shipping_method  -- raw D365 delivery-mode code; no code-to-name lookup table found
+        , case when l.is_header_held then l.existing_shipping_method else nullif(l.DLVMODE, '') end as shipping_method  -- raw D365 delivery-mode code; no code-to-name lookup table found
         , nullif(l.INVENTLOCATIONID, '')                              as warehouse_id_at_order
 
     -- Audit
         , 'silver_d365_sales_line + silver_d365_sales_table'          as record_source_table
-        , current_timestamp()                                        as etl_insert_datetime
+        , current_timestamp()                                        as etl_insert_datetime  -- set at insert only; not in merge_update_columns
         , l.MODIFIEDDATE                                              as etl_source_modified_datetime  -- not a spec field; needed as the incremental-merge watermark (spec 6/Audit says etl_insert_datetime is the only timestamp needed since rows are immutable, but the ETL mechanics still need a change-detection column upstream)
         , sha2(concat_ws('||', l.SALESID, cast(l.LINENUM as string), 'D365', cast(l.QTYORDERED as string), cast(l.SALESPRICE as string)), 256) as row_hash
 
-    from joined l
+    from held l
 
 )
 

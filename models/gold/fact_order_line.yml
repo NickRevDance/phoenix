@@ -54,23 +54,58 @@ models:
         tests: [not_null]  # 2026-09-16 (EDW-16 v1.1 rebuild): never NULL
                             # since sales_channel_key is coalesced to -1 above,
                             # same as fact_sales_invoice.
-      # EDW-132 section 3: every date key relates to dim_date, at warn first (same as the sales facts on EDW-59).
+      - name: customer_segment_key
+        description: >
+          DIM_CUSTOMER_SEGMENT key of the order account when the line was written, held on later
+          merges. History before EDW-56 reads the segment on the day of the refresh, and a full
+          refresh restates it. NULL on the -1 customer. EDW-56.
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customer_segment')
+                field: customer_segment_key
+              config:
+                severity: warn  # same as fact_orders_returns (EDW-59)
+      - name: is_dso_order_flag
+        description: >
+          DIM_CUSTOMER is_dso_member_flag on the customer version in effect at the order date.
+          Membership history starts with the first customer snapshot (Oct 14 2026); earlier orders
+          read that first version. NULL on the -1 customer. EDW-56.
+        tests:
+          - not_null:
+              config:
+                where: "customer_key <> -1"
+                severity: warn
+      - name: payment_terms_code
+        description: SalesTable.PAYMENT conformed (spec 7.9). EDW-56.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['PREPAID', 'NET10', 'NET30', 'NET45', 'NET60', 'UNKNOWN']
+      - name: payment_mode_code
+        description: SalesTable.PAYMMODE as sourced, blank to NULL (spec 4.8). EDW-56.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['CC-BT', 'Credit', 'RevPoints', 'Check', 'ACH']
+              config:
+                severity: warn  # a new tender code surfaces here without stopping the run
+      # EDW-56: both date keys relate to dim_date at error (were warn on EDW-132). A line with no
+      # order header carries order_date_key -1, so the key is never NULL.
       - name: order_date_key
         tests:
+          - not_null
           - relationships:
               arguments:
                 to: ref('dim_date')
                 field: date_key
-              config:
-                severity: warn
       - name: requested_ship_date_key
+        description: NULL under the placeholder rule (spec 7.8); the relationships test skips those.
         tests:
           - relationships:
               arguments:
                 to: ref('dim_date')
                 field: date_key
-              config:
-                severity: warn
       - name: ordered_qty
         tests: [not_null]
       - name: net_line_amount
