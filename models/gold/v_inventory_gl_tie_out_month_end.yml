@@ -1,0 +1,122 @@
+version: 2
+
+# EDW-183 step 2 (Inventory Gold Layer spec v2.15, Section 5.10; decision record I6 point 9).
+# Tests at warn, as the rest of the library while the build is in progress (EDW-121).
+
+models:
+  - name: v_inventory_gl_tie_out_month_end
+    description: >
+      Inventory GL tie-out by month-end (spec 5.10, decision record I6 point 9). One row per
+      month-end close and GL bucket (REF_GL_INVENTORY_ACCOUNT), plus a TOTAL_TIED row for on hand
+      plus goods in transit, from June 2024. Sets the general ledger balance on the D365
+      inventory main accounts (company REV) beside D365's own Inventory value report and gold's
+      value at the same close (the close rows of V_INVENTORY_VALUE_MONTH_END), with the
+      reconciling lines between them and a tie status against a 10,000 USD tolerance. ON_HAND
+      (130020) and IN_TRANSIT (130070) are compared, split by the warehouse's D365 location type
+      (10, goods in transit, is IN_TRANSIT; transfer transit posts to on hand); the other
+      buckets are GL only so the whole inventory line of the balance sheet reads in one place.
+      Acceptance (EDW-183): the audited June 30 2026 close ties. Read tie_status first, then the
+      variance and reconciling columns.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - month_end_date
+              - gl_bucket
+          config:
+            severity: warn
+    columns:
+      - name: month_end_date_key
+        description: month_end_date as yyyymmdd, the relationship to DIM_DATE.
+        tests:
+          - not_null:
+              config:
+                severity: warn
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+              config:
+                severity: warn
+      - name: month_end_date
+        description: Calendar month-end the close stands for.
+      - name: close_snapshot_date
+        description: >
+          Date of the close row (V_INVENTORY_VALUE_MONTH_END): the month-end through January 2026,
+          the 1st of the next month from February 2026. D365's report and gold are read on this
+          date.
+      - name: close_rule
+        description: MONTH_END_ROW (through January 2026) or NEXT_MONTH_FIRST_ROW (from February 2026).
+      - name: is_close_captured_late_flag
+        description: >
+          1 when gold's close row was captured in the afternoon (V_INVENTORY_VALUE_MONTH_END), so
+          gold holds part of the next day's movement; set on the August and September 2026 closes.
+      - name: gl_bucket
+        description: >
+          ON_HAND, IN_TRANSIT, RECEIPT_CLEARING, TARIFF_DEFERRAL, VENDOR_PREPAYMENT,
+          EXCESS_OBSOLETE_RESERVE, RETURNS_ASSET, or TOTAL_TIED (ON_HAND plus IN_TRANSIT).
+        tests:
+          - not_null:
+              config:
+                severity: warn
+      - name: gl_bucket_description
+        description: Plain-English name of the bucket.
+      - name: main_account_ids
+        description: The D365 main accounts in the bucket, comma separated.
+      - name: is_tied_to_gold_flag
+        description: True on ON_HAND, IN_TRANSIT and TOTAL_TIED, the rows compared with D365 and gold.
+      - name: bucket_sort_order
+        description: Display order; TOTAL_TIED is 99.
+      - name: gl_balance_amount
+        description: >
+          GL balance at the month-end in USD (accounting currency), as booked today: every entry
+          dated on or before the month-end, company REV, opening vouchers left out (D365's July 1
+          opening equals the running sum before it).
+      - name: gl_manual_journal_in_month_amount
+        description: >
+          Manual journal lines (posting type 14) dated in the month: accounting's top-side
+          entries, which D365's subledger never sees. December 2024 carries the
+          -21,242,398.10 correction of an overstated vendor invoice (reversed January 1 2025).
+      - name: gl_posted_after_close_amount
+        description: >
+          Entries dated on or before the month-end but created after midnight Central at its end,
+          when D365's daily report run executes. Set on closes from February 2026 (the
+          NEXT_MONTH_FIRST_ROW rule); NULL on earlier closes, which D365 re-ran later and which
+          already include such entries.
+      - name: gl_balance_at_close_amount
+        description: gl_balance_amount less gl_posted_after_close_amount (the GL as D365's run saw it).
+      - name: d365_value_amount
+        description: >
+          D365's Inventory value report at the close date (silver_kpi_inventory_value), the
+          subledger valuation. NULL on the GL-only buckets.
+      - name: gold_value_amount
+        description: >
+          Gold's value at the close: moving_avg_cost_amount on every snapshot row at the close
+          date, all statuses. NULL on the GL-only buckets.
+      - name: gold_report_scope_amount
+        description: >
+          The same close in the certified report scope (V_INVENTORY_VALUE_MONTH_END: company-owned
+          statuses, stocked items), for reading the tie against the report. NULL on the GL-only
+          buckets.
+      - name: variance_gold_to_gl_amount
+        description: gold_value_amount less gl_balance_amount.
+      - name: variance_d365_to_gl_at_close_amount
+        description: d365_value_amount less gl_balance_at_close_amount.
+      - name: tie_tolerance_amount
+        description: The tolerance the status is judged against, 10,000 USD.
+      - name: tie_status
+        description: >
+          TIES (gold within tolerance of the GL balance); TIES_EXCL_MANUAL_JOURNALS (within
+          tolerance once the month's manual journals are set aside); TIES_AT_CLOSE (within
+          tolerance once entries posted after the close are set aside); LATE_CAPTURE (gold's close
+          was captured in the afternoon and D365's run ties the GL at the close); VARIANCE
+          (none of these); GL_ONLY on the buckets not compared.
+        tests:
+          - not_null:
+              config:
+                severity: warn
+          - accepted_values:
+              arguments:
+                values: ['TIES', 'TIES_EXCL_MANUAL_JOURNALS', 'TIES_AT_CLOSE', 'LATE_CAPTURE', 'VARIANCE', 'GL_ONLY']
+              config:
+                severity: warn

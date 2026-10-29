@@ -1,0 +1,56 @@
+version: 2
+
+# EDW-183 step 2 (Inventory Gold Layer spec, Section 5.10). Tests at warn, as the rest of the
+# library while the build is in progress (EDW-121).
+
+models:
+  - name: ref_gl_inventory_account
+    description: >
+      REF_GL_INVENTORY_ACCOUNT (Inventory spec 5.10, EDW-183 step 2). BI-maintained map of the
+      D365 inventory main accounts (13xxxx, company REV) to tie-out buckets, built straight from
+      the gl_inventory_account seed (a classification, not history: no effective dating). ON_HAND
+      (130020) and IN_TRANSIT (130070) receive the D365 inventory subledger postings and tie to
+      gold; RECEIPT_CLEARING, TARIFF_DEFERRAL, VENDOR_PREPAYMENT, EXCESS_OBSOLETE_RESERVE and
+      RETURNS_ASSET are GL only. Feeds V_INVENTORY_GL_TIE_OUT_MONTH_END.
+    columns:
+      - name: main_account_id
+        description: >
+          D365 main account number, the first segment of LEDGERACCOUNT (MAINACCOUNTID on
+          silver_d365_general_journal_account_entry).
+        tests:
+          - unique:
+              config:
+                severity: warn
+          - not_null:
+              config:
+                severity: warn
+      - name: gl_bucket
+        description: Tie-out bucket.
+        tests:
+          - not_null:
+              config:
+                severity: warn
+          - accepted_values:
+              arguments:
+                values: ['ON_HAND', 'IN_TRANSIT', 'RECEIPT_CLEARING', 'TARIFF_DEFERRAL', 'VENDOR_PREPAYMENT', 'EXCESS_OBSOLETE_RESERVE', 'RETURNS_ASSET']
+              config:
+                severity: warn
+      - name: gl_bucket_description
+        description: Plain-English name of the bucket.
+      - name: is_tied_to_gold_flag
+        description: >
+          True on ON_HAND and IN_TRANSIT, the accounts the D365 inventory subledger posts to, which
+          V_INVENTORY_GL_TIE_OUT_MONTH_END compares with gold and with D365's Inventory value
+          report. False on the GL-only buckets.
+        tests:
+          - not_null:
+              config:
+                severity: warn
+      - name: bucket_sort_order
+        description: Display order of the buckets.
+      - name: classified_by
+        description: Who ratified the row.
+      - name: classified_date
+        description: Date the row was ratified.
+      - name: notes
+        description: What the account holds, from the GL profile.
