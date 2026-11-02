@@ -101,6 +101,7 @@ item_warehouse as (
         , sum(s.available_qty)          as available_qty_iw
         , sum(greatest(s.available_qty, 0)) as available_pos_qty_iw  -- I4: allocation base for excess_qty
         , sum(s.on_hand_qty)            as on_hand_qty_iw
+        , sum(coalesce(s.valued_qty, s.on_hand_qty)) as valued_qty_iw  -- EDW-187: the quantity the cost below is carried on; on_hand_qty where a row has no valued_qty
         , sum(s.moving_avg_cost_amount) as inventory_cost_iw  -- EDW-182: D365 moving average (was standard_cost_amount, purchase price)
         , max(s.safety_stock_qty)       as safety_stock_qty_iw
         , max(case when s.record_source_table = {{ inventory_snapshot_branch_label('native') }} then 1 else 0 end) as is_native_branch  -- a snapshot date is one branch (seam 2026-09-01)
@@ -118,8 +119,8 @@ demand_points as (
         , cast(null as decimal(18,4))   as units_sold
         , cast(null as decimal(19,4))   as cogs_amount
         , case
-            when iw.on_hand_qty_iw <> 0 and coalesce(iw.inventory_cost_iw, 0) = 0
-                then cast(null as decimal(19,4))  -- stock with no cost: the cost is missing, not zero
+            when iw.valued_qty_iw <> 0 and coalesce(iw.inventory_cost_iw, 0) = 0
+                then cast(null as decimal(19,4))  -- stock with no cost: the cost is missing, not zero. EDW-187: tested on valued quantity, so units only registered (no cost in D365 either) read as a real zero
             else cast(iw.inventory_cost_iw as decimal(19,4))
           end                           as inventory_cost
         , 1                             as is_snapshot_point

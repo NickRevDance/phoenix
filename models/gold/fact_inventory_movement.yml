@@ -78,7 +78,9 @@ models:
           (item + size + colour) to UPC to the latest DIM_PRODUCT version. Never NULL: the unknown
           member, product_key '-1' (EDW-151), where the UPC is not in DIM_PRODUCT (EDW-134), the
           variant has no barcode row, or the item is the made-to-order studio apparel family
-          (EDW-144). product_id is still populated on those rows.
+          (EDW-144). product_id is still populated on those rows. Size and colour are matched
+          case-insensitively, as D365 compares them (EDW-187): an exact-case match had left 4,860
+          legs (to 2026-11-02) at the unknown member, restated in place under EDW-187.
         tests:
           - not_null
       - name: movement_type
