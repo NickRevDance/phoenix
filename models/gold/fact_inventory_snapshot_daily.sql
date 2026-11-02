@@ -3,6 +3,9 @@
     unique_key = 'inventory_snapshot_key',
     incremental_strategy = 'merge',
     on_schema_change = 'append_new_columns',
+    pre_hook = [
+        "{% if is_incremental() %}delete from {{ this }} where snapshot_date = current_date() and record_source_table = {{ inventory_snapshot_branch_label('native') }}{% endif %}"
+    ],
     post_hook = [
         "update {{ this }} set product_key = '-1', etl_update_datetime = current_timestamp() where product_key is null"
     ]
@@ -54,14 +57,29 @@
 -- on_schema_change = 'append_new_columns' (config above) is how new columns reach prod on the
 -- nightly merge, since this model is never full-refreshed; append only adds, never drops or retypes.
 -- Native days before the first run carrying these columns are filled in place (rule above).
+--
+-- EDW-187 (Nov 2026): inventory value on D365's own basis, from the Oct 31 2026 close at VARIANCE.
+--   case     D365 runs on a case-insensitive collation, so size SC and sc (MC / mc, Black / black)
+--            are one variant to it. Size and colour are folded to upper case where they are read
+--            (on_hand_raw, inventory_dim), so every grouping and join below (on hand, barcode,
+--            moving average, supply) and inventory_snapshot_key see one variant. Exact-case grouping
+--            left cost behind on one spelling when zero-cost warehouse work legs moved the units to
+--            the other (-$29.2K at Niles on 2026-11-01) and put 23 lowercase variants (15,106 units)
+--            on the unknown product. The fold changes keys for new days; history is folded in place.
+--   valued   moving_avg_cost_amount is valued_qty x unit cost. valued_qty is the quantity D365's
+--            value carries: posted and received / deducted legs (status 1 and 2) at the status row's
+--            grain. on_hand_qty stays InventSum physical inventory, which also counts registered
+--            receipts and leaves out picked issues, neither carrying cost (-$12.6K on 2026-11-01).
+--   rerun    the pre-hook deletes today's native rows before the merge, so a second run on a day
+--            replaces that day instead of adding rows under changed keys.
 
 with on_hand_raw as (
 
     select
 
           ItemID
-        , INVENTSIZEID
-        , INVENTCOLORID
+        , upper(INVENTSIZEID)  as INVENTSIZEID   -- EDW-187: D365 compares codes case-insensitively
+        , upper(INVENTCOLORID) as INVENTCOLORID  -- EDW-187
         , INVENTLOCATIONID
         , inventsiteid
         , InventDimID
@@ -79,8 +97,8 @@ inventory_dim as (
 
           InventDimID
         , coalesce(nullif(INVENTSTATUSID, ''), 'UNKNOWN') as inventory_status_code  -- sign-off fix (spec 2.3 rule): was nullif-only, leaving blank statuses as NULL in the grain column instead of routing them to the UNKNOWN member per the EDW-7 unknown-mapping pattern
-        , INVENTSIZEID
-        , INVENTCOLORID
+        , upper(INVENTSIZEID)  as INVENTSIZEID   -- EDW-187: folded here so barcode, moving average and supply all group case-insensitively
+        , upper(INVENTCOLORID) as INVENTCOLORID  -- EDW-187
         , INVENTLOCATIONID
         , inventsiteid
 
@@ -309,18 +327,16 @@ transfer_in_transit_agg as (
 
 ),
 
-moving_avg_cost as (
+valued_status as (
 
-    -- EDW-180: D365 moving average cost. D365 keeps inventory value at item + site + warehouse
-    -- + colour + size; inventory status and WMS location are not financial dimensions, so the
-    -- unit cost is computed at that grain and applied to every status row's on-hand quantity.
-    -- Value and quantity are the InventTrans legs D365's InventSum itself sums: financially
+    -- EDW-180 / EDW-187: the InventTrans legs D365's inventory value is made of: financially
     -- updated legs (StatusReceipt Purchased = 1, StatusIssue Sold = 1) at COSTAMOUNTPOSTED +
     -- COSTAMOUNTADJUSTMENT, plus physical-only legs (Received = 2, Deducted = 2) at
-    -- COSTAMOUNTPHYSICAL. Verified on prod 2026-10-16: quantity ties to InventSum at the same
-    -- sync on 56,797 of 56,818 groups (193 units of 2.39M); posted value ties to InventSum
-    -- POSTEDVALUE within $1.6K of $28.28M, the rest being intraday postings. Keyed-in-error
-    -- legs (about 90 trillion units each way) net to zero inside every group.
+    -- COSTAMOUNTPHYSICAL. Registered receipts and picked issues (status 3) carry no cost and are
+    -- not in D365's value or the GL. Grouped at the snapshot row's grain (status included) so
+    -- each status row carries its own valued quantity; moving_avg_cost below rolls it up to the
+    -- financial grain. Size and colour are folded in inventory_dim (EDW-187). Keyed-in-error legs
+    -- (about 90 trillion units each way) net to zero inside every group.
     select
 
           t.ITEMID
@@ -328,18 +344,41 @@ moving_avg_cost as (
         , d.INVENTCOLORID
         , d.INVENTLOCATIONID
         , d.inventsiteid
+        , d.inventory_status_code
         , sum(case
                 when t.STATUSRECEIPT = 1 or t.STATUSISSUE = 1 then t.COSTAMOUNTPOSTED + t.COSTAMOUNTADJUSTMENT
                 when t.STATUSRECEIPT = 2 or t.STATUSISSUE = 2 then t.COSTAMOUNTPHYSICAL
                 else 0
-              end) as moving_avg_value
-        , sum(t.QTY) as moving_avg_qty
+              end) as valued_value
+        , sum(t.QTY) as valued_qty
 
     from {{ ref('silver_d365_inventory_trans') }} t
     inner join inventory_dim d
         on t.INVENTDIMID = d.InventDimID
     where (t.STATUSRECEIPT in (1, 2) or t.STATUSISSUE in (1, 2))
       and coalesce(t.is_deleted, 0) = 0  -- EDW-177: InventSum doesn't count legs D365 has deleted
+    group by 1, 2, 3, 4, 5, 6
+
+),
+
+moving_avg_cost as (
+
+    -- EDW-180: D365 moving average cost. D365 keeps inventory value at item + site + warehouse
+    -- + colour + size; inventory status and WMS location are not financial dimensions, so the
+    -- unit cost is value / quantity at that grain, applied to each status row's valued_qty
+    -- (EDW-187; was on_hand_qty). On 2026-11-01 the rows sum to D365's Inventory value report
+    -- to the cent inside the fact's item scope, less groups with no positive value (NULL rule).
+    select
+
+          ITEMID
+        , INVENTSIZEID
+        , INVENTCOLORID
+        , INVENTLOCATIONID
+        , inventsiteid
+        , sum(valued_value) as moving_avg_value
+        , sum(valued_qty)   as moving_avg_qty
+
+    from valued_status
     group by 1, 2, 3, 4, 5
 
 ),
@@ -414,6 +453,7 @@ joined as (
             when mac.moving_avg_qty > 0 and mac.moving_avg_value > 0
                 then mac.moving_avg_value / mac.moving_avg_qty
           end as moving_avg_cost_unit_raw  -- EDW-180: NULL where D365 holds no positive value or quantity at the grain (D365 values those units at about zero itself)
+        , coalesce(vs.valued_qty, 0) as valued_qty  -- EDW-187: the status row's quantity in D365's value; 0 where no status 1 or 2 legs land on it
         , opo.on_order_qty
         , git.in_transit_inbound_qty
         , tit.in_transit_transfer_qty
@@ -478,6 +518,16 @@ joined as (
         and oh.INVENTCOLORID <=> mac.INVENTCOLORID
         and oh.INVENTLOCATIONID <=> mac.INVENTLOCATIONID
         and oh.inventsiteid <=> mac.inventsiteid
+    -- EDW-187: valued quantity at the row's own grain, status included, null-safe as above
+    left join valued_status vs
+        on oh.ItemID = vs.ITEMID
+        and oh.INVENTSIZEID <=> vs.INVENTSIZEID
+        and oh.INVENTCOLORID <=> vs.INVENTCOLORID
+        and oh.INVENTLOCATIONID <=> vs.INVENTLOCATIONID
+        and oh.inventsiteid <=> vs.inventsiteid
+        and oh.inventory_status_code <=> vs.inventory_status_code
+    -- supply joins: size and colour arrive folded from inventory_dim and on_hand_raw (EDW-187),
+    -- so these equality joins are case-insensitive too
     left join open_po_agg opo
         on oh.ItemID = opo.ITEMID
         and oh.INVENTSIZEID = opo.INVENTSIZEID
@@ -578,7 +628,7 @@ final as (
     select
 
     -- Core ID
-          xxhash64(j.snapshot_date, j.ItemID, j.INVENTSIZEID, j.INVENTCOLORID, j.INVENTLOCATIONID, coalesce(j.inventsiteid, ''), coalesce(j.inventory_status_code, '')) as inventory_snapshot_key  -- EDW-117 item 4: inventsiteid added (spec grain carries site through warehouse_key); changes keys for new days only, history is never re-keyed
+          xxhash64(j.snapshot_date, j.ItemID, j.INVENTSIZEID, j.INVENTCOLORID, j.INVENTLOCATIONID, coalesce(j.inventsiteid, ''), coalesce(j.inventory_status_code, '')) as inventory_snapshot_key  -- EDW-117 item 4: inventsiteid added (spec grain carries site through warehouse_key); EDW-187: size and colour arrive upper-cased. Both changed keys for new days only; history is never re-keyed
         , j.snapshot_date_key
         , j.snapshot_date
         , coalesce(j.product_key, '-1')         as product_key  -- EDW-151: an unresolved product is the unknown member, never NULL
@@ -592,6 +642,7 @@ final as (
 
     -- Quantities
         , j.on_hand_qty
+        , cast(j.valued_qty as decimal(18,4))   as valued_qty  -- EDW-187: D365's valued quantity (status 1 and 2 legs); on_hand_qty + picked - registered
         , j.available_qty                       -- native InventSum.AVAILPHYSICAL (D365's own computed value), not the spec's literal subtraction formula -- allocated/hold/damaged aren't sourced (see below), and this matched the subtraction result within 0.03% when validated live
         , j.reserved_qty
         , cast(null as decimal(18,4)) as allocated_qty  -- Source once available: no column identified on InventSum/InventDim
@@ -615,7 +666,7 @@ final as (
         , j.available_qty * j.standard_cost_unit as available_cost_amount
         , cast(null as decimal(19,4)) as damaged_cost_amount  -- = damaged_qty x standard_cost_unit once damaged_qty is sourced
         , cast(j.moving_avg_cost_unit_raw as decimal(19,4)) as moving_avg_cost_unit  -- EDW-180: D365 moving average cost, the inventory valuation basis
-        , cast(j.on_hand_qty * j.moving_avg_cost_unit_raw as decimal(19,4)) as moving_avg_cost_amount  -- EDW-180: on_hand_qty x the unrounded unit cost; NULL when the unit cost is NULL
+        , cast(j.valued_qty * j.moving_avg_cost_unit_raw as decimal(19,4)) as moving_avg_cost_amount  -- EDW-187: valued_qty x the unrounded unit cost (EDW-180 used on_hand_qty); NULL when the unit cost is NULL
         , j.cost_currency_code
 
     -- Status
@@ -650,8 +701,11 @@ final as (
     -- or in-transit quantity on the rank-1 status row) ARE kept: on 2026-09-22 they carried
     -- 372,243 on-order and 105,662 in-transit units, 44 percent of all on-order, which the
     -- narrower on-hand-only filter in the ticket text would have dropped.
+    -- EDW-187: a row with valued quantity is a position too (units picked to zero physical
+    -- still carry D365 value: 15 variant groups, 27 units, $539.78 on 2026-11-02).
     where not (
             coalesce(j.on_hand_qty, 0) = 0
+        and coalesce(j.valued_qty, 0) = 0
         and coalesce(j.reserved_qty, 0) = 0
         and coalesce(j.available_qty, 0) = 0
         and coalesce(case when j.item_warehouse_supply_rank = 1 then j.on_order_qty end, 0) = 0
@@ -679,6 +733,7 @@ final as (
 
     -- Quantities
         , b.InventoryQuantity                   as on_hand_qty
+        , cast(b.InventoryQuantity as decimal(18,4)) as valued_qty  -- EDW-187: D365's report quantity is its valued quantity
         , cast(null as decimal(18,4)) as available_qty  -- Source once available: no reserved/available breakdown on f_KPI_InventoryValue
         , cast(null as decimal(18,4)) as reserved_qty  -- Source once available: no reserved/available breakdown on f_KPI_InventoryValue
         , cast(null as decimal(18,4)) as allocated_qty  -- Source once available: no column on f_KPI_InventoryValue
