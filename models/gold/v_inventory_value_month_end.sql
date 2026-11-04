@@ -29,9 +29,12 @@
 -- SEAM AND COST BASIS (spec 2.5): closes through July 2026 are backfill rows (legacy
 -- f_KPI_InventoryValue, the output of D365's Inventory value report); closes from August 2026 are
 -- native rows. moving_avg_cost_amount is D365 moving average on both branches (EDW-180, filled
--- in place 2026-10-22), NULL where D365 carries no positive value. standard_cost_amount is the
--- purchase price on native rows and D365's own value on backfill rows (spec 2.5), so it is not a
--- purchase price trend before the August 2026 close.
+-- in place 2026-10-22). EDW-188: where D365 carries no positive value or quantity at the cost grain
+-- (negative stock lines, value with no units) moving_avg_cost_unit is NULL and the amount is D365's
+-- own amount for the line, so each close sums to D365's Inventory value report to rounding; the
+-- amount is NULL only where D365 carries none. standard_cost_amount is the purchase price on
+-- native rows and D365's own value on backfill rows (spec 2.5), so it is not a purchase price
+-- trend before the August 2026 close.
 -- The month in progress has no row until its close row is captured. A month whose close row is
 -- missing has no rows; assert_v_inventory_value_month_end_closes reports it.
 

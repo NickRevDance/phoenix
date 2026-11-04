@@ -72,6 +72,20 @@
 --            receipts and leaves out picked issues, neither carrying cost (-$12.6K on 2026-11-01).
 --   rerun    the pre-hook deletes today's native rows before the merge, so a second run on a day
 --            replaces that day instead of adding rows under changed keys.
+--
+-- EDW-188 (Nov 2026): lines with no positive value or quantity carry D365's own amount.
+--   amount   Where the cost grain holds no positive value or quantity (negative stock lines, value
+--            with no units), moving_avg_cost_unit stays NULL and the grain's own D365 value (the
+--            InventTrans cost amounts moving_avg_cost sums) goes on one row of the grain: the most
+--            negative valued_qty, then AVAILABLE, then status code. Never valued_qty x a unit (D365
+--            shows a 0.00 unit on most of these lines), and never per status row (status changes
+--            leave offsetting cost on zero-quantity status rows that D365's report does not show).
+--            Before EDW-188 the amount was NULL there, so gold ran $61 to $1,147 above D365's report
+--            at 25 of 29 closes. NULL now only where D365 carries no amount. A metric that wants
+--            positive value only filters in the metric, not here.
+--   rows     A row whose only non-zero measure is that amount is a position too.
+--   history  Backfill and native history carry the same rule, filled in place from D365's
+--            Inventory value report (silver_kpi_inventory_value) with a backup clone first.
 
 with on_hand_raw as (
 
@@ -367,7 +381,8 @@ moving_avg_cost as (
     -- + colour + size; inventory status and WMS location are not financial dimensions, so the
     -- unit cost is value / quantity at that grain, applied to each status row's valued_qty
     -- (EDW-187; was on_hand_qty). On 2026-11-01 the rows sum to D365's Inventory value report
-    -- to the cent inside the fact's item scope, less groups with no positive value (NULL rule).
+    -- to the cent inside the fact's item scope, less groups with no positive value, which had no
+    -- amount until EDW-188 and now carry moving_avg_value on one row of the group (see joined).
     select
 
           ITEMID
@@ -452,8 +467,25 @@ joined as (
         , case
             when mac.moving_avg_qty > 0 and mac.moving_avg_value > 0
                 then mac.moving_avg_value / mac.moving_avg_qty
-          end as moving_avg_cost_unit_raw  -- EDW-180: NULL where D365 holds no positive value or quantity at the grain (D365 values those units at about zero itself)
+          end as moving_avg_cost_unit_raw  -- EDW-180: NULL where D365 holds no positive value or quantity at the grain (no meaningful unit cost there)
         , coalesce(vs.valued_qty, 0) as valued_qty  -- EDW-187: the status row's quantity in D365's value; 0 where no status 1 or 2 legs land on it
+        , case
+            when mac.moving_avg_qty > 0 and mac.moving_avg_value > 0
+                then coalesce(vs.valued_qty, 0) * (mac.moving_avg_value / mac.moving_avg_qty)  -- EDW-187: valued_qty x the unrounded unit cost
+            when mac.moving_avg_value <> 0
+             and row_number() over (
+                    partition by oh.ItemID, oh.INVENTSIZEID, oh.INVENTCOLORID, oh.INVENTLOCATIONID, oh.inventsiteid
+                    order by coalesce(vs.valued_qty, 0)
+                           , case when coalesce(st.availability_class, 'UNKNOWN') = 'AVAILABLE' then 0 else 1 end
+                           , oh.inventory_status_code
+                 ) = 1
+                then mac.moving_avg_value
+                -- EDW-188: no positive value or quantity at the grain. The grain's own D365 value, not qty x unit,
+                -- on ONE row of it: the most negative valued quantity, then AVAILABLE, then status code. Not
+                -- per status row: status changes leave offsetting cost on zero-quantity status rows (e.g.
+                -- +$1,145.49 Tippi Toes / -$1,145.49 Available at Niles on 2026-11-04, 405 such rows) that
+                -- D365's report does not show; at the grain they net to the value D365 reports.
+          end as moving_avg_cost_amount_raw  -- NULL only where D365 carries no amount
         , opo.on_order_qty
         , git.in_transit_inbound_qty
         , tit.in_transit_transfer_qty
@@ -666,7 +698,7 @@ final as (
         , j.available_qty * j.standard_cost_unit as available_cost_amount
         , cast(null as decimal(19,4)) as damaged_cost_amount  -- = damaged_qty x standard_cost_unit once damaged_qty is sourced
         , cast(j.moving_avg_cost_unit_raw as decimal(19,4)) as moving_avg_cost_unit  -- EDW-180: D365 moving average cost, the inventory valuation basis
-        , cast(j.valued_qty * j.moving_avg_cost_unit_raw as decimal(19,4)) as moving_avg_cost_amount  -- EDW-187: valued_qty x the unrounded unit cost (EDW-180 used on_hand_qty); NULL when the unit cost is NULL
+        , cast(j.moving_avg_cost_amount_raw as decimal(19,4)) as moving_avg_cost_amount  -- EDW-187: valued_qty x the unrounded unit cost (EDW-180 used on_hand_qty). EDW-188: D365's own amount where the unit cost is NULL; NULL only where D365 carries none
         , j.cost_currency_code
 
     -- Status
@@ -703,9 +735,11 @@ final as (
     -- narrower on-hand-only filter in the ticket text would have dropped.
     -- EDW-187: a row with valued quantity is a position too (units picked to zero physical
     -- still carry D365 value: 15 variant groups, 27 units, $539.78 on 2026-11-02).
+    -- EDW-188: so is a row whose only non-zero measure is the D365 amount (value with no units).
     where not (
             coalesce(j.on_hand_qty, 0) = 0
         and coalesce(j.valued_qty, 0) = 0
+        and coalesce(j.moving_avg_cost_amount_raw, 0) = 0
         and coalesce(j.reserved_qty, 0) = 0
         and coalesce(j.available_qty, 0) = 0
         and coalesce(case when j.item_warehouse_supply_rank = 1 then j.on_order_qty end, 0) = 0
@@ -756,8 +790,8 @@ final as (
         , cast(null as decimal(19,4)) as retail_value_amount  -- native branch only: current price, no historical price grain
         , cast(null as decimal(19,4)) as available_cost_amount  -- Source once available: depends on available_qty above
         , cast(null as decimal(19,4)) as damaged_cost_amount  -- Source once available: depends on damaged_qty above
-        , cast(null as decimal(19,4)) as moving_avg_cost_unit  -- EDW-180: backfill history is filled in place, never by rebuilding
-        , cast(null as decimal(19,4)) as moving_avg_cost_amount  -- EDW-180: same as moving_avg_cost_unit
+        , cast(null as decimal(19,4)) as moving_avg_cost_unit  -- EDW-180: backfill history is filled in place, never by rebuilding (unit = InventoryAmount / InventoryQuantity at date + UPC + warehouse where both are positive)
+        , cast(null as decimal(19,4)) as moving_avg_cost_amount  -- EDW-180: same as moving_avg_cost_unit (on_hand_qty x unit). EDW-188: where the unit is NULL, the row's own InventoryAmount, filled in place too
         , b.cost_currency_code
 
     -- Status

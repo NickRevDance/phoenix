@@ -37,6 +37,12 @@
 --     midnight Central at its end, when D365's daily run executes. Only on closes read from the
 --     1st of the next month (from February 2026); NULL on earlier closes, whose D365 re-runs
 --     already include them. CREATEDDATE is UTC and is read in Central time.
+-- TWO LAYERS (EDW-188): gold less the ledger splits into variance_gold_to_d365_amount (gold less
+--   D365's report) and variance_d365_to_gl_at_close_amount (D365 less the ledger at the close),
+--   plus gl_posted_after_close_amount. Gold carries D365's own amount on lines with no positive
+--   value or quantity (EDW-188), so gold less D365 is rounding (cents) at every close except a
+--   flagged afternoon capture. NULL on GL-only buckets and on a close whose D365 run is not in
+--   silver yet (it lands the night after its date), where d365_value_amount reads 0.
 -- STATUS (tolerance {{ tie_tolerance }} USD): TIES when gold is within tolerance of the GL balance; else
 -- TIES_EXCL_MANUAL_JOURNALS when it is once the month's manual journals are set aside; else
 -- TIES_AT_CLOSE when it is once entries posted after the close are set aside; else LATE_CAPTURE
@@ -178,6 +184,16 @@ warehouse_bucket as (
         , case when d365_location_type = '{{ in_transit_location_type }}' then 'IN_TRANSIT' else 'ON_HAND' end as gl_bucket
     from {{ ref('dim_warehouse') }}
     where version_number = 1
+
+),
+
+d365_run as (
+
+    -- EDW-188: the closes whose D365 run is in silver; variance_gold_to_d365_amount is NULL until it is
+    select distinct c.close_snapshot_date
+    from closes c
+    inner join {{ ref('silver_kpi_inventory_value') }} k
+        on k.SnapshotDate = c.close_snapshot_date
 
 ),
 
@@ -326,6 +342,10 @@ final as (
     -- Variances
         , cast(u.gold_value_amount - u.gl_balance_amount as decimal(19, 2))                 as variance_gold_to_gl_amount
         , cast(u.d365_value_amount - (u.gl_balance_amount - coalesce(u.gl_posted_after_close_amount, 0)) as decimal(19, 2)) as variance_d365_to_gl_at_close_amount
+        , case
+            when u.is_tied_to_gold_flag and dr.close_snapshot_date is not null
+                then cast(u.gold_value_amount - u.d365_value_amount as decimal(19, 2))
+          end                                                                               as variance_gold_to_d365_amount  -- EDW-188
         , cast({{ tie_tolerance }} as decimal(19, 2))                                       as tie_tolerance_amount
         , case
             when not u.is_tied_to_gold_flag then 'GL_ONLY'
@@ -339,6 +359,8 @@ final as (
           end                                                                               as tie_status
 
     from unioned u
+    left join d365_run dr
+        on u.close_snapshot_date = dr.close_snapshot_date
 
 )
 
