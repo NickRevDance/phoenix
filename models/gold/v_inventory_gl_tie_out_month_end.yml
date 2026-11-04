@@ -102,6 +102,17 @@ models:
         description: gold_value_amount less gl_balance_amount.
       - name: variance_d365_to_gl_at_close_amount
         description: d365_value_amount less gl_balance_at_close_amount.
+      - name: variance_gold_to_d365_amount
+        description: >
+          EDW-188: gold_value_amount less d365_value_amount, on ON_HAND, IN_TRANSIT and TOTAL_TIED.
+          With variance_d365_to_gl_at_close_amount it splits gold less the ledger at the close into
+          its two layers: gold against D365's report, and D365's report against the ledger. Gold
+          carries D365's own amount on lines with no positive value or quantity (EDW-188), so this
+          is rounding (cents) at every close except a flagged afternoon capture (August 2026).
+          NULL on the GL-only buckets, and on a close whose D365 run is not in silver yet (D365's
+          run for a date lands the night after it), where d365_value_amount reads 0.
+          assert_v_inventory_gl_tie_out_month_end_gold_matches_d365 reports any other close more
+          than a dollar apart.
       - name: tie_tolerance_amount
         description: The tolerance the status is judged against, 10,000 USD.
       - name: tie_status

@@ -17,8 +17,10 @@ models:
       consumer relates month_end_date_key to DIM_DATE and needs no date logic. Closes run from
       June 2024 (the first snapshot date) at the backfill branch through July 2026 and the native
       branch from August 2026. The month in progress has no row until its close row is captured.
-      Sum moving_avg_cost_amount for the inventory value at each close; NULL where D365 carries
-      no positive value (no fallback, I6 point 5).
+      Sum moving_avg_cost_amount for the inventory value at each close. Where D365 carries no
+      positive value or quantity on a line, the amount is D365's own amount for it (EDW-188;
+      NULL before, which left closes up to $1,147 above D365) and the unit cost is NULL; never
+      filled from the purchase price (I6 point 5).
     tests:
       - dbt_utils.expression_is_true:
           name: v_inventory_value_month_end_month_end_date_is_month_end
@@ -114,11 +116,15 @@ models:
       - name: on_hand_qty
         description: On-hand quantity on the close row.
       - name: moving_avg_cost_unit
-        description: D365 moving average unit cost on the close row (EDW-180).
+        description: >
+          D365 moving average unit cost on the close row (EDW-180). NULL where D365 carries no
+          positive value or quantity at the cost grain.
       - name: moving_avg_cost_amount
         description: >
-          The inventory value at the close, D365 moving average (I6). NULL where D365 carries no
-          positive value or quantity at the cost grain; never filled from the purchase price.
+          The inventory value at the close, D365 moving average (I6). Where D365 carries no
+          positive value or quantity at the cost grain (negative stock lines, value with no
+          units), D365's own amount for the line (EDW-188); NULL only where D365 carries none.
+          Never filled from the purchase price.
       - name: standard_cost_amount
         description: >
           Purchase price value on native rows (the August 2026 close on). On backfill rows (closes

@@ -36,7 +36,10 @@
 -- uses snapshot points from the row's own branch only (native rows average native days, backfill
 -- rows average backfill days): the branches differ in population and cadence at the 2026-09-01
 -- seam; a point where stock has no cost is left out rather than averaged in as zero. Early native
--- days therefore average over fewer than {{ demand_window_days }} days.
+-- days therefore average over fewer than {{ demand_window_days }} days. EDW-188: a line D365 values with no
+-- positive quantity or value (negative stock) carries D365's own amount on the snapshot, so such a
+-- point enters the average at that amount, as D365 values it; turnover is still NULL unless the
+-- average is above zero.
 -- Stocking policy (EDW-144, Merchandising decision M2): items marked MADE_TO_ORDER in
 -- ref_stocking_policy carry a seeded placeholder quantity that is not stock, and are left out
 -- on every date. The rule is keyed on product_id because the family is not in DIM_PRODUCT.

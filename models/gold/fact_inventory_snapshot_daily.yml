@@ -5,6 +5,7 @@ version: 2
 # EDW-49: retail_value_amount / last_sale_date wiring and derivation tests.
 # EDW-180: cost column descriptions by branch and date after the 2026-10-22 history fill.
 # EDW-187: valued_qty, value on D365's valued quantity, case-insensitive D365 size and colour.
+# EDW-188: D365's own amount on lines with no positive value or quantity; rows with only that amount kept.
 
 models:
   - name: fact_inventory_snapshot_daily
@@ -18,8 +19,8 @@ models:
       InventDim (2026-09-01 forward; all statuses, all warehouses, daily; FACT_PRODUCT_COST
       current STANDARD cost on product_id). A trend across the seam steps as an artefact of
       population. Native rows are positions: a row exists only while some quantity measure
-      (on hand, valued, reserved, available, on order, in transit) is non-zero (spec 2.1 v2.6;
-      valued added by EDW-187). D365 size and colour are compared case-insensitively, as D365
+      (on hand, valued, reserved, available, on order, in transit) or the D365 amount is non-zero
+      (spec 2.1 v2.6; valued added by EDW-187, the amount by EDW-188). D365 size and colour are compared case-insensitively, as D365
       does (EDW-187): SC and sc are one variant.
       Product resolution is the D365 barcode path (variant to UPC to DIM_PRODUCT); unresolved
       rows keep their UPC, carry the unknown member (product_key '-1', EDW-151), and are
@@ -188,7 +189,10 @@ models:
           quantity difference at UPC + warehouse, carried on the row with the most on hand (so it
           ties to D365 at UPC + warehouse, not at status); on the other dates, equal to on_hand_qty.
           Backfill rows: equal to on_hand_qty, which is D365's report quantity.
-          A row can carry valued_qty with on_hand_qty 0 (units picked to zero physical).
+          A row can carry valued_qty with on_hand_qty 0 (units picked to zero physical). EDW-188:
+          rows D365's report valued on 2026-09-01 to 2026-11-02 with no gold row (on hand 0, the
+          native rule before EDW-187 dropped them) were inserted in place on dates whose D365 run
+          describes the capture, with valued_qty = D365's quantity.
       - name: standard_cost_unit
         description: >
           Not the inventory valuation basis (EDW-180; the valuation basis is moving_avg_cost_unit).
@@ -225,8 +229,9 @@ models:
           Inventory value report; on every date the filled groups tie to D365's value within cents.
           NULL on every branch where D365 holds no positive value or quantity at the grain (e.g.
           16,696 stocked units in v_current_inventory scope on 2026-10-22, mostly variants with no
-          barcode); do not fall back to purchase price. Not an InventTrans as-of rebuild for
-          history, and never the legacy UnitCost.
+          barcode): there is no meaningful unit cost there, and from EDW-188 the amount carries
+          D365's own value on those lines instead. Do not fall back to purchase price. Not an
+          InventTrans as-of rebuild for history, and never the legacy UnitCost.
         tests:
           - dbt_utils.expression_is_true:
               arguments:
@@ -236,24 +241,41 @@ models:
                 where: "moving_avg_cost_unit is not null"
       - name: moving_avg_cost_amount
         description: >
-          The inventory value (decision record I6): valued_qty x moving average cost (EDW-187; EDW-180
-          used on_hand_qty), computed from the unit cost before it is rounded to the 4 decimals
-          stored in moving_avg_cost_unit, so valued_qty x moving_avg_cost_unit can differ from it by
-          cents on a row. NULL when moving_avg_cost_unit is NULL. On the 2026-11-01 close state the
-          native rows sum to D365's Inventory value report to the cent at every UPC and warehouse,
-          less three groups with negative value that the NULL rule leaves out ($148.65), and tie the
-          GL within $136. Before EDW-187 native rows valued physical inventory on exact-case size and
-          colour (Oct 31 2026 close -$41.7K against the GL); those rows are refilled in place (spec 2.7).
+          The inventory value (decision record I6). Where moving_avg_cost_unit is set: valued_qty x
+          moving average cost (EDW-187; EDW-180 used on_hand_qty), computed from the unit cost
+          before it is rounded to the 4 decimals stored in moving_avg_cost_unit, so valued_qty x
+          moving_avg_cost_unit can differ from it by cents on a row.
+          EDW-188: where moving_avg_cost_unit is NULL (no positive value or quantity at the grain:
+          negative stock lines, value with no units), the row carries D365's own amount, never
+          quantity x a unit (D365 shows a 0.00 unit on most of these lines): native rows nightly,
+          the grain's InventTrans value (the legs valued_qty counts) on one row of the grain, the
+          most negative valued_qty, then AVAILABLE, then status code; backfill rows,
+          the row's own InventoryAmount from D365's report; native rows 2026-09-01 to the EDW-188
+          fix date, D365's report amount at UPC + warehouse from the run the date was valued from,
+          on the matching status row, else the row with the most on hand. NULL only where D365
+          carries no amount either, never 0 in that case. A metric that wants positive value only
+          filters in the metric. Before EDW-188 those lines were NULL, which left gold $61 to $1,147
+          above D365's report at 25 of 29 month-end closes. Before EDW-187 native rows valued
+          physical inventory on exact-case size and colour (Oct 31 2026 close -$41.7K against the
+          GL); those rows were refilled in place (spec 2.7).
           Month-end close rows: the month-end row through Jan 2026, the 1st of the next month from
-          Feb 2026 (EDW-183). Tie tests: assert_inventory_moving_avg_value_ties_to_d365 (latest day)
-          and assert_v_inventory_gl_tie_out_month_end_ties (closes).
+          Feb 2026 (EDW-183). Tie tests: assert_inventory_moving_avg_value_ties_to_d365 (latest day),
+          assert_v_inventory_gl_tie_out_month_end_ties and
+          assert_v_inventory_gl_tie_out_month_end_gold_matches_d365 (closes).
         tests:
+          # EDW-188 (replaces the EDW-180 "is null where the unit is null" test, whose rule is retired)
           - dbt_utils.expression_is_true:
               arguments:
-                expression: "is null"
+                expression: "is not null"
               config:
                 severity: warn
-                where: "moving_avg_cost_unit is null"
+                where: "moving_avg_cost_unit is not null"
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "<> 0"
+              config:
+                severity: warn
+                where: "moving_avg_cost_unit is null and moving_avg_cost_amount is not null"
       - name: landed_cost_unit
         description: >
           From FACT_PRODUCT_COST (cost_type LANDED, current row) on product_id; native rows only.
