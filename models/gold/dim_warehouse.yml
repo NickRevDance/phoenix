@@ -3,24 +3,68 @@ version: 2
 models:
   - name: dim_warehouse
     description: >
-      DIM_WAREHOUSE -- gold-layer warehouse/fulfillment-node dimension.
-      Currently an "initial load" (one row per warehouse -- see this
-      model's own SQL header comment for the planned migration to a real
-      4-stage SCD2 snapshot pattern). warehouse_key is genuinely unique
-      at the table level today for that reason; once SCD2 versioning
-      lands here, move this test onto a new V_DIM_WAREHOUSE_CURRENT view
-      instead of testing the versioned table directly, matching the
-      dim_product.yml / dim_vendor.yml pattern.
+      DIM_WAREHOUSE -- SCD Type 2 gold-layer warehouse dimension, versioned history (one row per
+      warehouse_key per version; v_dim_warehouse_current is the current-row view). Type 2
+      attributes and SCD2 controls come from silver_snapshot_dim_warehouse, Type 1 attributes from
+      the current silver_stage_dim_warehouse row. D365 location types 1, 2, 10 and 11 are Virtual
+      with both enablement flags 0. Carries the -1 Unknown member. Facts resolve warehouse_key on
+      version_number = 1; is_current_row (latest version with an open end) is the reporting filter.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: ['warehouse_key', 'version_number']
+      - one_current_row_per_key:
+          name: dim_warehouse_one_current_row_per_key
+          arguments:
+            key_columns: ['warehouse_key']
+          config:
+            severity: warn
+      - no_overlapping_effective_periods:
+          name: dim_warehouse_no_overlapping_effective_periods
+          arguments:
+            partition_by: ['warehouse_key']
+            from_column: effective_start_datetime
+            to_column: effective_end_datetime
+          config:
+            severity: warn
+    columns:
+      - name: warehouse_key
+        tests:
+          - not_null
+      - name: warehouse_id
+        tests:
+          - not_null
+      - name: version_number
+        tests:
+          - not_null
+      - name: is_current_row
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+                quote: false
+      - name: warehouse_type
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Distribution Center', '3PL', 'Store', 'Virtual', 'Returns', 'Drop Ship', 'Reserved']
+      - name: warehouse_status
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Active', 'Inactive', 'Decommissioned', 'Planned']
+      - name: warehouse_change_hash
+        tests:
+          - not_null
+
+  - name: v_dim_warehouse_current
+    description: >
+      Current-row view over dim_warehouse (is_current_row = 1) with the SCD2 and internal audit
+      columns removed -- the warehouse dimension for Power BI and ad hoc queries. A warehouse that
+      has left the BYOD extract drops out of this view but keeps resolving on the facts (spec Open
+      Decision 7). Includes the -1 Unknown member.
     columns:
       - name: warehouse_key
         tests:
           - is_valid_key
-      - name: warehouse_id
-        tests:
-          - not_null
-      - name: warehouse_status
-        tests:
-          - accepted_values:
-              values: ['Active', 'Inactive', 'Decommissioned', 'Planned']
-              config:
-                severity: warn  # only 'Active' exists in live data today -- REF_WAREHOUSE_STATUS_OVERRIDE (spec) doesn't exist yet, so the other 3 values are the intended future domain, not yet reachable

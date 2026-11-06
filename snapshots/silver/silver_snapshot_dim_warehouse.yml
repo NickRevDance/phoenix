@@ -1,0 +1,29 @@
+version: 2
+
+snapshots:
+  - name: silver_snapshot_dim_warehouse
+    relation: ref('silver_stage_dim_warehouse')
+
+    description: >
+      Type 2 historical snapshot of DIM_WAREHOUSE (EDW-90). A new version is
+      created whenever warehouse_change_hash changes for a warehouse_key, i.e.
+      when a Type 2 attribute in the spec's SCD tracking plan changes. A
+      warehouse that leaves the BYOD extract has its open version closed
+      (hard_deletes: invalidate). Changing the attribute list behind
+      warehouse_change_hash re-versions every warehouse, so do that with a
+      deliberate snapshot reset, never in place.
+
+    config:
+      schema: silver_history
+      unique_key: warehouse_key
+      strategy: check
+      hard_deletes: invalidate
+
+      check_cols:
+        - warehouse_change_hash
+
+      snapshot_meta_column_names:
+        dbt_valid_from: effective_start_datetime
+        dbt_valid_to: effective_end_datetime
+        dbt_scd_id: row_hash
+        dbt_updated_at: etl_update_datetime
