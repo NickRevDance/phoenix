@@ -190,11 +190,15 @@ product_barcode as (
     -- the same CTE as fact_inventory_snapshot_daily. One barcode per variant (32,069 variants,
     -- none with two, 2026-10-01). The barcode table's own InventDimID is a reference-level
     -- record, so it is read through inventory_dim to size and colour.
+    -- EDW-187: size and colour folded to upper case here and in the join below. D365 compares
+    -- them case-insensitively (SC / sc, MC / mc), and an exact-case join left 3,494 legs since
+    -- Jun 2024 at the unknown product (2026-11-02). Still one barcode per variant once folded
+    -- (32,166 variants, none with two).
     select
 
           b.ITEMID
-        , d.INVENTSIZEID
-        , d.INVENTCOLORID
+        , upper(d.INVENTSIZEID)  as INVENTSIZEID
+        , upper(d.INVENTCOLORID) as INVENTCOLORID
         , min(b.ITEMBARCODE) as upc
 
     from {{ ref('silver_d365_item_barcode') }} b
@@ -274,11 +278,11 @@ joined as (
     left join warehouse wh
         on d.INVENTLOCATIONID = wh.warehouse_id
         and d.inventsiteid = wh.d365_site_id
-    -- EDW-93 item 1: barcode path. Variant -> UPC -> DIM_PRODUCT.
+    -- EDW-93 item 1: barcode path. Variant -> UPC -> DIM_PRODUCT. EDW-187: case-insensitive.
     left join product_barcode pb
         on tr.ITEMID = pb.ITEMID
-        and d.INVENTSIZEID = pb.INVENTSIZEID
-        and d.INVENTCOLORID = pb.INVENTCOLORID
+        and upper(d.INVENTSIZEID) = pb.INVENTSIZEID
+        and upper(d.INVENTCOLORID) = pb.INVENTCOLORID
     left join product pr
         on pb.upc = pr.upc
     left join {{ ref('dim_date') }} dt

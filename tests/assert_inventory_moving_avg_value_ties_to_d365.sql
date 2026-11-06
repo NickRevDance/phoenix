@@ -2,10 +2,14 @@
 
 -- EDW-180: the latest snapshot's inventory value at moving average must stay within 1 percent
 -- of D365's own inventory value, summed from the same InventTrans legs the snapshot fact costs
--- from. The allowed gap is physical vs financial timing (registered and picked quantities count
--- in on-hand, not in value) and positions the fact leaves out (non-merchandise items, catalogs,
--- zero positions). On 2026-10-16: $28.25M on the snapshot logic against $28.28M in D365, 0.1
--- percent. Returns one row when outside tolerance.
+-- from. EDW-187: the fact now values D365's own valued quantity on case-insensitive variants,
+-- so the gap left is what the fact leaves out by design: non-merchandise items and, until
+-- EDW-188, groups with no positive value (the NULL rule). On the 2026-11-02 state: $29,333,757.27
+-- on the changed logic against $29,333,621.27 in D365, +$136.00. EDW-188: those groups carry their
+-- own InventTrans value, so only the non-merchandise items (zero cost) remain outside. Before
+-- EDW-187 the gap also carried registered and picked quantities and exact-case cost groups
+-- ($28.25M against $28.28M on 2026-10-16). The 1 percent tolerance is unchanged. Returns one row
+-- when outside tolerance.
 
 with snapshot_value as (
 

@@ -1,0 +1,12 @@
+main_account_id,gl_bucket,gl_bucket_description,is_tied_to_gold,bucket_sort_order,classified_by,classified_date,notes
+130020,ON_HAND,Inventory on hand,true,1,Chris Mathis,2026-10-29,D365 inventory subledger account for every warehouse except goods in transit (transfer transit -T included). Ties to gold and to D365's Inventory value report.
+130070,IN_TRANSIT,Goods in transit,true,2,Chris Mathis,2026-10-29,D365 goods in transit (location type 10: the -GT warehouses and DropShip-G). Ties to gold and to D365's Inventory value report.
+130030,RECEIPT_CLEARING,Receipt and voyage clearing,false,3,Chris Mathis,2026-10-29,Clearing for vendor invoices and voyages. Zero at each June 30; at month-end usually reclassed to 234100 and reversed on day 1. GL only.
+130035,RECEIPT_CLEARING,Receipt and voyage clearing,false,3,Chris Mathis,2026-10-29,Clearing for vendor invoices and voyages (from May 2025). GL only.
+130040,RECEIPT_CLEARING,Receipt and voyage clearing,false,3,Chris Mathis,2026-10-29,Clearing for vendor invoices and voyages. GL only.
+130050,RECEIPT_CLEARING,Receipt and voyage clearing,false,3,Chris Mathis,2026-10-29,Clearing for vendor invoices and voyages. GL only.
+130060,RECEIPT_CLEARING,Receipt and voyage clearing,false,3,Chris Mathis,2026-10-29,Clearing for vendor invoices and voyages (Jul to Sep 2023 only). GL only.
+130080,TARIFF_DEFERRAL,Capitalized tariff deferral,false,4,Chris Mathis,2026-10-29,Mostly a capitalized tariff and landed cost deferral (contra to inventory) released to COGS monthly from Jul 2026; also small costume material purchases. GL only.
+130090,VENDOR_PREPAYMENT,Inventory vendor prepayments,false,5,Chris Mathis,2026-10-29,Prepayments to inventory vendors (PRE vouchers). GL only.
+131010,EXCESS_OBSOLETE_RESERVE,Excess and obsolete reserve,false,6,Chris Mathis,2026-10-29,E&O reserve (contra to inventory) by journal. GL only.
+131020,RETURNS_ASSET,Right of return asset,false,7,Chris Mathis,2026-10-29,Returns reserve asset by journal. GL only.

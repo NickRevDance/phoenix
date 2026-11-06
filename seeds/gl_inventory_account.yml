@@ -1,0 +1,24 @@
+version: 2
+
+seeds:
+  - name: gl_inventory_account
+    description: >
+      BI-maintained source of record for REF_GL_INVENTORY_ACCOUNT (Inventory Gold Layer spec,
+      Section 5.10; EDW-183 step 2; decision record I6 point 9). Maps each D365 inventory main
+      account (13xxxx, company REV) to a tie-out bucket. Only ON_HAND (130020) and IN_TRANSIT
+      (130070) tie to gold; the other buckets are listed so the whole inventory line of the
+      balance sheet reads in one place. Ratified by Chris Mathis on 2026-10-29 from the GL
+      profile (each account's entries, posting types and offsets). A new inventory account is a
+      row added here; assert_gl_inventory_accounts_mapped reports any 13xxxx account with
+      entries and no row. All columns loaded as string; ref_gl_inventory_account casts real
+      types.
+    config:
+      column_types:
+        main_account_id: string
+        gl_bucket: string
+        gl_bucket_description: string
+        is_tied_to_gold: string
+        bucket_sort_order: string
+        classified_by: string
+        classified_date: string
+        notes: string
