@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: v_dim_forecast_active
+    description: >
+      V_DIM_FORECAST_ACTIVE (EDW-70) -- Published and Superseded versions from DIM_FORECAST, the Power BI
+      forecast version dimension. Adds forecast_label, months_of_actuals and months_of_forecast.
+    columns:
+      - name: forecast_version_key
+        tests: [unique, not_null]
+      - name: forecast_label
+        tests: [not_null]
+      - name: months_of_actuals
+        tests: [not_null]
+      - name: months_of_forecast
+        tests: [not_null]
