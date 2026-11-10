@@ -223,11 +223,17 @@ models:
 
       # Held for later builds (typed NULL)
       - name: landed_cost_amount
-        description: Typed NULL until EDW-60.
+        description: Sum of landed_cost_amount (FACT_PRODUCT_COST current LANDED x invoiced_qty). USD. EDW-60.
+      - name: net_sales_amount_with_landed_cost
+        description: Sum of net_sales_amount on USD lines that have a landed cost. The transaction-currency landed margin denominator. EDW-60.
       - name: gross_margin_landed_amount
-        description: Typed NULL until EDW-60. Landed-cost margin, a different number from gross_margin_std_amount.
+        description: Margin at landed cost in transaction currency, net_sales_amount less landed_cost_amount on the lines counted in net_sales_amount_with_landed_cost (USD lines only). EDW-60.
+      - name: net_sales_amount_usd_with_landed_cost
+        description: Sum of net_sales_amount_usd on lines that have a landed cost, CAD lines included. The USD landed margin denominator. EDW-60.
+      - name: gross_margin_landed_amount_usd
+        description: Margin at landed cost in USD, summable across currencies, net_sales_amount_usd less landed_cost_amount on the lines counted in net_sales_amount_usd_with_landed_cost. EDW-60.
       - name: freight_cost_amount
-        description: Typed NULL until EDW-60.
+        description: Typed NULL, deferred on EDW-60 until a shipment cost source exists (EDW-69).
       - name: net_sales_amount_usd
         description: Sum of net_sales_amount_usd (the line as booked in USD). Summable across currencies. EDW-169.
       - name: loyalty_points_earned

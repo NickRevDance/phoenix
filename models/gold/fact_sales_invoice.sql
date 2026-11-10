@@ -364,6 +364,21 @@ product_cost as (
 
 ),
 
+landed_cost as (
+
+    -- EDW-60: current LANDED row per item (D365 voyage actuals, EDW-94 decision record A). One
+    -- current row per product_id and USD on every row (checked Nov 5 2026), so this cannot fan out.
+    select
+
+          product_id
+        , landed_cost_unit
+
+    from {{ ref('fact_product_cost') }}
+    where cost_type = 'LANDED'
+      and is_current = true
+
+),
+
 joined as (
 
     select
@@ -425,6 +440,7 @@ joined as (
         , nullif(j.SALESORIGINID, '') as source_sales_origin_id  -- v1.1 (EDW-16, Decision 4): raw D365 origin carried on the fact as a non-key lineage attribute, so an unmapped/blank row can be traced without a join back to silver.
         , pc.standard_cost_unit
         , pc.cost_currency_code
+        , lc.landed_cost_unit  -- EDW-60
         , pst.posted_cost_amount  -- EDW-182
         , pst.posted_qty          -- EDW-182
         , ro.SALESID is not null  as is_replacement_order  -- EDW-184
@@ -485,6 +501,9 @@ joined as (
     left join product_cost pc
         on tr.ITEMID = pc.product_id
 
+    left join landed_cost lc
+        on tr.ITEMID = lc.product_id
+
     -- EDW-182: one row per INVENTTRANSID + INVOICEID (grouped above), and no pair lands on more
     -- than one invoice line (checked Oct 22 2026), so this join cannot fan out.
     left join posted_cost pst
@@ -519,7 +538,7 @@ final as (
     -- ship_to_customer_key removed (retired, spec v1.4 O8; EDW-59): ship-to geography replaces it once LogisticsPostalAddress is ingested.
         , j.sales_channel_key
         , j.source_sales_origin_id
-        , j.warehouse_key
+        , coalesce(j.warehouse_key, -1) as warehouse_key  -- EDW-90 follow-on (DIM_WAREHOUSE spec 3.7): no warehouse on the line (Free Text lines and a few others) resolves to the -1 UNKNOWN member
         , cast(-1 as bigint) as employee_sales_hierarchy_key  -- 2026-09-16 fix (Chris review, Aug 5 note): coalesced to the reserved -1 UNKNOWN member rather than left null -- no worker/sales-rep table found in the warehouse scan; still applies to B2C per spec 4.5
         , cast(null as bigint) as campaign_key  -- Phase 2 per spec -- contingent on DIM_CAMPAIGN, not scoped
         , cast(null as bigint) as vendor_key  -- Phase 2 per spec -- derived from DIM_PRODUCT vendor linkage, not wired yet
@@ -567,9 +586,9 @@ final as (
         , j.QTY * j.standard_cost_unit                               as standard_cost_amount
         , {{ amount('try_divide(j.posted_cost_amount, j.posted_qty)') }}  as moving_avg_cost_unit  -- EDW-182: D365's posted cost per unit on the line's legs (cost / quantity of the legs, both signed alike). USD. NULL on free text lines and the 22 lines with no INVENTTRANSID; 0 on the non-merchandise items D365 carries at no cost.
         , {{ amount("case when j.posted_qty = -j.QTY then -j.posted_cost_amount else try_divide(j.posted_cost_amount, j.posted_qty) * j.QTY end") }} as moving_avg_cost_amount  -- EDW-182: D365's posted cost of the line's legs, -(COSTAMOUNTPOSTED + COSTAMOUNTADJUSTMENT) with the line's sign (negative on credit lines). The COGS basis (I6); as of posting, never restated to a later price. Where the legs' quantity is not the line's (32 lines, 475 units, Jul to Oct 2026: D365 re-split the legs and silver still holds the rows it replaced, so the legs read double), the unit cost x invoiced_qty, which is what the ledger carries; on every other line the two are the same number.
-        , cast(null as decimal(19,4)) as landed_cost_unit  -- Phase 2 per spec
-        , cast(null as decimal(19,4)) as landed_cost_amount  -- Phase 2 per spec
-        , cast(null as decimal(19,4)) as freight_cost_amount  -- Phase 2 per spec
+        , cast(j.landed_cost_unit as decimal(19,4))                  as landed_cost_unit  -- EDW-60: FACT_PRODUCT_COST current LANDED, USD. Restated to the current landed cost when the line is merged again, same as standard_cost_unit. Kept at decimal(19,4), the type the column was created with.
+        , cast(j.QTY * j.landed_cost_unit as decimal(19,4))          as landed_cost_amount  -- EDW-60: invoiced_qty x landed_cost_unit, carries the line's sign
+        , cast(null as decimal(19,4)) as freight_cost_amount  -- EDW-60: deferred, no outbound carrier cost in the D365 export; lands with the shipment cost source (FACT_SHIPMENT, EDW-69)
         , coalesce(j.cost_currency_code, 'USD')                      as cost_currency_code
 
     -- Currency

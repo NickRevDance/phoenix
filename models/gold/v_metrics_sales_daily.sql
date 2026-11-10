@@ -46,13 +46,16 @@
 -- Dimension attributes: the latest version of each dimension row (version_number = 1), so a
 -- member that has since been closed at the source still describes its history. They are
 -- carried so the view reads on its own in Excel and SQL; Power BI relates on the keys.
--- Typed NULL columns (D6) hold their place in the contract: landed and freight cost (EDW-60),
--- loyalty_points_earned (EDW-78).
+-- Landed (EDW-60): landed_cost_amount is FACT_PRODUCT_COST current LANDED (D365 voyage actuals),
+-- USD, restated to the current landed cost like the purchase price. A third margin basis beside
+-- purchase price and posted cost; margin on a page still reads the posted cost pair.
+-- Typed NULL columns (D6) hold their place in the contract: freight_cost_amount (EDW-60, deferred
+-- until a shipment cost source exists), loyalty_points_earned (EDW-78).
 -- Nimbly (EDW-169): website fee and commission and the wholesale amount (net less both), in
 -- transaction currency and USD. Wholesale USD is the basis of Wholesale Revenue. The custom
 -- print fee is carried beside them and is not taken off wholesale.
--- warehouse_key is NULL where the line resolves to no warehouse (the Free Text lines and a
--- few others) until DIM_WAREHOUSE carries its unknown member (EDW-90).
+-- warehouse_key is -1 (DIM_WAREHOUSE's UNKNOWN member) where the line resolves to no warehouse
+-- (the Free Text lines and a few others).
 
 with invoice_line as (
 
@@ -84,6 +87,7 @@ with invoice_line as (
         , f.standard_cost_amount
         , f.cost_currency_code
         , f.moving_avg_cost_amount  -- EDW-182
+        , f.landed_cost_amount  -- EDW-60
         , f.is_return_flag
         , f.net_sales_amount_usd
         , f.nimbly_fee_amount
@@ -114,6 +118,15 @@ with invoice_line as (
                 and f.net_sales_amount_usd is not null
                then 1 else 0
           end                                                        as has_usd_moving_avg_cost
+        -- EDW-60: landed cost is USD, same comparability rules as the posted cost
+        , case when f.landed_cost_amount is not null
+                and f.transaction_currency_code = 'USD'
+               then 1 else 0
+          end                                                        as has_comparable_landed_cost
+        , case when f.landed_cost_amount is not null
+                and f.net_sales_amount_usd is not null
+               then 1 else 0
+          end                                                        as has_usd_landed_cost
 
     from {{ ref('fact_sales_invoice') }} f
 
@@ -170,6 +183,17 @@ daily as (
                                                                      as net_sales_amount_usd_with_moving_avg_cost
         , {{ amount('sum(case when l.has_usd_moving_avg_cost = 1 then l.net_sales_amount_usd - l.moving_avg_cost_amount end)') }}
                                                                      as gross_margin_moving_avg_amount_usd
+
+        -- EDW-60: margin at landed cost
+        , {{ amount('sum(l.landed_cost_amount)') }}                  as landed_cost_amount
+        , {{ amount('sum(case when l.has_comparable_landed_cost = 1 then l.net_sales_amount end)') }}
+                                                                     as net_sales_amount_with_landed_cost
+        , {{ amount('sum(case when l.has_comparable_landed_cost = 1 then l.net_sales_amount - l.landed_cost_amount end)') }}
+                                                                     as gross_margin_landed_amount
+        , {{ amount('sum(case when l.has_usd_landed_cost = 1 then l.net_sales_amount_usd end)') }}
+                                                                     as net_sales_amount_usd_with_landed_cost
+        , {{ amount('sum(case when l.has_usd_landed_cost = 1 then l.net_sales_amount_usd - l.landed_cost_amount end)') }}
+                                                                     as gross_margin_landed_amount_usd
 
         , {{ amount('sum(l.nimbly_fee_amount)') }}                   as nimbly_fee_amount
         , {{ amount('sum(l.nimbly_commission_amount)') }}            as nimbly_commission_amount
@@ -349,6 +373,13 @@ select
     , d.net_sales_amount_usd_with_moving_avg_cost
     , d.gross_margin_moving_avg_amount_usd
 
+    -- Landed cost and margin (EDW-60)
+    , d.landed_cost_amount
+    , d.net_sales_amount_with_landed_cost
+    , d.gross_margin_landed_amount
+    , d.net_sales_amount_usd_with_landed_cost
+    , d.gross_margin_landed_amount_usd
+
     -- Nimbly and wholesale (EDW-169)
     , d.nimbly_fee_amount
     , d.nimbly_commission_amount
@@ -369,9 +400,7 @@ select
     , d.below_cost_standard_cost_amount
 
     -- Held for later builds (typed NULL, D6)
-    , cast(null as decimal(38,6)) as landed_cost_amount          -- EDW-60
-    , cast(null as decimal(38,6)) as gross_margin_landed_amount  -- EDW-60
-    , cast(null as decimal(38,6)) as freight_cost_amount         -- EDW-60
+    , cast(null as decimal(38,6)) as freight_cost_amount         -- EDW-60, deferred (EDW-69 shipment cost source)
     , cast(null as decimal(38,6)) as loyalty_points_earned       -- EDW-78
 
 from daily d

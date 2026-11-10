@@ -2,7 +2,8 @@
 -- FACT_SALES_INVOICE, so each additive measure summed over the view equals the same sum over
 -- the fact. A difference means a filter crept into the view or a dimension join fanned out.
 -- Returns a row for each measure that does not tie. EDW-169 adds the USD, Nimbly and wholesale measures;
--- EDW-182 adds the posted cost.
+-- EDW-182 adds the posted cost. EDW-60 adds landed cost, and ties the USD standard and landed
+-- margins to their fact ingredients.
 
 with fact_totals as (
 
@@ -23,6 +24,11 @@ with fact_totals as (
         , coalesce(sum(wholesale_amount_usd), 0)        as wholesale_amount_usd
         , coalesce(sum(custom_print_fee_amount), 0)     as custom_print_fee_amount
         , coalesce(sum(custom_print_fee_amount_usd), 0) as custom_print_fee_amount_usd
+        , coalesce(sum(landed_cost_amount), 0)          as landed_cost_amount
+        , coalesce(sum(case when standard_cost_unit is not null and cost_currency_code = 'USD' and net_sales_amount_usd is not null
+                            then net_sales_amount_usd - standard_cost_amount end), 0) as gross_margin_std_amount_usd
+        , coalesce(sum(case when landed_cost_amount is not null and net_sales_amount_usd is not null
+                            then net_sales_amount_usd - landed_cost_amount end), 0)   as gross_margin_landed_amount_usd
     from {{ ref('fact_sales_invoice') }}
 
 ),
@@ -46,6 +52,9 @@ view_totals as (
         , coalesce(sum(wholesale_amount_usd), 0)        as wholesale_amount_usd
         , coalesce(sum(custom_print_fee_amount), 0)     as custom_print_fee_amount
         , coalesce(sum(custom_print_fee_amount_usd), 0) as custom_print_fee_amount_usd
+        , coalesce(sum(landed_cost_amount), 0)          as landed_cost_amount
+        , coalesce(sum(gross_margin_std_amount_usd), 0) as gross_margin_std_amount_usd
+        , coalesce(sum(gross_margin_landed_amount_usd), 0) as gross_margin_landed_amount_usd
     from {{ ref('v_metrics_sales_daily') }}
 
 )
@@ -207,3 +216,33 @@ select
 from view_totals v
 cross join fact_totals f
 where v.moving_avg_cost_amount <> f.moving_avg_cost_amount
+
+union all
+
+select
+      'landed_cost_amount'
+    , cast(v.landed_cost_amount as decimal(38,6))
+    , cast(f.landed_cost_amount as decimal(38,6))
+from view_totals v
+cross join fact_totals f
+where v.landed_cost_amount <> f.landed_cost_amount
+
+union all
+
+select
+      'gross_margin_std_amount_usd'
+    , cast(v.gross_margin_std_amount_usd as decimal(38,6))
+    , cast(f.gross_margin_std_amount_usd as decimal(38,6))
+from view_totals v
+cross join fact_totals f
+where v.gross_margin_std_amount_usd <> f.gross_margin_std_amount_usd
+
+union all
+
+select
+      'gross_margin_landed_amount_usd'
+    , cast(v.gross_margin_landed_amount_usd as decimal(38,6))
+    , cast(f.gross_margin_landed_amount_usd as decimal(38,6))
+from view_totals v
+cross join fact_totals f
+where v.gross_margin_landed_amount_usd <> f.gross_margin_landed_amount_usd
