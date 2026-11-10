@@ -3,7 +3,8 @@
 SELECT
 
       ORIGPURCHID          as PURCHID  -- FK back to PurchLine.PURCHID
-    , PURCHASELINELINENUMBER            -- FK back to PurchLine.LINENUMBER
+    , INVENTTRANSID                     -- PurchLine.INVENTTRANSID: the PO line join key (EDW-68)
+    , PURCHASELINELINENUMBER            -- line position at posting, not the current PurchLine.LINENUMBER
     , ITEMID
     , INVENTDIMID
     , QTY                                -- actual received qty, this receipt event
