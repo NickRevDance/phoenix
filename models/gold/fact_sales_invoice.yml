@@ -44,6 +44,13 @@ models:
               arguments:
                 to: ref('dim_customer')
                 field: customer_key
+      - name: warehouse_key
+        description: >
+          DIM_WAREHOUSE key on the latest version of the warehouse (EDW-90 item 4). -1, the
+          UNKNOWN member, where the line resolves to no warehouse (Free Text lines and a few
+          others; DIM_WAREHOUSE spec 3.7).
+        tests:
+          - not_null
       - name: customer_segment_key
         description: >
           DIM_CUSTOMER_SEGMENT key of the invoice account when the line was written, held on later
@@ -209,6 +216,41 @@ models:
               config:
                 where: "moving_avg_cost_amount <> 0 and invoiced_qty <> 0"
                 severity: warn
+      - name: landed_cost_unit
+        description: >
+          EDW-60: FACT_PRODUCT_COST current LANDED cost (D365 voyage actuals: goods value plus
+          duty, freight and brokerage, EDW-94 decision record A), joined on product_id. USD.
+          Restated to the current landed cost whenever the line is merged again, the same as
+          standard_cost_unit, so it is not the landed cost at the invoice date. NULL where the
+          item has no voyage history and on free text lines.
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "> 0"
+              config:
+                severity: warn
+      - name: landed_cost_amount
+        description: >
+          EDW-60: invoiced_qty x landed_cost_unit, carries the line's sign (negative on credit
+          lines). An analysis basis beside purchase price and posted cost; the COGS basis stays
+          moving_avg_cost_amount (I6). Over Oct 2025 to Sep 2026 it ran at $24.92M against
+          $26.17M at D365's posted cost on the same lines.
+        tests:
+          - dbt_utils.expression_is_true:  # EDW-60: derivation
+              arguments:
+                expression: "= cast(invoiced_qty * landed_cost_unit as decimal(19,4))"
+              config:
+                where: "landed_cost_unit is not null"
+          - dbt_utils.expression_is_true:  # EDW-60: NULL exactly where the unit is NULL
+              arguments:
+                expression: "is null"
+              config:
+                where: "landed_cost_unit is null"
+      - name: freight_cost_amount
+        description: >
+          EDW-60: deferred, typed NULL. The D365 export carries no outbound carrier cost; it lands
+          with the shipment cost source (FACT_SHIPMENT, EDW-69), allocated on the basis Finance
+          signs off (FACT_SHIPMENT spec 7.2).
       - name: fx_rate_to_usd
         description: Posted rate from the invoice header (CustInvoiceJour.EXCHRATE / 100), 1 on USD. EDW-169.
         tests:
