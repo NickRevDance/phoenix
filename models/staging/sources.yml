@@ -156,6 +156,31 @@ sources:
       - name: d365_vend_invoice_trans
         identifier: Rev_VendInvoiceTransStaging
 
+      # EDW-55: sales packing slips (true ship date and partial shipments) and WMS work lines (picked_qty)
+      - name: d365_cust_packing_slip_trans
+        identifier: Rev_custpackingsliptransStaging
+        config:
+          loaded_at_field: SYNCSTARTDATETIME
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 48, period: hour}
+
+      - name: d365_cust_packing_slip_jour
+        identifier: Rev_CustPackingSlipJourStaging
+        config:
+          loaded_at_field: SYNCSTARTDATETIME
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 48, period: hour}
+
+      - name: d365_whs_work_line
+        identifier: Rev_WHSWorkLineStaging
+        config:
+          loaded_at_field: SYNCSTARTDATETIME
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 48, period: hour}
+
       # Added 2026-09-18 for FACT_PRODUCT_COST USD normalization (EDW-94
       # Phase 2). Native D365 ExchangeRate export -- monthly spot rates,
       # currently CAD->USD and GBP->USD only
