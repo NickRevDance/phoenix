@@ -5,10 +5,11 @@ snapshots:
     relation: ref('silver_stage_fact_purchase_order')
 
     description: >
-      Type 2 historical snapshot of purchase order line versions. A new
-      version is created whenever a tracked PO line attribute (status, unit
-      cost, currency, expected/confirmed dates, or receipt-progress fields)
-      changes for a given purchase_order_id + purchase_order_line_number.
+      Type 2 history of purchase order lines (FACT_PURCHASE_ORDER v1.0). A version is created
+      when po_change_hash changes: line or header status, ordered quantity, unit price,
+      currency, requested or confirmed delivery date, remaining physical quantity, received,
+      cancelled, invoiced or in-transit quantity, last receipt date, vendor account,
+      manufacturing status or transit status.
 
     config:
       schema: silver_history
