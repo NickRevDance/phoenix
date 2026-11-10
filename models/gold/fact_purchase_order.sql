@@ -1,101 +1,122 @@
 {{ config(materialized = 'table') }}
 
+-- FACT_PURCHASE_ORDER v1.0: one row per PO line version, from silver_snapshot_fact_purchase_order.
+-- Items bought outside the merchandise range (catalog packs, accessory purchases) resolve to product_key '0', Not Applicable.
+{% set non_merchandise_item_patterns = ['ACCESS%', 'CAT-BUNDLE-%', '%CATPKG'] %}
+
 with versioned as (
 
     select
 
           snap.*
-        , row_number() over (
-            partition by snap.purchase_order_entity_key
-            order by snap.effective_start_datetime desc
-          ) as version_number
+        , {{ scd2_version_number('snap.purchase_order_entity_key') }} as version_number
 
     from {{ ref('silver_snapshot_fact_purchase_order') }} snap
 
 ),
 
-product as (
+product_by_upc as (
 
     select
-          product_key
-        , style_number
-        , size
-        , d365_color_code
-        , upc
-        , sku
-    from {{ ref('dim_product') }}
-    where version_number = 1
+          p.product_key
+        , p.upc
+        , p.sku
+    from {{ ref('dim_product') }} p
+    where p.version_number = 1
+
+),
+
+product_by_variant as (
+
+    -- Fallback where PurchLine.BARCODE is blank; item numbers are case-inconsistent in the source.
+    select
+          lower(p.style_number) as style_number_lower
+        , p.d365_color_code
+        , p.size
+        , p.product_key
+        , p.upc
+        , p.sku
+    from {{ ref('dim_product') }} p
+    where p.version_number = 1
+      and p.product_key not in ('-1', '0')
+    qualify row_number() over (partition by lower(p.style_number), p.d365_color_code, p.size order by p.upc) = 1
 
 ),
 
 vendor as (
 
     select
-          vendor_key
-        , vendor_id
-        , vendor_name
-    from {{ ref('dim_vendor') }}
-    where version_number = 1
-      and source_system = 'D365'
+          v.vendor_key
+        , v.vendor_id
+        , v.vendor_name
+    from {{ ref('dim_vendor') }} v
+    where v.version_number = 1
+      and v.source_system = 'D365'
 
 ),
 
 warehouse as (
 
     select
-          warehouse_key
-        , warehouse_id
-        , d365_site_id
-    from {{ ref('dim_warehouse') }}
-    where version_number = 1  -- EDW-90 item 4: fact key resolution resolves against the latest version, not is_current_row
+          w.warehouse_key
+        , w.warehouse_id
+        , w.d365_site_id
+    from {{ ref('dim_warehouse') }} w
+    where w.version_number = 1  -- EDW-90 item 4: facts resolve on the latest version
 
 ),
 
 standard_cost as (
 
-    -- Current STANDARD cost only -- see dbt_build_conventions's fan-out
-    -- warning on fact_product_cost (multiple cost_type/version rows per
-    -- product_id), filtered on both columns to avoid it.
-    -- Joined on product_id, not product_key (2026-09-21 review):
-    -- fact_product_cost's real grain is product_id -- its product_key is
-    -- one arbitrary UPC per item, not a reliable join key (same finding as
-    -- EDW-94's A1 fix on fact_inventory_snapshot_daily). Confirmed live:
-    -- product_key join resolved 8.91% of lines, product_id resolves 99.98%.
     select
-          product_id
-        , standard_cost_unit
-    from {{ ref('fact_product_cost') }}
-    where cost_type = 'STANDARD'
-      and is_current = true
+          c.product_id
+        , c.standard_cost_unit
+    from {{ ref('fact_product_cost') }} c
+    where c.cost_type = 'STANDARD'
+      and c.is_current = true
 
 ),
 
-joined as (
+resolved as (
 
     select
 
           v.*
-        , pr.product_key
-        , pr.upc
-        , pr.sku
-        , ve.vendor_key
+        , case
+            when coalesce(pu.product_key, pv.product_key) is not null then coalesce(pu.product_key, pv.product_key)
+            when v.STOCKEDPRODUCT = 0
+              {%- for pattern in non_merchandise_item_patterns %}
+              or upper(v.ITEMID) like '{{ pattern }}'
+              {%- endfor %}
+                then '{{ default_member_key() }}'
+            else '{{ unknown_member_key() }}'
+          end                                                                   as product_key
+        , coalesce(pu.upc, pv.upc)                                              as upc
+        , coalesce(pu.sku, pv.sku)                                              as sku
+        , coalesce(ve.vendor_key, {{ unknown_member_key() }})                   as vendor_key
+        , coalesce(v.VENDACCOUNT, v.ORDERACCOUNT)                               as vendor_id
         , ve.vendor_name
-        , wh.warehouse_key
+        , coalesce(wh.warehouse_key, {{ unknown_member_key() }})                as warehouse_key
         , sc.standard_cost_unit
 
     from versioned v
 
-    left join product pr
-        on v.ITEMID = pr.style_number
-        and v.INVENTCOLORID = pr.d365_color_code
-        and v.INVENTSIZEID = pr.size
+    left join product_by_upc pu
+        on nullif(v.BARCODE, '') is not null
+        and md5(concat_ws('|', v.BARCODE)) = pu.product_key
+
+    left join product_by_variant pv
+        on nullif(v.BARCODE, '') is null
+        and lower(v.ITEMID) = pv.style_number_lower
+        and v.INVENTCOLORID = pv.d365_color_code
+        and v.INVENTSIZEID = pv.size
 
     left join vendor ve
-        on coalesce(v.VENDACCOUNT, v.header_vendaccount) = ve.vendor_id
+        on coalesce(v.VENDACCOUNT, v.ORDERACCOUNT) = ve.vendor_id
 
     left join warehouse wh
-        on v.dim_inventlocationid = wh.warehouse_id
-        and v.dim_inventsiteid = wh.d365_site_id
+        on v.warehouse_id = wh.warehouse_id
+        and v.inventory_site_id = wh.d365_site_id
 
     left join standard_cost sc
         on v.ITEMID = sc.product_id
@@ -107,155 +128,150 @@ final as (
     select
 
     -- Core identifiers
-          xxhash64(j.PURCHID, cast(j.LINENUMBER as string), 'D365', cast(j.effective_start_datetime as string)) as purchase_order_key
-        , j.PURCHID                                                 as purchase_order_id
-        , cast(j.LINENUMBER as int)                                 as purchase_order_line_number
-        , cast(null as string) as purchase_order_line_id  -- Source once available: no distinct line-level identifier beyond PURCHID+LINENUMBER found on Rev_PurchLineStaging
-        , cast(null as string) as purchase_order_header_id  -- Source once available: PURCHID is both the header and line identifier in this export, no separate header id
-        , 'D365'                                                     as source_system
+          {{ generate_surrogate_key(["r.PURCHID", "cast(r.LINENUMBER as string)", "'D365'", "cast(r.effective_start_datetime as string)"]) }} as purchase_order_key
+        , r.purchase_order_entity_key
+        , r.PURCHID                                                             as purchase_order_id
+        , cast(r.LINENUMBER as int)                                             as purchase_order_line_number
+        , r.INVENTTRANSID                                                       as d365_invent_trans_id
+        , r.INVENTDIMID                                                         as d365_invent_dim_id
+        , 'D365'                                                                as source_system
+        , cast(null as string)                                                  as purchase_order_line_id    -- not maintained: PURCHID is both header and line id in this export
+        , cast(null as string)                                                  as purchase_order_header_id  -- not maintained: same
 
-    -- History and row control
-        , j.effective_start_datetime                                 as version_start_datetime
-        , j.effective_end_datetime                                   as version_end_datetime
-        , case when j.version_number = 1 then true else false end    as is_current_row
-        , cast(null as string) as change_reason_code  -- Planned per spec -- no change-classification rule defined yet
-        , cast(null as string) as change_reason_desc  -- Planned per spec
+    -- History
+        , r.effective_start_datetime
+        , r.effective_end_datetime
+        , {{ scd2_is_current_row() }}                                           as is_current_row
+        , r.version_number
+        , cast(null as string)                                                  as change_reason_code  -- Phase 2
+        , cast(null as string)                                                  as change_reason_desc  -- Phase 2
+
+    -- Classification
+        , r.purchase_order_class
+        , r.po_series_code
+        , r.VENDGROUP                                                           as vendor_group_code
+        , r.REVREASON                                                           as po_revision_label
 
     -- Dates
-        , cast(j.CREATEDDATE as date)                                 as po_created_date
-        , cast(null as timestamp) as po_created_datetime  -- Source exists (PurchTable.CREATEDDATE) but tagged Planned in the spec -- phase boundary, not a data gap
-        , cast(null as date) as po_approved_date  -- Planned -- no confirmed approved-date field (DOCUMENTSTATUS/WORKFLOWSTATE carry a workflow state, not a timestamp)
-        , cast(date_format(j.CREATEDDATE, 'yyyyMMdd') as int)         as order_date_key
-        , cast(j.REQUESTEDSHIPDATE as date)                           as expected_ship_date  -- Resolved 2026-09-17: PurchLine.REQUESTEDSHIPDATE, confirmed present 2026-09-15
-        , cast(j.CONFIRMEDDLV as date)                                as expected_receipt_date
-        , cast(null as date) as confirmed_receipt_date  -- Planned -- CONFIRMEDDLV is already used above for expected_receipt_date; no separate vendor-reconfirmed date field found -- flag to Nick which of the two spec fields CONFIRMEDDLV is really meant to answer
-        , cast(j.first_receipt_date as date)                          as first_receipt_date  -- Resolved 2026-09-17 via Rev_VendPackingSlipTransStaging -- null where no packing-slip row exists for this line
-        , cast(j.last_receipt_date as date)                           as last_receipt_date   -- same source/caveat as first_receipt_date
-        , cast(null as date) as po_closed_date  -- Planned
+        , cast(r.CREATEDDATE as date)                                           as po_created_date
+        , cast(r.CREATEDDATE as timestamp)                                      as po_created_datetime
+        , coalesce(cast(date_format(r.CREATEDDATE, 'yyyyMMdd') as int), {{ unknown_member_key() }})  as order_date_key
+        , r.ACCOUNTINGDATE                                                      as accounting_date
+        , r.DELIVERYDATE                                                        as expected_receipt_date
+        , coalesce(cast(date_format(r.DELIVERYDATE, 'yyyyMMdd') as int), {{ unknown_member_key() }}) as expected_receipt_date_key
+        , r.CONFIRMEDDLV                                                        as confirmed_receipt_date
+        , r.ITMEXFACTORYDATE                                                    as ex_factory_date
+        , r.ITMINTOSTOREDATE                                                    as into_store_date
+        , r.shipped_date
+        , r.expected_arrival_date
+        , r.first_receipt_date
+        , r.last_receipt_date
+        , cast(null as date)                                                    as po_approved_date  -- not maintained: no approval timestamp
+        , cast(null as date)                                                    as po_closed_date    -- not maintained: no closure timestamp
 
-    -- Vendor and sourcing
-        , j.vendor_key
-        , coalesce(j.VENDACCOUNT, j.header_vendaccount)               as vendor_id
-        , j.vendor_name
-        , cast(null as string) as vendor_item_id  -- Planned
-        , cast(null as string) as manufacturer_id  -- Planned
-        , cast(null as bigint) as buyer_employee_key  -- Source once available: no worker/buyer/sales-rep table found in the warehouse -- same known gap as fact_order_line/fact_sales_invoice's employee_sales_hierarchy_key
-        , cast(null as string) as buyer_name  -- Planned, same gap
-        , cast(null as string) as incoterm_code  -- Source exists (PurchTable.DLVTERM) but tagged Planned in the spec
-        , cast(null as string) as payment_terms  -- Source exists (PurchTable.PAYMENT) but tagged Planned in the spec
-        , cast(null as bigint) as country_of_origin_key  -- Planned -- no DIM_COUNTRY model in this project
+    -- Vendor
+        , r.vendor_key
+        , r.vendor_id
+        , r.vendor_name
+        , r.PAYMENT                                                             as payment_terms_code
+        , cast(null as string)                                                  as incoterm_code          -- not maintained: DLVTERM is Default or blank
+        , cast(null as string)                                                  as vendor_item_id         -- not maintained: EXTERNALITEMID blank
+        , cast(null as string)                                                  as manufacturer_id        -- not maintained
+        , cast(null as bigint)                                                  as buyer_employee_key     -- Phase 2: no buyer on the PO (DIM_EMPLOYEE, EDW-18)
+        , cast(null as string)                                                  as buyer_name             -- Phase 2
+        , cast(null as bigint)                                                  as country_of_origin_key  -- Phase 3: ORIGCOUNTRYREGIONID blank, no DIM_COUNTRY
 
-    -- Product and inventory
-        , j.product_key
-        , j.ITEMID                                                    as product_id
-        , j.upc
-        , j.sku
-        , j.warehouse_key
-        , j.dim_inventlocationid                                      as warehouse_id
-        , cast(null as string) as inventory_site_id  -- Source exists (InventDim.inventsiteid, already used for the warehouse join above) but tagged Planned in the spec as its own convenience column
-        , cast(null as string) as inventory_status_code  -- Planned
+    -- Product and warehouse
+        , r.product_key
+        , r.ITEMID                                                              as product_id
+        , r.upc
+        , r.sku
+        , r.NAME                                                                as product_line_description
+        , r.warehouse_key
+        , r.warehouse_id
+        , r.inventory_site_id
+        , cast(null as string)                                                  as inventory_status_code  -- not maintained: assigned at receipt
 
-    -- Quantities -- resolved 2026-09-17 via Rev_VendPackingSlipTransStaging /
-    -- Rev_VendInvoiceTransStaging (both newly landed in BYOD). See
-    -- silver_stage_fact_purchase_order.sql for the received_qty/cancelled_qty/
-    -- invoiced_qty derivation and its Canceled-status caveat.
-        , cast(j.PURCHQTY as decimal(18,4))                           as ordered_qty  -- Resolved 2026-09-15: PURCHQTY is the ordered qty (purchase unit)
-        , cast(j.received_qty as decimal(18,4))                       as received_qty
-        , case when j.received_qty is not null
-               then cast(j.PURCHQTY as decimal(18,4)) - cast(j.received_qty as decimal(18,4))
-               else cast(null as decimal(18,4)) end                   as open_qty
-        , cast(j.invoiced_qty as decimal(18,4))                       as invoiced_qty  -- New column, not in the original spec field catalog -- added per Nick's 2026-09-15 proposal
-        , cast(j.cancelled_qty as decimal(18,4))                      as cancelled_qty
+    -- Quantities
+        , cast(r.PURCHQTY as decimal(18,4))                                     as ordered_qty
+        , cast(r.REMAINPURCHPHYSICAL as decimal(18,4))                          as remaining_physical_qty
+        , r.in_transit_qty
+        , r.received_qty
+        , r.invoiced_qty
+        , r.cancelled_qty
+        , cast(r.PURCHQTY - r.received_qty - r.cancelled_qty as decimal(18,4))  as open_qty
+        , r.PURCHUNIT                                                           as qty_uom
+
+    -- Costs
+        , cast(r.PURCHPRICE as decimal(19,4))                                   as unit_cost
+        , cast(r.PURCHQTY * r.PURCHPRICE as decimal(19,4))                      as extended_cost
+        , cast((r.PURCHQTY - r.received_qty - r.cancelled_qty) * r.PURCHPRICE as decimal(19,4)) as open_extended_cost
+        , cast(r.standard_cost_unit as decimal(19,4))                           as standard_cost_unit
+        , case when r.PURCHPRICE <> 0 and r.standard_cost_unit is not null
+               then cast(r.PURCHPRICE - r.standard_cost_unit as decimal(19,4)) end as cost_variance_unit
+        , r.CURRENCYCODE                                                        as cost_currency_code
+        , cast(null as decimal(19,8))                                           as fx_rate_to_usd          -- Phase 2: REF_FX_RATE (EDW-127)
+        , cast(null as decimal(19,4))                                           as unit_cost_usd           -- Phase 2
+        , cast(null as decimal(19,4))                                           as landed_cost_unit_usd    -- Phase 2
+        , cast(null as decimal(19,4))                                           as freight_inbound_unit_cost  -- Phase 2: allocation is EDW-60 / EDW-94
+        , cast(null as decimal(19,4))                                           as duty_unit_cost          -- Phase 2
+        , cast(null as decimal(19,4))                                           as tariff_unit_cost        -- Phase 2
+        , cast(null as decimal(19,4))                                           as brokerage_unit_cost     -- Phase 2
+        , cast(null as decimal(19,4))                                           as other_landed_unit_cost  -- Phase 2
+        , cast(null as decimal(19,4))                                           as landed_cost_unit        -- Phase 2: never silently equal to unit_cost
+        , cast(null as decimal(19,4))                                           as landed_cost_extended    -- Phase 2
+
+    -- Status
+        , case r.PURCHSTATUS
+            when 0 then 'None' when 1 then 'Backorder' when 2 then 'Received' when 3 then 'Invoiced' when 4 then 'Canceled'
+            else cast(r.PURCHSTATUS as string)
+          end                                                                   as po_line_status
+        , case r.header_purchstatus
+            when 0 then 'None' when 1 then 'Backorder' when 2 then 'Received' when 3 then 'Invoiced' when 4 then 'Canceled'
+            else cast(r.header_purchstatus as string)
+          end                                                                   as po_status
+        , case r.DOCUMENTSTATUS
+            when 0 then 'None' when 2 then 'Purchase Order' when 5 then 'Product Receipt' when 7 then 'Invoice'
+            else cast(r.DOCUMENTSTATUS as string)
+          end                                                                   as document_status
+        , case r.DOCUMENTSTATE
+            when 30 then 'Approved' when 40 then 'Confirmed'
+            else cast(r.DOCUMENTSTATE as string)
+          end                                                                   as approval_state  -- NEEDS CONFIRMATION: labels assumed from VersioningDocumentState (Open Decision 4)
+        , r.REVMANUFACTURINGSTATUS                                              as manufacturing_status
+        , r.ITMSTATUSID                                                         as transit_status
         , case
-            when j.PURCHSTATUS = 1 and j.received_qty is not null
-                 then cast(j.PURCHQTY as decimal(18,4)) - cast(j.received_qty as decimal(18,4))
-            when j.PURCHSTATUS in (2,3) then cast(0 as decimal(18,4))
-            else cast(null as decimal(18,4))
-          end                                                         as backorder_qty
-        , j.PURCHUNIT                                                  as qty_uom
-
-    -- Costs and landed cost
-        , cast(j.PURCHPRICE as decimal(19,4))                         as unit_cost
-        , cast(j.PURCHQTY as decimal(19,4)) * cast(j.PURCHPRICE as decimal(19,4))  as extended_cost  -- Resolved 2026-09-17: unblocked now that ordered_qty is sourced
-        , cast(null as decimal(19,4)) as freight_inbound_unit_cost  -- Source once available: same Open Decision #3 gap as FACT_PRODUCT_COST -- no $/unit freight source
-        , cast(null as decimal(19,4)) as duty_unit_cost  -- Phase 2 per spec
-        , cast(null as decimal(19,4)) as tariff_unit_cost  -- Phase 2 per spec
-        , cast(null as decimal(19,4)) as brokerage_unit_cost  -- Source once available: same Open Decision #3 gap as FACT_PRODUCT_COST
-        , cast(null as decimal(19,4)) as other_landed_unit_cost  -- Planned
-        , cast(null as decimal(19,4)) as landed_cost_unit  -- Reserved per spec Section 6 -- components above are unsourced, so this stays null rather than silently equal unit_cost
-        , cast(null as decimal(19,4)) as landed_cost_extended  -- Still blocked on landed_cost_unit (Open Decision #3, unrelated to the two tables landed this session)
-        , j.standard_cost_unit
-        , coalesce(j.CURRENCYCODE, j.header_currencycode)             as cost_currency_code
-        , cast(null as decimal(19,8)) as fx_rate_to_usd  -- Phase 2 per spec
-        , cast(null as decimal(19,4)) as unit_cost_usd  -- Phase 2 per spec
-        , cast(null as decimal(19,4)) as landed_cost_unit_usd  -- Phase 2 per spec
-
-    -- Status and workflow
-    -- D365 PurchStatus enum on the line: None=0, Backorder=1, Received=2,
-    -- Invoiced=3, Canceled=4 (parallel structure to SalesStatus, confirmed
-    -- for fact_order_line 2026-09-11; not independently re-verified against
-    -- Microsoft's docs this session -- cross-check if this matters for
-    -- reporting). This is D365's own native label, not a re-mapping to the
-    -- spec's assumed Open/Approved/Received/Closed/Cancelled vocabulary.
-        , case j.PURCHSTATUS
-            when 0 then 'None'
-            when 1 then 'Backorder'
-            when 2 then 'Received'
-            when 3 then 'Invoiced'
-            when 4 then 'Canceled'
-            else cast(j.PURCHSTATUS as string)
-          end                                                         as po_status
-        , cast(null as string) as po_line_status  -- Planned -- PURCHSTATUS above is the only line-level status found
-        , cast(null as string) as approval_status  -- Source exists (PurchTable.DOCUMENTSTATUS/WORKFLOWSTATE) but enum mapping unconfirmed -- flag to Nick before wiring up
-        , case
-            when j.received_qty is null then cast(null as string)
-            when j.received_qty <= 0 then 'Not Received'
-            when j.received_qty < j.PURCHQTY then 'Partially Received'
+            when r.PURCHSTATUS = 4 then 'Cancelled'
+            when r.received_qty <= 0 then 'Not Received'
+            when r.received_qty < r.PURCHQTY then 'Partially Received'
             else 'Fully Received'
-          end                                                         as receipt_status  -- Resolved 2026-09-17
-        , case
-            when j.last_receipt_date is not null and j.CONFIRMEDDLV is not null
-                 and j.CONFIRMEDDLV <> date('1900-01-01')
-                 then j.last_receipt_date > j.CONFIRMEDDLV
-            else cast(null as boolean)
-          end                                                         as is_late_flag  -- Resolved 2026-09-17 -- only populated where a packing-slip receipt date exists. 2026-09-21: guards against D365's 1900-01-01 CONFIRMEDDLV placeholder (2,193 of 2,195 receipt-covered lines had it)
-        , cast(null as boolean) as is_closed_flag  -- D365's PurchStatus enum has no single value that cleanly means "closed" beyond Canceled -- NEEDS CONFIRMATION with Nick what "closed" should mean here (e.g. is Invoiced closed?)
-        , j.PURCHSTATUS = 4                                            as is_cancelled_flag
-        , cast(null as boolean) as is_drop_ship_flag  -- Source exists (PurchLine/PurchTable.MCRDROPSHIPMENT) but tagged Planned in the spec
+          end                                                                   as receipt_status
+        , case when r.PURCHSTATUS in (3, 4) and r.in_transit_qty = 0 then 1 else 0 end as is_closed_flag
+        , case when r.PURCHSTATUS = 4 then 1 else 0 end                         as is_cancelled_flag
+        , cast(r.MCRDROPSHIPMENT as int)                                        as is_drop_ship_flag
+        , case when abs(r.PURCHQTY) > 1000000 then 1 else 0 end                 as is_quantity_outlier_flag
 
-    -- Logistics -- all Planned, no source wired
-        , cast(null as string) as shipment_mode
-        , cast(null as string) as container_id
-        , cast(null as string) as bill_of_lading_number
-        , cast(null as string) as tracking_number
-        , cast(null as string) as port_of_loading  -- Source exists (PORT on both PurchTable and PurchLine) but tagged Planned in the spec, and it's unclear the field specifically means "port of loading"
-        , cast(null as string) as port_of_arrival  -- Planned
+    -- Logistics
+        , coalesce(r.DLVMODE, r.header_dlvmode)                                 as shipment_mode_code
+        , r.goods_in_transit_id
+        , cast(null as string)                                                  as container_id           -- Phase 3: no source
+        , cast(null as string)                                                  as bill_of_lading_number  -- Phase 3
+        , cast(null as string)                                                  as tracking_number        -- Phase 3
+        , cast(null as string)                                                  as port_of_loading        -- Phase 3: PORT blank
+        , cast(null as string)                                                  as port_of_arrival        -- Phase 3
 
-    -- Derived operational metrics
-        , case
-            when j.last_receipt_date is not null and j.CONFIRMEDDLV is not null
-                 and j.CONFIRMEDDLV <> date('1900-01-01')
-                 then datediff(cast(j.last_receipt_date as date), cast(j.CONFIRMEDDLV as date))
-            else cast(null as int)
-          end                                                         as days_early_late_to_receipt  -- Resolved 2026-09-17. Positive = late (received after CONFIRMEDDLV), negative = early. 2026-09-21: same 1900-01-01 placeholder guard as is_late_flag
-        , case
-            when j.first_receipt_date is not null and j.CREATEDDATE is not null
-                 then datediff(cast(j.first_receipt_date as date), cast(j.CREATEDDATE as date))
-            else cast(null as int)
-          end                                                         as vendor_lead_time_days  -- Resolved 2026-09-17, off actual first receipt date per spec's own definition (not expected_receipt_date)
-        , case
-            when j.received_qty is not null and j.PURCHQTY > 0
-                 then cast(j.received_qty / j.PURCHQTY as decimal(9,4))
-            else cast(null as decimal(9,4))
-          end                                                         as fill_rate_pct  -- Resolved 2026-09-17
+    -- Derived
+        , datediff(r.first_receipt_date, cast(r.CREATEDDATE as date))           as vendor_lead_time_days
+        , datediff(r.last_receipt_date, coalesce(r.CONFIRMEDDLV, r.DELIVERYDATE)) as days_early_late_to_receipt
+        , case when r.PURCHQTY > 0 then cast(r.received_qty / r.PURCHQTY as decimal(9,4)) end as fill_rate_pct
 
-    -- Audit and lineage
-        , 'silver_stage_fact_purchase_order (PurchTable + PurchLine + VendPackingSlipTrans + VendInvoiceTrans)'  as record_source_table
-        , j.effective_start_datetime                                  as etl_insert_datetime
-        , j.etl_update_datetime
-        , j.row_hash
+    -- Audit
+        , 'silver_stage_fact_purchase_order'                                    as record_source_table
+        , r.effective_start_datetime                                            as etl_insert_datetime
+        , r.etl_update_datetime
+        , r.row_hash
 
-    from joined j
+    from resolved r
 
 )
 

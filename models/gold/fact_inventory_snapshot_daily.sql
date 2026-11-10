@@ -315,6 +315,7 @@ goods_in_transit_agg as (
     from {{ ref('silver_d365_itm_goods_in_transit_order') }} g
     left join inventory_dim d
         on g.INVENTDIMID = d.InventDimID
+    where g.STATUS = 1  -- the silver model carries received rows too (EDW-68)
     group by 1, 2, 3, 4, 5
 
 ),

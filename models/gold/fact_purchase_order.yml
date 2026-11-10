@@ -3,21 +3,59 @@ version: 2
 models:
   - name: fact_purchase_order
     description: >
-      FACT_PURCHASE_ORDER -- PO line version/change-event history fact
-      (D365 PurchTable + PurchLine + VendPackingSlipTrans + VendInvoiceTrans),
-      real SCD2 via dbt snapshot. See README.md for build status, known
-      gaps, and open decisions.
+      FACT_PURCHASE_ORDER v1.0. One row per purchase order line version (dbt snapshot over
+      silver_stage_fact_purchase_order). Covers both order classes (VENDOR and the O/UPO-
+      ADJUSTMENT series) and every line status. Receipts, invoices and in-transit rows join
+      on d365_invent_trans_id; VENDOR received_qty comes from the in-transit module, since
+      Revolution's vendor invoices post at shipment.
+    tests:
+      # Spec 8.9: one current row per line, no overlapping version ranges, version 1 is current
+      - one_current_row_per_key:
+          name: fact_purchase_order_one_current_row_per_key
+          arguments:
+            key_columns: ['purchase_order_entity_key']
+      - no_overlapping_effective_periods:
+          name: fact_purchase_order_no_overlapping_effective_periods
+          arguments:
+            partition_by: ['purchase_order_entity_key']
+            from_column: effective_start_datetime
+            to_column: effective_end_datetime
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: ['purchase_order_entity_key', 'version_number']
     columns:
       - name: purchase_order_key
         tests: [is_valid_key]
+      - name: purchase_order_entity_key
+        tests: [not_null]
       - name: purchase_order_id
         tests: [not_null]
       - name: purchase_order_line_number
         tests: [not_null]
+      - name: d365_invent_trans_id
+        tests: [not_null]
       - name: source_system
         tests: [not_null]
-      # EDW-132 section 3: every date key relates to dim_date, at warn first (same as the sales facts on EDW-59).
+      - name: is_current_row
+        tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+      - name: purchase_order_class
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['VENDOR', 'ADJUSTMENT']
       - name: order_date_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+              config:
+                severity: warn
+      - name: expected_receipt_date_key
         tests:
           - relationships:
               arguments:
@@ -27,76 +65,58 @@ models:
                 severity: warn
       - name: vendor_key
         tests:
+          - not_null
           - relationships:
               arguments:
                 to: ref('dim_vendor')
                 field: vendor_key
       - name: product_key
         tests:
+          - not_null
           - relationships:
               arguments:
                 to: ref('dim_product')
                 field: product_key
       - name: warehouse_key
         tests:
+          - not_null
           - relationships:
               arguments:
                 to: ref('dim_warehouse')
                 field: warehouse_key
-      - name: receipt_status
+      - name: po_line_status
         tests:
           - accepted_values:
               arguments:
-                values: ['Not Received', 'Partially Received', 'Fully Received']
-              config:
-                where: "receipt_status is not null"
+                values: ['None', 'Backorder', 'Received', 'Invoiced', 'Canceled']
+      - name: receipt_status
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Not Received', 'Partially Received', 'Fully Received', 'Cancelled']
+      - name: ordered_qty
+        tests: [not_null]
+      - name: received_qty
+        tests: [not_null]
+      - name: in_transit_qty
+        tests: [not_null]
+      - name: invoiced_qty
+        tests: [not_null]
+      - name: cancelled_qty
+        tests: [not_null]
+      - name: open_qty
+        tests: [not_null]
 
   - name: v_fact_purchase_order_current
     description: >
-      Current-row view over fact_purchase_order (is_current_row = true)
-      with SCD2 and internal metadata columns stripped -- the object most
-      consumers should query instead of the full version history.
+      Current version of each purchase order line (is_current_row = 1), with the version
+      control columns removed except purchase_order_entity_key and purchase_order_key.
+      Adds is_late_flag and days_late_to_date against today. Includes both order classes
+      and the quantity outlier; certified use filters purchase_order_class = 'VENDOR' and
+      is_quantity_outlier_flag = 0.
     columns:
       - name: purchase_order_key
-        tests:
-          - is_valid_key
-
-# Resolved 2026-09-17 (Rev_VendPackingSlipTransStaging / Rev_VendInvoiceTransStaging
-# landed in BYOD this session -- see silver_stage_fact_purchase_order.sql and README):
-#   - ordered_qty, expected_ship_date: PURCHQTY / REQUESTEDSHIPDATE, per Nick's
-#     2026-09-15 answer (never actually wired into this file until now).
-#   - received_qty, open_qty, cancelled_qty, backorder_qty, qty_uom, invoiced_qty
-#     (new column), first_receipt_date, last_receipt_date, receipt_status,
-#     is_late_flag, days_early_late_to_receipt, vendor_lead_time_days,
-#     fill_rate_pct, extended_cost: see README for the derivation and the
-#     Canceled-status (PURCHSTATUS=4) caveat on received_qty/cancelled_qty.
-#
-# Still deferred, not implemented in this pass:
-#   - landed_cost_unit and everything derived from it (landed_cost_extended,
-#     freight/duty/tariff/brokerage/other_landed unit costs) -- blocked on
-#     Open Decision #3, unrelated to today's two new tables.
-#   - approval_status, is_closed_flag, po_approved_date, change_reason_code/desc,
-#     buyer/manufacturer/country-of-origin, logistics fields -- all still
-#     Planned per spec, no new source landed for these.
-#   - purchase_order_id + purchase_order_line_number + source_system
-#     uniqueness within a single version_start_datetime: not tested
-#     directly -- is_valid_key on the surrogate key covers row-level
-#     uniqueness instead, same approach as fact_order_line/fact_product_cost.
-#
-# Resolved 2026-09-21 (EDW-68 review, Chris Mathis -- In Review -> In Progress,
-# 5 fixes requested):
-#   - standard_cost_unit now joins fact_product_cost on product_id, not
-#     product_key -- see gold/fact_purchase_order.sql's standard_cost CTE.
-#   - is_late_flag / days_early_late_to_receipt now guard against D365's
-#     1900-01-01 CONFIRMEDDLV placeholder.
-#   - tests/one_current_row_per_po_line.sql added -- exactly one
-#     is_current_row per PO line, auto-discovered from tests/.
-#   - ordered_qty (PURCHQTY) and received_qty now guard against a fat-
-#     fingered outlier and 780 negative-received-qty lines respectively --
-#     see silver_stage_fact_purchase_order.sql.
-#   - v_fact_purchase_order_current now has its own `models:` entry above
-#     (description + is_valid_key test on purchase_order_key), matching
-#     the v_dim_vendor_current / v_metrics_order_fulfillment precedent --
-#     corrected 2026-09-21 after Nick confirmed the file itself was
-#     already live in the repo/dbt docs; the gap was the missing yml
-#     documentation entry, not a missing file.
+        tests: [is_valid_key]
+      - name: purchase_order_entity_key
+        tests: [unique, not_null]
