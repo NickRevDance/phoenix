@@ -1,0 +1,36 @@
+version: 2
+
+seeds:
+  - name: forecast_version
+    description: >
+      Business-maintained source of record for DIM_FORECAST (EDW-70). One row per budget, reforecast,
+      operational forecast or scenario version. forecast_version_id follows FY{year}_{type}_{cycle}.
+      A new submission is a new row; a published version is never edited except to move its status
+      (Draft, Published, Superseded, Archived) and stamp status_change_datetime. forecast_start_date is
+      only filled for operational forecasts and scenarios; dim_forecast derives it for budgets and
+      reforecasts. All columns loaded as string; dim_forecast casts real types.
+    config:
+      column_types:
+        forecast_version_id: string
+        source_system: string
+        forecast_name: string
+        forecast_display_name: string
+        forecast_description: string
+        forecast_type: string
+        forecast_subtype: string
+        forecast_cycle: string
+        fiscal_year: string
+        coverage_start_date: string
+        coverage_end_date: string
+        actuals_through_date: string
+        forecast_start_date: string
+        version_number: string
+        time_grain: string
+        product_grain: string
+        channel_grain: string
+        forecast_status: string
+        status_change_datetime: string
+        published_datetime: string
+        created_by: string
+        created_datetime: string
+        record_source_table: string

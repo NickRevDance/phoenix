@@ -1,0 +1,80 @@
+version: 2
+
+models:
+  - name: dim_forecast
+    description: >
+      DIM_FORECAST (EDW-70) -- conformed forecast version dimension, one row per budget, reforecast,
+      operational forecast or scenario version, built from the forecast_version seed. Type 1: a published
+      version is never restated; a correction is a new version and status moves Draft -> Published ->
+      Superseded -> Archived. is_primary_version is the latest published reforecast for the fiscal year,
+      else its published annual budget. Built in plain gold (spec says fin_gold). Version key target for
+      FACT_BUDGET_SALES (EDW-71) and later planning facts.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - forecast_version_id
+              - source_system
+    columns:
+      - name: forecast_version_key
+        description: xxhash64 of forecast_version_id + source_system.
+        tests: [unique, not_null]
+      - name: forecast_version_id
+        description: FY{year}_{type}_{cycle}, e.g. FY2027_Budget_0+12.
+        tests: [not_null]
+      - name: source_system
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Planful', 'Excel', 'SharePoint', 'Operations']
+      - name: forecast_name
+        tests: [not_null]
+      - name: forecast_display_name
+        tests: [not_null]
+      - name: forecast_type
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Annual Budget', 'Periodic Reforecast', 'Operational Forecast', 'Rolling Forecast', 'Scenario']
+      - name: fiscal_year
+        tests: [not_null]
+      - name: fiscal_year_key
+        description: DIM_DATE date_key of the first day of the target fiscal year.
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+      - name: coverage_start_date
+        tests: [not_null]
+      - name: coverage_end_date
+        tests: [not_null]
+      - name: actuals_through_date
+        description: Last date of actuals in the version. NULL on 0+12 budgets.
+      - name: forecast_start_date
+        description: Coverage start for budgets, actuals_through_date + 1 for reforecasts, seed value (else the same rule) for the rest.
+        tests: [not_null]
+      - name: is_primary_version
+        description: 1 on the version dashboards default to for the fiscal year. Exactly one per fiscal year with a published plan (assert_dim_forecast_one_primary_per_fiscal_year).
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+                quote: false
+      - name: is_latest_reforecast
+        description: 1 on the latest published Periodic Reforecast for the fiscal year, 0 on other reforecasts, NULL on every other type.
+      - name: forecast_status
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Draft', 'Published', 'Superseded', 'Archived']
+      - name: created_datetime
+        tests: [not_null]
+      - name: sort_order
+        description: Budget 10; reforecasts 20/30/40 (3+9, 6+6, 9+3), 45 other cycles; operational 50; rolling 60; scenario 90.
+        tests: [not_null]
