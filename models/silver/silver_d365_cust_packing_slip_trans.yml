@@ -1,0 +1,29 @@
+version: 2
+
+models:
+  - name: silver_d365_cust_packing_slip_trans
+    description: >
+      D365 CustPackingSlipTrans -- one row per posted sales packing slip line. Joins to
+      SalesLine and CustInvoiceTrans on INVENTTRANSID and to silver_d365_cust_packing_slip_jour
+      on SALESID + PACKINGSLIPID. QTY is negative on return lines. Source for the true ship
+      date and partial shipments (FACT_ORDERS_RETURNS 4.9 step 2b).
+    columns:
+      - name: RECID
+        data_tests:
+          - unique
+          - not_null
+      - name: INVENTTRANSID
+        data_tests:
+          - not_null
+      - name: SALESID
+        data_tests:
+          - not_null
+      - name: PACKINGSLIPID
+        data_tests:
+          - not_null
+      - name: DELIVERYDATE
+        data_tests:
+          - not_null
+      - name: QTY
+        data_tests:
+          - not_null

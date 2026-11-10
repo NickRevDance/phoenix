@@ -1,0 +1,27 @@
+version: 2
+
+models:
+  - name: silver_d365_cust_packing_slip_jour
+    description: >
+      D365 CustPackingSlipJour -- one row per posted sales packing slip. Business key
+      SALESID + PACKINGSLIPID; lines are in silver_d365_cust_packing_slip_trans.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - SALESID
+              - PACKINGSLIPID
+    columns:
+      - name: RECID
+        data_tests:
+          - unique
+          - not_null
+      - name: SALESID
+        data_tests:
+          - not_null
+      - name: PACKINGSLIPID
+        data_tests:
+          - not_null
+      - name: DELIVERYDATE
+        data_tests:
+          - not_null

@@ -1,0 +1,23 @@
+version: 2
+
+models:
+  - name: silver_d365_whs_work_line
+    description: >
+      D365 WHSWorkLine -- one row per WMS work line, all work types. Sales-order picks are
+      WORKTYPE 1 on WHSWORKTEMPLATELINE_WORKTRANSTYPE 2; closed work is WORKSTATUS 4. Picked
+      quantity per sales line = sum of QTYWORK on closed sales picks whose WMSLOCATIONID is
+      not PACKING (the second pick out of PACKING repeats the same units).
+    columns:
+      - name: REC
+        data_tests:
+          - unique
+          - not_null
+      - name: WORKID
+        data_tests:
+          - not_null
+      - name: WORKTYPE
+        data_tests:
+          - not_null
+      - name: WORKSTATUS
+        data_tests:
+          - not_null
