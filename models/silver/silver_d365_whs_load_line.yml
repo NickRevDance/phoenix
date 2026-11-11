@@ -1,0 +1,12 @@
+version: 2
+
+models:
+  - name: silver_d365_whs_load_line
+    description: >
+      D365 WHSLoadLine -- one row per load line. Joins to SalesLine on INVENTTRANSID and to
+      silver_d365_whs_shipment_table on SHIPMENTID. INVALID = 1 lines carry QTY 0 and are excluded downstream.
+    columns:
+      - name: RECID
+        data_tests: [unique, not_null]
+      - name: INVENTTRANSID
+        data_tests: [not_null]

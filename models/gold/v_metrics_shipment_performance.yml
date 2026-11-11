@@ -1,0 +1,15 @@
+version: 2
+
+models:
+  - name: v_metrics_shipment_performance
+    description: >
+      V_METRICS_SHIPMENT_PERFORMANCE (FACT_SHIPMENT spec 9, EDW-69) -- certified shipment metrics at
+      shipment-line grain with product, customer, channel, warehouse and fiscal attributes. Delivery metrics
+      (transit_days, on_time_delivery_flag) are NULL until the carrier feed; cost and freight margin metrics are
+      NULL until carrier billing and shipping revenue have a source. Filter carrier scorecards on
+      is_carrier_metric_eligible (Ship to Desk excluded, decision CS4).
+    columns:
+      - name: shipment_key
+        tests: [unique, not_null]
+      - name: is_carrier_metric_eligible
+        tests: [not_null]

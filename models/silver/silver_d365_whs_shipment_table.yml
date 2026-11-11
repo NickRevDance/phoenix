@@ -1,0 +1,20 @@
+version: 2
+
+models:
+  - name: silver_d365_whs_shipment_table
+    description: >
+      D365 WHSShipmentTable -- one row per outbound WMS shipment (all WORKTRANSTYPE 2, sales). SHIPMENTSTATUS
+      0 Open, 1 Waved, 2 In process, 3 Picked, 4 Loaded, 5 Shipped; SHIPCONFIRMUTCDATETIME is the ship event (UTC).
+      WMS shipments start in 2023. Street address and delivery name are not carried.
+    columns:
+      - name: SHIPMENTID
+        data_tests: [unique, not_null]
+      - name: REC
+        data_tests: [unique, not_null]
+      - name: SHIPMENTSTATUS
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [0, 1, 2, 3, 4, 5]
+                quote: false

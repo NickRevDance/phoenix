@@ -1,0 +1,24 @@
+version: 2
+
+seeds:
+  - name: shipping_service_map
+    description: >
+      Business-maintained source of record for REF_SHIPPING_SERVICE (FACT_SHIPMENT spec 7.3 and Open
+      Decisions 4-5, EDW-69). One row per conformed carrier_code + D365 WHSShipmentTable.CARRIERSERVICECODE
+      (blank when the shipment carries no service), mapped to the spec's shipping_method list. 3-Day is an
+      addition the spec doesn't list. sla_transit_days is blank until Operations supplies SLA commitments
+      (Open Decision 5). A correction is a row edit here. All columns loaded as string; ref_shipping_service
+      casts real types.
+    config:
+      column_types:
+        carrier_code: string
+        service_code: string
+        carrier_name: string
+        carrier_service_name: string
+        shipping_method: string
+        sla_transit_days: string
+        sla_business_days_flag: string
+        is_carrier_metric_eligible: string
+        classification_owner: string
+        classified_date: string
+        notes: string

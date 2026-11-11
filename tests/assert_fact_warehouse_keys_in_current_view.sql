@@ -22,7 +22,9 @@ with fact_keys as (
     union
     select distinct warehouse_key, 'fact_sales_invoice' from {{ ref('fact_sales_invoice') }}
     union
-    select distinct warehouse_key, 'fact_inventory_quality_code_color_daily' from {{ ref('fact_inventory_quality_code_color_daily') }}
+    select distinct warehouse_key, 'fact_inventory_quality_code_color_daily' from {{ ref('fact_inventory_quality_code_color_daily') }}    
+    union
+    select distinct warehouse_key, 'fact_shipment' from {{ ref('fact_shipment') }}
 
 )
 

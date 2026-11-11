@@ -1,0 +1,129 @@
+version: 2
+
+models:
+  - name: fact_shipment
+    description: >
+      FACT_SHIPMENT (spec v1.0, EDW-69) -- outbound shipment fact at shipment-line grain: one row per D365 WMS
+      load line (a sales line on a shipment). Accumulating snapshot: each run recomputes every line and merges
+      new or changed rows; open-shipment lines deleted in D365 are removed. Built on WHSShipmentTable +
+      WHSLoadLine (Open Decision 3), with packages, weight and tracking from WHSContainerTable/Line. WMS
+      shipments start July 2023. Shipping cost, delivery confirmation and SLA days have no source yet
+      (Open Decisions 2, 5, 6) and are typed NULL.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - shipment_id
+              - shipment_line_number
+              - source_system
+    columns:
+      - name: shipment_key
+        description: xxhash64 of the load line RECID + 'D365'.
+        tests: [is_valid_key]
+      - name: shipment_id
+        description: WHSShipmentTable.SHIPMENTID.
+        tests: [not_null]
+      - name: shipment_line_number
+        description: Line sequence within the shipment, ordered by load line RECID. Display value; d365_load_line_rec_id is the stable identifier.
+        tests: [not_null]
+      - name: order_id
+        tests: [not_null]
+      - name: packing_slip_id
+        description: >
+          CustPackingSlipJour.PACKINGSLIPID for the line's sales line, paired on quantity then nearest date when a
+          line is split across shipments. NULL for a shipped line whose packing slip hasn't posted yet.
+      - name: invoice_id
+        description: CustInvoiceTrans.INVOICEID for the line's sales line, paired the same way. NULL until invoiced.
+      - name: ship_date
+        description: WHSShipmentTable.SHIPCONFIRMUTCDATETIME on the Central clock (America/Chicago). NULL while the shipment is open.
+        tests:
+          - not_null:
+              config:
+                where: "shipment_status = 'Picked Up'"
+                severity: warn
+      - name: ship_date_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+      - name: product_key
+        description: Inherited from FACT_ORDER_LINE through the sales line; '-1' when the line isn't on the order fact.
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_product')
+                field: product_key
+      - name: customer_key
+        description: Inherited from FACT_ORDER_LINE; -1 when the sales line no longer exists.
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_customer')
+                field: customer_key
+      - name: sales_channel_key
+        tests: [not_null]
+      - name: warehouse_key
+        description: Origin warehouse (WHSShipmentTable.INVENTLOCATIONID) resolved on the latest dim_warehouse version; -1 when unresolved.
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_warehouse')
+                field: warehouse_key
+      - name: carrier_code
+        description: >
+          WHSShipmentTable.CARRIERCODE conformed (UPS, FEDEX, USPS, FRONTIER). Shipments with no WMS carrier take
+          the order line's DLVMODE token (FACT_ORDERS_RETURNS 7.11), which yields IDS and SHIP_TO_DESK.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['UPS', 'FEDEX', 'USPS', 'FRONTIER', 'IDS', 'SHIP_TO_DESK', 'UNKNOWN']
+      - name: carrier_service_code
+        description: carrier_code + '_' + WHSShipmentTable.CARRIERSERVICECODE (e.g. UPS_GND). NULL when the shipment has no service.
+      - name: shipping_method
+        description: From ref_shipping_service. 'Other' when the carrier + service has no row there.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Ground', '3-Day', '2-Day', 'Overnight', 'Priority', 'Freight', 'Economy', 'Other']
+      - name: tracking_number
+        description: WHSContainerTable.MASTERTRACKINGNUM of the shipment's first container that has one. NULL where container headers are missing (~12% of lines, mostly 2023-2025).
+      - name: shipped_qty
+        description: WHSLoadLine.PICKEDQTY on a shipped shipment, 0 while open. Ties to the packing slip quantity on 99.95% of sales lines.
+        tests: [not_null]
+      - name: shipping_cost_total
+        description: NULL -- no outbound carrier cost in the D365 export (spec Open Decision 2).
+      - name: shipping_cost_allocated
+        description: Pro-rata by line_weight_lbs within the shipment; by shipped units when any shipped line on the shipment has no weight, so shares always sum to 1 (spec 7.2, Chris as business proxy). NULL while shipping_cost_total is NULL.
+      - name: shipment_status
+        description: Created (WHSShipmentTable status 0-4) or Picked Up (5, shipped). Later statuses need the carrier feed (spec 7.1).
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Created', 'Picked Up', 'In Transit', 'Out for Delivery', 'Delivered', 'Exception', 'Returned to Sender']
+      - name: is_split_shipment_flag
+        description: True when the order has more than one shipment_id on this fact (spec 7.4).
+        tests: [not_null]
+      - name: package_count
+        description: Distinct containers on the shipment (WHSContainerLine). Header-level, repeated on each line.
+      - name: total_weight_lbs
+        description: Sum of packed container weight in pounds (KG converted). Header-level, repeated on each line.
+      - name: line_weight_lbs
+        description: Item master net weight x shipped qty. Runs above the packed weight (median 1.38x), so it is an allocation basis, not a billing weight.
+      - name: ship_to_country_code
+        description: WHSShipmentTable.COUNTRYREGIONISOCODE (US, CA, PR), else the postal address country.
+      - name: d365_load_line_rec_id
+        description: WHSLoadLine RECID. Not a spec field; the stable line identifier.
+        tests: [unique, not_null]
+      - name: d365_sales_line_rec_id
+        description: SalesLine RECID (joins FACT_ORDER_LINE and FACT_ORDERS_RETURNS). NULL on ~2.3K lines whose sales line no longer exists.
+      - name: d365_shipment_status_code
+        description: Raw WHSShipmentTable.SHIPMENTSTATUS (0 Open, 1 Waved, 2 In process, 3 Picked, 4 Loaded, 5 Shipped). Not a spec field.
+      - name: row_hash
+        tests: [not_null]
