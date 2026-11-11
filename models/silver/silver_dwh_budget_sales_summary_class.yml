@@ -1,0 +1,27 @@
+version: 2
+
+models:
+  - name: silver_dwh_budget_sales_summary_class
+    description: >
+      Legacy annual budget (dwhvisualnext.analytics.f_BudgetSalesWithSummaryClass), cleansed and kept at
+      its source grain: one row per day and Finance summary class, net sales and units, no channel. Feeds
+      FACT_BUDGET_SALES (EDW-71), which rolls it to the fiscal month. Finance reloads a fiscal year in place,
+      so this table only ever holds the latest load of each year.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - SaleDate
+              - SummaryClass
+    columns:
+      - name: SaleDate
+        tests: [not_null]
+      - name: SummaryClass
+        tests: [not_null]
+      - name: Budget
+        description: Budgeted net sales, assumed USD.
+        tests: [not_null]
+      - name: BudgetQty
+        tests: [not_null]
+      - name: ETLImportDate
+        description: When Finance loaded the fiscal year. One value per fiscal year.

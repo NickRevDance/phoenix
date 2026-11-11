@@ -11,6 +11,10 @@ sources:
       - name: kpi_inventory_value
         identifier: f_KPI_InventoryValue
 
+      # EDW-71: legacy annual budget by day and summary class, the Phase 1 budget source until Planful lands (EDW-30)
+      - name: budget_sales_summary_class
+        identifier: f_BudgetSalesWithSummaryClass
+
   # EDW-126 (decision I2a): legacy reflection feed, the source of record for D365 item coverage
   # safety stock until a BYOD item-coverage entity exists. Reloaded daily around 08:10 UTC.
   - name: d365_reflection
