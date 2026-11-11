@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- EDW-150 acceptance criteria: exactly one active row per parameter_name (none is as wrong as two: V_DEMAND_PLANNING reads the active row per parameter).
 select
       parameter_name

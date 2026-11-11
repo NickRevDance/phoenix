@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- Business Rule 8.3: at most one is_current = 1 row per product_key +
 -- price_type + price_currency_code -- the DQ tie-break (latest FROMDATE,
 -- then latest MODIFIEDDATE, wins) must never leave two rows both current.

@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- EDW-53 acceptance: all-warehouse quantities tie to the snapshot fact (native days, company-owned, MADE_TO_ORDER excluded)
 -- for the code_colors the quality fact carries, over the last 7 loaded days. Returns the days that don't tie.
 

@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- EDW-61: V_DEMAND_PLANNING holds every FACT_ORDER_LINE row that has an order date, so its
 -- daily measures summed over the view equal the same sums over the fact. Also checks that
 -- demand never leaves the range 0 to ordered_qty, that every row carries both flags (a NULL

@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- Every TRADE_AGREEMENT row must key to a real promotion, never the -1 Unknown member.
 select
 

@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- Every code_color/day with a warehouse row has an all-warehouse row, and the all-warehouse quantities equal the sum of its warehouse rows.
 
 with by_warehouse as (

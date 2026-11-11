@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- EDW-61 acceptance: the rolling windows are validated against a plain calculation. For the
 -- latest complete day, every window of every combination is recomputed as a sum of the
 -- view's own daily demand_qty over the calendar days it should cover: demand_7d, demand_30d

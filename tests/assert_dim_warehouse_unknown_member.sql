@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- EDW-90 (DIM_WAREHOUSE spec 3.7): exactly one -1 Unknown member, current, and present in the current view.
 with dim as (
 

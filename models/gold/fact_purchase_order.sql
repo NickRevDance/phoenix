@@ -240,10 +240,12 @@ final as (
           end                                                                   as approval_state  -- NEEDS CONFIRMATION: labels assumed from VersioningDocumentState (Open Decision 4)
         , r.REVMANUFACTURINGSTATUS                                              as manufacturing_status
         , r.ITMSTATUSID                                                         as transit_status
+        -- EDW-190 (spec 8.6 v1.1): compared on absolute values, so negative ADJUSTMENT lines that
+        -- received in full read Fully Received (no VENDOR line is negative, so VENDOR results don't move).
         , case
             when r.PURCHSTATUS = 4 then 'Cancelled'
-            when r.received_qty <= 0 then 'Not Received'
-            when r.received_qty < r.PURCHQTY then 'Partially Received'
+            when r.received_qty = 0 then 'Not Received'
+            when abs(r.received_qty) < abs(r.PURCHQTY) then 'Partially Received'
             else 'Fully Received'
           end                                                                   as receipt_status
         , case when r.PURCHSTATUS in (3, 4) and r.in_transit_qty = 0 then 1 else 0 end as is_closed_flag
@@ -261,8 +263,19 @@ final as (
         , cast(null as string)                                                  as port_of_arrival        -- Phase 3
 
     -- Derived
-        , datediff(r.first_receipt_date, cast(r.CREATEDDATE as date))           as vendor_lead_time_days
-        , datediff(r.last_receipt_date, coalesce(r.CONFIRMEDDLV, r.DELIVERYDATE)) as days_early_late_to_receipt
+        -- EDW-190: no lead time when the first receipt is before the PO was created (the June 2023
+        -- D365 go-live POs, keyed after the goods were already in).
+        , case
+            when r.first_receipt_date >= cast(r.CREATEDDATE as date)
+                then datediff(r.first_receipt_date, cast(r.CREATEDDATE as date))
+          end                                                                   as vendor_lead_time_days
+        -- EDW-190: measured against the requested date when the confirmed date is more than 180 days
+        -- after the receipt (confirmed dates mass re-stamped in 2025 on goods received in 2023 and 2024).
+        , case
+            when r.CONFIRMEDDLV is not null and datediff(r.CONFIRMEDDLV, r.last_receipt_date) > 180
+                then datediff(r.last_receipt_date, r.DELIVERYDATE)
+            else datediff(r.last_receipt_date, coalesce(r.CONFIRMEDDLV, r.DELIVERYDATE))
+          end                                                                   as days_early_late_to_receipt
         , case when r.PURCHQTY > 0 then cast(r.received_qty / r.PURCHQTY as decimal(9,4)) end as fill_rate_pct
 
     -- Audit
