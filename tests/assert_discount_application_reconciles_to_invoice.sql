@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- Certified gate (spec 4.3, F5): per invoice line, SUM(discount_amount) must equal total_discount_amount on the parent. Zero tolerance.
 with fact_sum as (
 

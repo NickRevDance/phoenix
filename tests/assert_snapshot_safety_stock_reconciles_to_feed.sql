@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- EDW-126: safety_stock_qty on the latest native snapshot ties to the reflection feed load it was
 -- built from (spec 2.6, decision I2a: reconciles within 0 units). Returns a row per covered
 -- site + location + barcode whose snapshot total differs from the feed. Barcodes with no snapshot

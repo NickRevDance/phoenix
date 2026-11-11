@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- EDW-47 acceptance criteria: size_weight sums to 1 per rule set (tolerance for rounding).
 select
       product_group

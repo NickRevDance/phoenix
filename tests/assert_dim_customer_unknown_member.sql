@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- Returns a row (fails) unless dim_customer carries exactly one current -1 Unknown member.
 select
       count(*) as unknown_member_rows

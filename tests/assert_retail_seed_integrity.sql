@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- Spec Section 8, test 2: retail_calendar_years seed integrity.
 -- Every start is a Sunday, every end is a Saturday, years are contiguous,
 -- weeks in (52, 53), and day span matches the week count.

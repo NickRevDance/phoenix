@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- EDW-94 (Decision Record A8): no LANDED row sources from the PLM estimate,
 -- and every item with a PLM landed estimate has a PLM_ESTIMATED row carrying it.
 

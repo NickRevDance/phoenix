@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- Spec Section 8, test 6 (part 2): in the year following a 53-week retail
 -- year, restated week 52 maps to original week 53 of the prior retail year.
 

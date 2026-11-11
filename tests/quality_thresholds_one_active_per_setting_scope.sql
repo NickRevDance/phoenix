@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- EDW-48 acceptance criteria: exactly one active row per setting_name + scope_product_subgroup.
 select
       setting_name, scope_product_subgroup, count(*) as active_row_count

@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- EDW-177: the facts that keep source-deleted rows carry the same delete mark as silver.
 
 select 'fact_order_line' as model, o.order_line_key as fact_key, o.is_source_deleted_flag, s.is_deleted

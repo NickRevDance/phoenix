@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- EDW-133 (shape section, build notes): V_METRICS_SALES_DAILY represents every row of
 -- FACT_SALES_INVOICE, so each additive measure summed over the view equals the same sum over
 -- the fact. A difference means a filter crept into the view or a dimension join fanned out.

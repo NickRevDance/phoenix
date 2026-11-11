@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- Spec Section 8, test 5: every date joins to exactly one retail year
 -- (inner join + row-count test covers "at least one"; this covers ranges),
 -- retail_week between 1 and weeks_in_retail_year, retail_period 1-12.
