@@ -1,0 +1,13 @@
+version: 2
+
+models:
+  - name: silver_d365_whs_container_table
+    description: >
+      D365 WHSContainerTable -- one row per packed container. Flat (no nested containers). WEIGHT is in
+      WEIGHTUOM, pounds on all but a handful of KG rows. Headers are missing for about 11% of shipped
+      shipments, mostly 2023-2025; container lines are near complete.
+    columns:
+      - name: CONTAINERID
+        data_tests: [unique, not_null]
+      - name: REC
+        data_tests: [unique, not_null]

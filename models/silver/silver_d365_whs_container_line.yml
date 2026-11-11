@@ -1,0 +1,12 @@
+version: 2
+
+models:
+  - name: silver_d365_whs_container_line
+    description: >
+      D365 WHSContainerLine -- one row per load line in a container (a load line split across two
+      cartons has two rows). LOADLINE = silver_d365_whs_load_line.RECID.
+    columns:
+      - name: REC
+        data_tests: [unique, not_null]
+      - name: LOADLINE
+        data_tests: [not_null]

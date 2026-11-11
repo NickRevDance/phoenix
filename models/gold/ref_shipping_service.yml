@@ -1,0 +1,37 @@
+version: 2
+
+models:
+  - name: ref_shipping_service
+    description: >
+      REF_SHIPPING_SERVICE (FACT_SHIPMENT spec 7.3, Open Decisions 4-5, EDW-69) -- BI-maintained map of
+      conformed carrier_code + D365 carrier service code to carrier_service_code, shipping_method, SLA
+      transit days and carrier-metric eligibility, built straight from the shipping_service_map seed.
+      A combination with no row lands on FACT_SHIPMENT as shipping_method 'Other' and shows on
+      assert_fact_shipment_services_mapped until it is added to the seed.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - carrier_code
+              - service_code
+    columns:
+      - name: carrier_code
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['UPS', 'FEDEX', 'USPS', 'FRONTIER', 'IDS', 'SHIP_TO_DESK', 'UNKNOWN']
+      - name: service_code
+        description: D365 WHSShipmentTable.CARRIERSERVICECODE, upper-cased. Empty string when the shipment has no service.
+        tests: [not_null]
+      - name: shipping_method
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Ground', '3-Day', '2-Day', 'Overnight', 'Priority', 'Freight', 'Economy', 'Other']
+      - name: sla_transit_days
+        description: Promised transit days. NULL until Operations supplies SLA commitments (spec Open Decision 5).
+      - name: is_carrier_metric_eligible
+        description: False for SHIP_TO_DESK (decision CS4) and UNKNOWN; V_METRICS_SHIPMENT_PERFORMANCE leaves these out of carrier metrics.
+        tests: [not_null]

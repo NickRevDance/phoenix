@@ -1,0 +1,29 @@
+carrier_code,service_code,carrier_name,carrier_service_name,shipping_method,sla_transit_days,sla_business_days_flag,is_carrier_metric_eligible,classification_owner,classified_date,notes
+UPS,GND,UPS,UPS Ground,Ground,,1,1,Operations,2026-11-10,Proposed (EDW-69); confirm with Operations
+UPS,SP,UPS,UPS SurePost,Economy,,1,1,Operations,2026-11-10,Proposed (EDW-69); confirm with Operations
+UPS,3DS,UPS,UPS 3 Day Select,3-Day,,1,1,Operations,2026-11-10,Proposed (EDW-69); 3-Day is not in the spec's method list
+UPS,2DA,UPS,UPS 2nd Day Air,2-Day,,1,1,Operations,2026-11-10,Proposed (EDW-69); confirm with Operations
+UPS,2DM,UPS,UPS 2nd Day Air A.M.,2-Day,,1,1,Operations,2026-11-10,Proposed (EDW-69); confirm with Operations
+UPS,1DA,UPS,UPS Next Day Air,Overnight,,1,1,Operations,2026-11-10,Proposed (EDW-69); confirm with Operations
+UPS,1DP,UPS,UPS Next Day Air Saver,Overnight,,1,1,Operations,2026-11-10,Proposed (EDW-69); confirm with Operations
+UPS,1DM,UPS,UPS Next Day Air Early,Overnight,,1,1,Operations,2026-11-10,Proposed (EDW-69); confirm with Operations
+UPS,SAT,UPS,UPS Saturday Delivery,Overnight,,1,1,Operations,2026-11-10,Proposed (EDW-69); low volume; confirm the service behind SAT
+UPS,ST,UPS,UPS Standard,Ground,,1,1,Operations,2026-11-10,Proposed (EDW-69); international ground; low volume
+UPS,SV,UPS,UPS Worldwide Saver,Priority,,1,1,Operations,2026-11-10,Proposed (EDW-69); international; low volume
+UPS,ES,UPS,UPS Worldwide Express Saver,Priority,,1,1,Operations,2026-11-10,Proposed (EDW-69); international; low volume
+UPS,EX,UPS,UPS Worldwide Expedited,Economy,,1,1,Operations,2026-11-10,Proposed (EDW-69); international; low volume
+UPS,,UPS,UPS (no service on shipment),Other,,1,1,Operations,2026-11-10,Order-line delivery mode fallback; no WMS service code
+FEDEX,HOME,FedEx,FedEx Home Delivery,Ground,,1,1,Operations,2026-11-10,Proposed (EDW-69); confirm with Operations
+FEDEX,GRND,FedEx,FedEx Ground,Ground,,1,1,Operations,2026-11-10,Proposed (EDW-69); confirm with Operations
+FEDEX,2DAY,FedEx,FedEx 2Day,2-Day,,1,1,Operations,2026-11-10,Proposed (EDW-69); confirm with Operations
+FEDEX,NXPM,FedEx,FedEx Standard Overnight,Overnight,,1,1,Operations,2026-11-10,Proposed (EDW-69); confirm with Operations
+FEDEX,NXAM,FedEx,FedEx Priority Overnight,Overnight,,1,1,Operations,2026-11-10,Proposed (EDW-69); confirm with Operations
+FEDEX,,FedEx,FedEx (no service on shipment),Other,,1,1,Operations,2026-11-10,One shipment in 2023
+USPS,MAIL,USPS,USPS Mail,Economy,,1,1,Operations,2026-11-10,Proposed (EDW-69); confirm which USPS class MAIL is
+USPS,PR,USPS,USPS Priority Mail,Priority,,1,1,Operations,2026-11-10,Proposed (EDW-69); confirm with Operations
+USPS,PREXP,USPS,USPS Priority Mail Express,Overnight,,1,1,Operations,2026-11-10,Proposed (EDW-69); one shipment
+FRONTIER,FNTR,Frontier,Frontier LTL,Freight,,1,1,Operations,2026-11-10,Proposed (EDW-69); B2B freight
+FRONTIER,,Frontier,Frontier LTL,Freight,,1,1,Operations,2026-11-10,Order-line delivery mode fallback
+IDS,,IDS,IDS regional courier,Ground,,1,1,Operations,2026-11-10,CS4: IDS is a carrier; WMS records no carrier on these shipments
+SHIP_TO_DESK,,Ship to Desk,Ship to Desk,Other,,1,0,Operations,2026-11-10,CS4: delivery method and not a carrier; left out of carrier metrics
+UNKNOWN,,Unknown,Unknown,Other,,1,0,Operations,2026-11-10,No carrier on the shipment or the order line

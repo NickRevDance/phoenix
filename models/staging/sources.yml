@@ -181,6 +181,40 @@ sources:
             warn_after: {count: 24, period: hour}
             error_after: {count: 48, period: hour}
 
+      
+      # EDW-69: WMS outbound shipments, shipment lines (load lines) and packed containers
+      - name: d365_whs_shipment_table
+        identifier: Rev_WHSShipmentTableStaging
+        config:
+          loaded_at_field: SYNCSTARTDATETIME
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 48, period: hour}
+
+      - name: d365_whs_load_line
+        identifier: Rev_WHSLoadLineStaging
+        config:
+          loaded_at_field: SYNCSTARTDATETIME
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 48, period: hour}
+
+      - name: d365_whs_container_table
+        identifier: Rev_WHSContainerTableStaging
+        config:
+          loaded_at_field: SYNCSTARTDATETIME
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 48, period: hour}
+
+      - name: d365_whs_container_line
+        identifier: Rev_WHSContainerLineStaging
+        config:
+          loaded_at_field: SYNCSTARTDATETIME
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 48, period: hour}
+
       # Added 2026-09-18 for FACT_PRODUCT_COST USD normalization (EDW-94
       # Phase 2). Native D365 ExchangeRate export -- monthly spot rates,
       # currently CAD->USD and GBP->USD only
