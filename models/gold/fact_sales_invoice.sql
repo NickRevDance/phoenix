@@ -95,6 +95,20 @@ trans as (
               and invoice_date >= current_date() - interval {{ var('sales_invoice_cost_heal_days', 7) }} days
         )
         {% endif %}
+        -- EDW-189 cost restate: every line of an item that took a new current STANDARD or LANDED
+        -- cost inside the lookback, so standard_cost_unit and landed_cost_unit restate on all of
+        -- the item's lines, not only those merged since (EDW-60 review: lines outside the lookback
+        -- kept the cost of their last merge). fact_product_cost's etl_insert_datetime is the
+        -- version's start, so a new cost reads as new on the nights inside the lookback. Checked
+        -- Nov 11 2026: 4,915 lines on 5 items for the next run; the heaviest run since the cost
+        -- snapshot started would have re-read about 32,000 (Oct 31 2026).
+        or t.ITEMID in (
+            select pcost.product_id
+            from {{ ref('fact_product_cost') }} pcost
+            where pcost.cost_type in ('STANDARD', 'LANDED')
+              and pcost.is_current = true
+              and pcost.etl_insert_datetime > (select coalesce(max(etl_update_datetime), timestamp('1900-01-01')) from {{ this }}) - interval {{ var('sales_invoice_cost_lookback_days', 2) }} days
+        )
     )
     {% endif %}
 
@@ -367,11 +381,13 @@ product_cost as (
 landed_cost as (
 
     -- EDW-60: current LANDED row per item (D365 voyage actuals, EDW-94 decision record A). One
-    -- current row per product_id and USD on every row (checked Nov 5 2026), so this cannot fan out.
+    -- current row per product_id (checked Nov 5 2026), so this cannot fan out. EDW-189: reads the
+    -- USD column, so a voyage costed in another currency lands converted. Equal to the native
+    -- column on every current row today (1,368 items, all USD, at most 4 decimals, Nov 11 2026).
     select
 
           product_id
-        , landed_cost_unit
+        , landed_cost_unit_usd
 
     from {{ ref('fact_product_cost') }}
     where cost_type = 'LANDED'
@@ -440,7 +456,7 @@ joined as (
         , nullif(j.SALESORIGINID, '') as source_sales_origin_id  -- v1.1 (EDW-16, Decision 4): raw D365 origin carried on the fact as a non-key lineage attribute, so an unmapped/blank row can be traced without a join back to silver.
         , pc.standard_cost_unit
         , pc.cost_currency_code
-        , lc.landed_cost_unit  -- EDW-60
+        , lc.landed_cost_unit_usd                as landed_cost_unit  -- EDW-60; EDW-189 the USD column
         , pst.posted_cost_amount  -- EDW-182
         , pst.posted_qty          -- EDW-182
         , ro.SALESID is not null  as is_replacement_order  -- EDW-184
@@ -586,8 +602,8 @@ final as (
         , j.QTY * j.standard_cost_unit                               as standard_cost_amount
         , {{ amount('try_divide(j.posted_cost_amount, j.posted_qty)') }}  as moving_avg_cost_unit  -- EDW-182: D365's posted cost per unit on the line's legs (cost / quantity of the legs, both signed alike). USD. NULL on free text lines and the 22 lines with no INVENTTRANSID; 0 on the non-merchandise items D365 carries at no cost.
         , {{ amount("case when j.posted_qty = -j.QTY then -j.posted_cost_amount else try_divide(j.posted_cost_amount, j.posted_qty) * j.QTY end") }} as moving_avg_cost_amount  -- EDW-182: D365's posted cost of the line's legs, -(COSTAMOUNTPOSTED + COSTAMOUNTADJUSTMENT) with the line's sign (negative on credit lines). The COGS basis (I6); as of posting, never restated to a later price. Where the legs' quantity is not the line's (32 lines, 475 units, Jul to Oct 2026: D365 re-split the legs and silver still holds the rows it replaced, so the legs read double), the unit cost x invoiced_qty, which is what the ledger carries; on every other line the two are the same number.
-        , cast(j.landed_cost_unit as decimal(19,4))                  as landed_cost_unit  -- EDW-60: FACT_PRODUCT_COST current LANDED, USD. Restated to the current landed cost when the line is merged again, same as standard_cost_unit. Kept at decimal(19,4), the type the column was created with.
-        , cast(j.QTY * j.landed_cost_unit as decimal(19,4))          as landed_cost_amount  -- EDW-60: invoiced_qty x landed_cost_unit, carries the line's sign
+        , cast(j.landed_cost_unit as decimal(19,4))                  as landed_cost_unit  -- EDW-60: FACT_PRODUCT_COST current LANDED, USD (landed_cost_unit_usd, EDW-189). Restated to the current landed cost when the line is merged again, same as standard_cost_unit; the EDW-189 restate clause re-reads every line of an item that takes a new cost. Kept at decimal(19,4), the type the column was created with.
+        , cast(j.QTY * cast(j.landed_cost_unit as decimal(19,4)) as decimal(19,4)) as landed_cost_amount  -- EDW-60: invoiced_qty x landed_cost_unit, carries the line's sign. EDW-189: from the 4-decimal unit, so it always equals invoiced_qty x the stored unit (the derivation test)
         , cast(null as decimal(19,4)) as freight_cost_amount  -- EDW-60: deferred, no outbound carrier cost in the D365 export; lands with the shipment cost source (FACT_SHIPMENT, EDW-69)
         , coalesce(j.cost_currency_code, 'USD')                      as cost_currency_code
 

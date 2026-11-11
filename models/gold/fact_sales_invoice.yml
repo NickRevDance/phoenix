@@ -166,7 +166,10 @@ models:
           Purchase price, not the COGS basis (EDW-182; the COGS basis is moving_avg_cost_unit).
           FACT_PRODUCT_COST current STANDARD cost, the D365 purchase trade agreement price, joined
           on product_id (item grain) and restated to the current price whenever the line is merged
-          again or the fact is refreshed. USD. NULL where the item has no current agreement price.
+          again or the fact is refreshed. When an item takes a new current STANDARD or LANDED cost,
+          the model re-reads every line of the item inside sales_invoice_cost_lookback_days (2), so
+          all of its lines carry the current price (EDW-189). USD. NULL where the item has no
+          current agreement price.
       - name: standard_cost_amount
         description: >
           invoiced_qty x standard_cost_unit, the line at purchase price, an analysis value. The
@@ -219,8 +222,9 @@ models:
       - name: landed_cost_unit
         description: >
           EDW-60: FACT_PRODUCT_COST current LANDED cost (D365 voyage actuals: goods value plus
-          duty, freight and brokerage, EDW-94 decision record A), joined on product_id. USD.
-          Restated to the current landed cost whenever the line is merged again, the same as
+          duty, freight and brokerage, EDW-94 decision record A), joined on product_id. USD, read
+          from landed_cost_unit_usd (EDW-189), 4 decimals. Restated to the current landed cost on
+          every line of the item when the item takes a new current cost (EDW-189), the same as
           standard_cost_unit, so it is not the landed cost at the invoice date. NULL where the
           item has no voyage history and on free text lines.
         tests:
@@ -231,8 +235,8 @@ models:
                 severity: warn
       - name: landed_cost_amount
         description: >
-          EDW-60: invoiced_qty x landed_cost_unit, carries the line's sign (negative on credit
-          lines). An analysis basis beside purchase price and posted cost; the COGS basis stays
+          EDW-60: invoiced_qty x landed_cost_unit (the stored 4-decimal unit, EDW-189), carries
+          the line's sign (negative on credit lines). An analysis basis beside purchase price and posted cost; the COGS basis stays
           moving_avg_cost_amount (I6). Over Oct 2025 to Sep 2026 it ran at $24.92M against
           $26.17M at D365's posted cost on the same lines.
         tests:
