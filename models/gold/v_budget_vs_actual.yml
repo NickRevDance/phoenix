@@ -1,0 +1,34 @@
+version: 2
+
+models:
+  - name: v_budget_vs_actual
+    description: >
+      V_BUDGET_VS_ACTUAL (EDW-71) -- budget vs actual by forecast version, fiscal month, summary class and
+      channel. Budget from FACT_BUDGET_SALES; actuals from V_METRICS_SALES_DAILY in USD: net sales over every
+      invoice line (Free Text and intercompany included, as the headline does), units on Sales Order lines,
+      margin at D365 posted cost (I6) with its net sales denominator. A total-company budget compares to actuals
+      over all channels on sales_channel_key 0. Actual-only summary classes appear with a zero budget, so
+      actuals tie to the sales view. Actuals are NULL for months not yet started. Variance is actual less budget.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - forecast_version_key
+              - budget_month_date
+              - summary_class
+              - sales_channel_key
+    columns:
+      - name: forecast_version_key
+        tests: [not_null]
+      - name: budget_date_key
+        tests: [not_null]
+      - name: summary_class
+        tests: [not_null]
+      - name: sales_channel_key
+        tests: [not_null]
+      - name: is_actual_month
+        description: 1 when the month has started, so actuals are filled.
+      - name: is_month_complete
+        description: 1 when the month has ended.
+      - name: net_sales_variance_pct
+        description: (actual - budget) / budget; NULL where the budget is zero or the month has not started.

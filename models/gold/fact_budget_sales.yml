@@ -1,0 +1,77 @@
+version: 2
+
+models:
+  - name: fact_budget_sales
+    description: >
+      FACT_BUDGET_SALES (EDW-71) -- budget and reforecast sales targets, one row per forecast version + fiscal
+      month + summary class + sales channel. Insert-only per version: a version's rows load once and are never
+      updated; a revised budget is a new DIM_FORECAST version. Phase 1 source is the legacy annual budget
+      (f_BudgetSalesWithSummaryClass, daily x summary class, total company, net sales and units only), rolled to
+      the fiscal month; Planful replaces it via EDW-30. sales_channel_key is 0 (Not Applicable) because the
+      budget is not planned by channel. Budget amounts are assumed USD. Cost and margin are typed NULL until a
+      source carries them. Built in plain gold (spec says fin_gold).
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - forecast_version_key
+              - budget_date_key
+              - summary_class
+              - sales_channel_key
+              - source_system
+    columns:
+      - name: budget_sales_key
+        description: xxhash64 of forecast_version_key, budget_date_key, summary_class, sales_channel_key, source_system.
+        tests: [unique, not_null]
+      - name: budget_line_id
+        description: forecast_version_id|yyyy-MM|summary_class|channel, readable lineage id.
+        tests: [unique, not_null]
+      - name: source_system
+        tests: [not_null]
+      - name: forecast_version_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_forecast')
+                field: forecast_version_key
+      - name: budget_date_key
+        description: DIM_DATE key of the first day of the fiscal month.
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+      - name: summary_class
+        description: Finance summary class as the budget carries it; matches DIM_PRODUCT.summary_class.
+        tests: [not_null]
+      - name: product_group
+        description: DIM_PRODUCT product_group for the summary class where the class maps to one group; NULL otherwise (2Die4 DTC has no product rows).
+      - name: sales_channel_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_sales_channel')
+                field: sales_channel_key
+      - name: budget_month_date
+        tests: [not_null]
+      - name: fiscal_year
+        tests: [not_null]
+      - name: fiscal_month_number
+        tests: [not_null]
+      - name: budget_net_sales
+        tests: [not_null]
+      - name: budget_units
+        tests: [not_null]
+      - name: is_forecast_portion
+        description: 1 on months after the version's actuals_through_date (every month of a 0+12 budget), 0 on its actuals months.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+                quote: false
+      - name: etl_insert_datetime
+        tests: [not_null]
