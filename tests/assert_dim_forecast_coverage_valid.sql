@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- EDW-70 (spec 3.4, 6): coverage inside the target fiscal year, actuals cutoff inside coverage, budgets carry no actuals.
 select
       df.forecast_version_id

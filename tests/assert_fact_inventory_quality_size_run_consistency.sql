@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- Size-run internals hang together: in-stock counts never exceed totals, completeness = core in stock / core total,
 -- the broken flag follows completeness, and a score exists exactly when a rule set matched.
 

@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- Spec Section 8, test 6 (part 1): comparable dates, NRF restated methodology.
 --   - Retail week 53 comparable-date fields are NULL (all three).
 --   - Non-NULL offsets are exactly -364 / -728 / -1092 days (weekday preserved

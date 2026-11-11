@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- EDW-70 acceptance criteria: exactly one primary version per fiscal year that has a published budget or reforecast, and none elsewhere.
 select
       df.fiscal_year

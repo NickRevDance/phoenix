@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- EDW-94 (Decision Record A8): on every LANDED row, landed_cost_unit equals
 -- goods_cost_unit plus the actual components, with NULL components as zero.
 

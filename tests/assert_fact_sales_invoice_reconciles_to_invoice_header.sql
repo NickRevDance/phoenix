@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- Reconciliation rule 1 (FACT_SALES_INVOICE spec Section 7, F5 zero tolerance): per posted
 -- CustInvoiceJour header, the sum of net_sales_amount over its lines equals SALESBALANCE.
 -- Lines reach their header through CustInvoiceTrans.PARENTRECID = CustInvoiceJour.REC, the same

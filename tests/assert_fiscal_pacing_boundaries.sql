@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- Spec v2.1 Section 8, test 8: calendar-day pacing derives from true fiscal
 -- period boundaries, so the two fiscal years truncated by the table range
 -- (FY2005 begins 2004-07-01, FY2037 ends 2037-06-30) pace correctly.

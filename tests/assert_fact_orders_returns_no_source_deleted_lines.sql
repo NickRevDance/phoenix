@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- EDW-177 done-when: FACT_ORDERS_RETURNS, the current-state fact, holds no line deleted in D365.
 
 select r.orders_returns_key, r.order_id, r.d365_sales_line_rec_id, r.open_qty

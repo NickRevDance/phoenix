@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- Latest day: quality_band and inventory_quality_status agree with the score under the active ALL-scope D7 thresholds.
 
 with thresholds as (

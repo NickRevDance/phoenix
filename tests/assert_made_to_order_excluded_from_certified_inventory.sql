@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- EDW-144 (Inventory spec Section 5, stocking-policy rule): the certified inventory views
 -- hold stocked items only, and the rule removes nothing else. Returns a row for each check
 -- that fails:

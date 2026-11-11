@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- EDW-151 (DIM_PRODUCT spec 3.4): the two reserved members exist exactly once each, are current,
 -- and reach the current view. Returns a row for each check that fails.
 

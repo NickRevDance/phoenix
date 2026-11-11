@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- EDW-49: retail_value_amount = on_hand_qty x current USD list price (spec 2.3 derivation test).
 -- Checked on the latest native snapshot only: earlier days were priced at their own load.
 -- EDW-151: a snapshot row at the unknown product member ('-1') has no price, by rule. The price

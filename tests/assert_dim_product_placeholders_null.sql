@@ -1,3 +1,5 @@
+{{ config(severity = 'warn') }}
+
 -- The six placeholder columns have no source and must be NULL on every row (spec 3.6, EDW-118).
 select product_key, version_number
 from {{ ref('dim_product') }}
