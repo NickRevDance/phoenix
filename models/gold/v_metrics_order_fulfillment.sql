@@ -3,13 +3,14 @@
 -- Certified fulfillment/return metrics view per spec Section 9.
 -- EDW-58 adds the return lifecycle columns, exchange_rate and
 -- return_processing_days (spec Section 8).
--- EDW-57 fills the fulfillment metrics on the invoice basis (fulfillment_basis
--- 'INVOICE'; 'PACKING_SLIP' once the packing slip lands, EDW-55): fill_rate,
+-- EDW-57 fills the fulfillment metrics: fill_rate,
 -- order_to_ship_days, on_time_ship_flag / on_time_ship_pct against the original
 -- estimated ship date, and return_rate on shipped_qty. It also adds the open order
 -- columns the Executive Summary reads, with the model's Open Order Status labels.
 -- The open order columns read today's date in US Central at query time, so they
 -- move from day to day without a rebuild.
+-- EDW-189: shipped_qty and actual_ship_date read the packing slip, with the invoice where a
+-- line has none; fulfillment_basis says which, per line, from the fact. Adds picked_qty.
 
 with base as (
 
@@ -143,8 +144,8 @@ select
 
     , case when b.is_cancelled_flag then b.cancelled_qty * b.unit_price end as demand_value_lost
 
-    -- Fulfillment (EDW-57), invoice basis
-    , 'INVOICE' as fulfillment_basis
+    -- Fulfillment (EDW-57); packing slip basis with the invoice as the fallback (EDW-189)
+    , b.fulfillment_basis
     , case when not b.is_return_flag and b.ordered_qty > 0
            then cast(b.shipped_qty / b.ordered_qty as decimal(9,4)) end as fill_rate  -- line-level; aggregate as sum(shipped_qty) / sum(ordered_qty)
     , case when not b.is_return_flag then datediff(b.actual_ship_date, b.order_date) end as order_to_ship_days
@@ -153,6 +154,7 @@ select
     , case when not b.is_return_flag and b.actual_ship_date is not null and b.original_estimated_ship_date is not null
            then cast(case when b.actual_ship_date <= b.original_estimated_ship_date then 1 else 0 end as decimal(9,6)) end as on_time_ship_pct  -- 1 or 0, so its average is the rate (the exchange_rate pattern)
     , b.shipped_qty
+    , b.picked_qty  -- EDW-189
     , b.open_qty
     , lr.linked_returned_qty
     , b.is_partial_ship_flag
