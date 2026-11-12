@@ -1,0 +1,12 @@
+version: 2
+
+models:
+  - name: silver_dwh_centric_product_current
+    description: >
+      Current Centric PLM product master, one row per UPC, limited to variants Centric marks
+      D365ProductSetup = 'Completed'. Where Centric holds two current records for a UPC, the one
+      with the earliest OriginalSeason is kept.
+    columns:
+      - name: UPC
+        tests:
+          - is_valid_key

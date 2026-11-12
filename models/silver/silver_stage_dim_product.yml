@@ -1,0 +1,18 @@
+version: 2
+
+models:
+  - name: silver_stage_dim_product
+    description: >
+      Snapshot source for DIM_PRODUCT: one row per UPC that resolves to a D365 item barcode.
+      product_key is md5 of the UPC.
+    columns:
+      - name: product_key
+        tests:
+          - is_valid_key
+      - name: upc
+        description: >
+          Never NULL: the population gate (BAR.ItemID IS NOT NULL) only admits a UPC that matched a
+          D365 barcode, so the key's ifnull(UPC, '0') fallback cannot fire. This test fails the
+          build if the gate is ever loosened.
+        tests:
+          - not_null
