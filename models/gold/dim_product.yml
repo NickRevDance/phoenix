@@ -87,6 +87,12 @@ models:
           - accepted_values:
               arguments:
                 values: ['Costumes', 'Dancewear (excl. Tights)', 'Tights', 'Branded Apparel', 'Other']
+      - name: etl_insert_datetime
+        description: >
+          When the row version was first written (audit_columns macro): the snapshot version start
+          on business rows, the build time on the two reserved members.
+        tests:
+          - not_null
 
   - name: v_dim_product_current
     description: >
