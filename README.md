@@ -102,12 +102,34 @@ packages.yml            dbt_utils
 - **Product resolution, the barcode path.** Every fact that carries a product resolves it through the D365 item barcode table: item + size + colour, read through `silver_d365_inventory_dim`, → UPC → `dim_product`. The barcode table's own `INVENTDIMID` is a reference-level record and doesn't join directly.
 - **Reserved members:** hardcoded literals unioned into each dimension, never hashed. `-1` = Unknown (a value existed but didn't resolve); `0` = Not applicable / none by design. Facts coalesce misses to `-1` and keep the raw identifier so a miss stays diagnosable.
 - **Fact key resolution:** facts resolve a dimension key against its latest version (`version_number = 1`). Consumer views that need what's current today filter `is_current_row = 1`.
+- **SCD2 keys: durable key plus version number (D001, EDW-8).** A snapshot-built dimension's surrogate key hashes the business key only, so it stays the same across versions and gives Power BI a stable entity id. A row is identified by the key plus `version_number`, and `is_current_row` marks the current one. The grain test is `unique_combination_of_columns` on the key and `version_number`. `dim_product`, `dim_vendor`, `dim_customer`, `dim_customer_segment` and `dim_warehouse` follow it.
+  - **Exception:** `dim_promotion` hashes `effective_start_datetime` into `promotion_key`, so each version has its own key (DIM_PROMOTION spec).
+  - **Second pattern:** effective-dated reference tables (Section 5) are keyed on the natural key plus `effective_start_date`, one key per version. They are seed-maintained, not snapshot-built, so this is deliberate.
 
 ### Amounts, types and currency
 
 - **Computed amounts:** wrap computed money and quantity columns in `{{ amount(expr) }}` (decimal(38,6)). Delta can't change an existing column's decimal precision, so an incremental fact must keep one stable type.
 - **Exchange rates:** come from the D365 spot table and are rebuilt into contiguous ranges. The first range reaches back to 1900-01-01 and the last stays open.
 - **Placeholder dates:** a D365 placeholder date (1900-01-01) maps to the `dim_date` Unknown member, `-1`.
+
+### Data types: spec to Databricks
+
+The specs are written in Azure SQL types. Build to the Databricks type on the right.
+
+| Spec type | Databricks | Notes |
+|---|---|---|
+| `nvarchar(n)`, `nvarchar(max)`, `varchar(n)`, `char(n)` | `STRING` | `varchar(n)` is accepted and enforces the length; use it only where the spec's length is a real rule. |
+| `decimal(p,s)`, `numeric(p,s)` | `DECIMAL(p,s)` | Computed money and quantities use `{{ amount(expr) }}`, `decimal(38,6)`. |
+| `money` | `DECIMAL(38,6)` | Via `amount()`. |
+| `int`, `smallint`, `tinyint` | `INT` | |
+| `bigint` | `BIGINT` | Surrogate keys from `generate_surrogate_key()`. `product_key` is the one string key. |
+| `date` | `DATE` | |
+| `datetime`, `datetime2`, `datetimeoffset` | `TIMESTAMP` | UTC. |
+| `time` | `STRING` | Databricks has no `TIME` type. |
+| `bit` | `BOOLEAN` | Except `is_current_row` and `is_active`, which are `INT` 1/0. |
+| `uniqueidentifier` | `STRING` | |
+
+A column with no source yet is `cast(null as <type>)`, never a bare `null`, which types the column `VOID` and breaks a later merge.
 
 ### Incremental models
 
@@ -149,6 +171,7 @@ Rules:
 
 - **Current = latest version and an open end date.** Under `hard_deletes: invalidate`, a record deleted at the source keeps `version_number = 1` on a closed row.
 - **`is_current_row` is int 1/0.**
+- **Audit columns come from `audit_columns()`.** In a snapshot-fed model, `etl_insert_datetime` is the version's `effective_start_datetime` and `etl_update_datetime` is the snapshot's update timestamp. Reserved members take the defaults.
 - **Never `--full-refresh` a snapshot, or drop its table, in prod.** That discards captured history permanently. A change to `check_cols` or the hash is a deliberate history reset.
 - **No separate snapshot step.** `dbt build` runs seeds, snapshots, models and tests in DAG order.
 
@@ -215,6 +238,7 @@ Generic tests in `macros/`:
 | `generate_row_hash(exprs)` | SCD2 change hash, with one delimiter and hash function for the whole project. |
 | `unknown_member_key()` / `default_member_key()` | The literals `-1` / `0` for reserved dimension rows. |
 | `scd2_version_number(...)`, `scd2_is_current_row(...)` | SCD2 control columns: latest = 1; current = latest with an open end. |
+| `audit_columns(insert_from, update_from)` | `etl_insert_datetime` and `etl_update_datetime`. Each defaults to `current_timestamp()`; pass a column to carry a snapshot or existing value. |
 | `amount(expr)` | Casts to decimal(38,6). |
 | `empty_extract_guard(relation, min_rows)` | Keeps a silver table's last good contents when its extract is mid-reload. |
 | `inventory_snapshot_branch_label(branch)`, `inventory_snapshot_native_start_date()` | Branch labels and seam date for the inventory snapshot fact. Always filter branches through these, never a string literal. |

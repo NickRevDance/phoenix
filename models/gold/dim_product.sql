@@ -241,6 +241,7 @@
     'effective_start_datetime',
     'effective_end_datetime',
     'record_source_table',
+    'etl_insert_datetime',
     'etl_update_datetime',
     'retirement_year',
     'version_number',
@@ -281,7 +282,7 @@ with business_products as (
         , snap_p.effective_start_datetime
         , snap_p.effective_end_datetime
         , snap_p.record_source_table
-        , snap_p.etl_update_datetime
+        , {{ audit_columns(insert_from='snap_p.effective_start_datetime', update_from='snap_p.etl_update_datetime') }}
         , {{ scd2_version_number('snap_p.product_key', 'snap_p.effective_start_datetime') }} as version_number
         , {{ scd2_is_current_row('version_number', 'snap_p.effective_end_datetime') }} as is_current_row
 
@@ -409,7 +410,7 @@ reserved_members as (
         , cast(null as timestamp) as effective_start_datetime
         , cast(null as timestamp) as effective_end_datetime
         , cast('Manual Seed' as string) as record_source_table
-        , current_timestamp() as etl_update_datetime
+        , {{ audit_columns() }}
         , cast(null as int) as retirement_year
         , cast(1 as int) as version_number
         , cast(1 as int) as is_current_row
