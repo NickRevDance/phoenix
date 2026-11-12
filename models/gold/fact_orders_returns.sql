@@ -76,6 +76,20 @@ with line as (
                   and h.MODIFIEDDATE > (select coalesce(max(etl_source_modified_datetime), timestamp('1900-01-01')) from {{ this }}) - interval 2 days
             )
         )
+        -- EDW-189: re-pull a sales line whose sales pick work changed inside the same lookback. Closing
+        -- pick work doesn't touch the sales line's MODIFIEDDATE (235 of 319 lines picked November 9 kept
+        -- an older one); a packing slip and an invoice both do, so picked_qty and Picked need this clause
+        -- and shipped_qty doesn't. Any status, so a pick that is cancelled or reversed re-pulls too.
+        or (
+            l.SALESTYPE = 3
+            and l.INVENTTRANSID in (
+                select w.INVENTTRANSID
+                from {{ ref('silver_d365_whs_work_line') }} w
+                where w.WORKTYPE = 1
+                  and w.WHSWORKTEMPLATELINE_WORKTRANSTYPE = 2
+                  and w.MODIFIEDDATE > (select coalesce(max(etl_source_modified_datetime), timestamp('1900-01-01')) from {{ this }}) - interval 2 days
+            )
+        )
     )
     {% endif %}
 
@@ -172,6 +186,46 @@ shipment as (
     where nullif(t.INVENTTRANSID, '') is not null
       and t.INVENTTRANSID in (select l.INVENTTRANSID from line l where l.SALESTYPE = 3)
     group by t.INVENTTRANSID
+
+),
+
+-- EDW-189 (spec 4.9 step 2b): shipped quantity and ship date on the packing slip, with the invoice
+-- above as the fallback for a line that has none (the Studio Merch items invoice with no packing
+-- slip). Joined on INVENTTRANSID, never on line number. DELIVERYDATE is the posting day, not a
+-- requested date. Every packing slip line is in EA with QTY = INVENTQTY, so the quantity compares
+-- like for like with picked_qty.
+packing_slip as (
+
+    select
+
+          p.INVENTTRANSID
+        , sum(p.QTY)                                         as packing_slip_qty
+        , min(case when p.QTY > 0 then p.DELIVERYDATE end)   as first_packing_slip_date
+
+    from {{ ref('silver_d365_cust_packing_slip_trans') }} p
+    where nullif(p.INVENTTRANSID, '') is not null
+      and p.INVENTTRANSID in (select l.INVENTTRANSID from line l where l.SALESTYPE = 3)
+    group by p.INVENTTRANSID
+
+),
+
+-- EDW-189 (spec 7.1): units picked in the warehouse. Closed (WORKSTATUS 4) sales pick lines (WORKTYPE 1,
+-- template trans type 2), leaving out the PACKING location leg so a pick is not counted twice.
+pick as (
+
+    select
+
+          w.INVENTTRANSID
+        , sum(w.INVENTQTYWORK)                               as picked_work_qty
+
+    from {{ ref('silver_d365_whs_work_line') }} w
+    where w.WORKTYPE = 1
+      and w.WHSWORKTEMPLATELINE_WORKTRANSTYPE = 2
+      and w.WORKSTATUS = 4
+      and upper(trim(coalesce(w.WMSLOCATIONID, ''))) <> 'PACKING'
+      and nullif(w.INVENTTRANSID, '') is not null
+      and w.INVENTTRANSID in (select l.INVENTTRANSID from line l where l.SALESTYPE = 3)
+    group by w.INVENTTRANSID
 
 ),
 
@@ -407,8 +461,13 @@ joined as (
         , l.SHIPPINGDATECONFIRMED
         , l.REVESTIMATEDSHIPDATE
         , l.REVOGESTIMATEDSHIPDATE
-        , sh.invoiced_qty                        -- EDW-57: NULL when the line has no invoice line
-        , sh.first_invoice_date
+        -- EDW-189: packing slip basis, the invoice where the line has no packing slip. NULL when neither.
+        , case when ps.INVENTTRANSID is not null then ps.packing_slip_qty else sh.invoiced_qty end as ship_qty
+        , case when ps.INVENTTRANSID is not null then coalesce(ps.first_packing_slip_date, sh.first_invoice_date)
+               else sh.first_invoice_date end    as ship_date
+        , case when ps.INVENTTRANSID is not null then 'PACKING_SLIP'
+               when sh.INVENTTRANSID is not null then 'INVOICE' end as ship_basis
+        , pk.picked_work_qty                     -- EDW-189: NULL when nothing is picked
         , coalesce(l.REVWEBSITEFEE, 0)            as nimbly_fee_unit
         , coalesce(l.REVCOMMISSION, 0)            as nimbly_commission_unit
         , coalesce(l.REVNETCUSTOMPRINTFEE, 0)     as custom_print_fee_line
@@ -471,6 +530,14 @@ joined as (
     left join shipment sh
         on l.SALESTYPE = 3
         and nullif(l.INVENTTRANSID, '') = sh.INVENTTRANSID
+
+    -- EDW-189: sales rows only, same key.
+    left join packing_slip ps
+        on l.SALESTYPE = 3
+        and nullif(l.INVENTTRANSID, '') = ps.INVENTTRANSID
+    left join pick pk
+        on l.SALESTYPE = 3
+        and nullif(l.INVENTTRANSID, '') = pk.INVENTTRANSID
 
     -- EDW-58: sales rows only.
     left join replacement_order ro
@@ -575,9 +642,9 @@ final as (
         , case when l.SHIPPINGDATECONFIRMED is not null and l.SHIPPINGDATECONFIRMED > timestamp('1901-01-01') and l.SHIPPINGDATECONFIRMED < timestamp('2040-01-01')
                then cast(date_format(l.SHIPPINGDATECONFIRMED, 'yyyyMMdd') as int)
                else null end                                          as confirmed_ship_date_key  -- EDW-57: SalesLine.SHIPPINGDATECONFIRMED, placeholder rule (spec 7.6). Sparse (spec 4.9).
-        , case when l.SALESTYPE = 3 and l.first_invoice_date is not null
-               then cast(date_format(l.first_invoice_date, 'yyyyMMdd') as int)
-               else null end                                          as actual_ship_date_key  -- EDW-57: earliest invoice date on the line (invoice basis, spec 4.9).
+        , case when l.SALESTYPE = 3 and l.ship_date is not null
+               then cast(date_format(l.ship_date, 'yyyyMMdd') as int)
+               else null end                                          as actual_ship_date_key  -- EDW-189: earliest packing slip date, the invoice date where the line has no packing slip (spec 4.9).
         , case when l.SALESTYPE = 3 and l.REVESTIMATEDSHIPDATE is not null and l.REVESTIMATEDSHIPDATE > timestamp('1901-01-01') and l.REVESTIMATEDSHIPDATE < timestamp('2040-01-01')
                then cast(date_format(l.REVESTIMATEDSHIPDATE, 'yyyyMMdd') as int)
                else null end                                          as estimated_ship_date_key  -- EDW-57: DIM_DATE key on estimated_ship_date (the Executive Summary's open orders by ship date).
@@ -620,7 +687,7 @@ final as (
         , case when l.SHIPPINGDATECONFIRMED is not null and l.SHIPPINGDATECONFIRMED > timestamp('1901-01-01') and l.SHIPPINGDATECONFIRMED < timestamp('2040-01-01')
                then cast(l.SHIPPINGDATECONFIRMED as date)
                else null end                                          as confirmed_ship_date  -- EDW-57: see confirmed_ship_date_key
-        , case when l.SALESTYPE = 3 then cast(l.first_invoice_date as date) end as actual_ship_date  -- EDW-57: earliest invoice date on INVENTTRANSID (invoice basis, spec 4.9). NULL unshipped and on return rows; re-sources to the packing slip when it lands (EDW-55).
+        , case when l.SALESTYPE = 3 then cast(l.ship_date as date) end as actual_ship_date  -- EDW-189: earliest positive packing slip DELIVERYDATE on INVENTTRANSID, else the earliest invoice date (spec 4.9). NULL unshipped and on return rows.
         , case when l.SALESTYPE = 3 and l.REVESTIMATEDSHIPDATE is not null and l.REVESTIMATEDSHIPDATE > timestamp('1901-01-01') and l.REVESTIMATEDSHIPDATE < timestamp('2040-01-01')
                then cast(l.REVESTIMATEDSHIPDATE as date)
                else null end                                          as estimated_ship_date  -- EDW-57: SalesLine.REVESTIMATEDSHIPDATE, the current estimate. The 1900 and 2040 placeholders read NULL here and are kept in estimated_ship_date_status.
@@ -644,13 +711,16 @@ final as (
     -- 4=Canceled. Mapped to the spec's Phase 1 conformed status set per
     -- Business Rule 7.1. Backorder -> Confirmed and Invoiced -> Shipped (no
     -- separate shipped signal exists in this BYOD extract; invoicing is the
-    -- closest available proxy). Picked/Packed have no source at all.
+    -- closest available proxy). Picked from EDW-189 (warehouse pick work); Packed has no source.
         , case
             when l.SALESTYPE = 4 then 'Returned'
             when l.SALESSTATUS = 0 then 'Open'
+            -- EDW-189 (spec 7.1): Picked = a Backorder line with more picked than shipped. SALESSTATUS 2
+            -- (packing slip posted, not yet invoiced) reads Shipped, so Delivered leaves the domain; Delivered
+            -- needs carrier confirmation (EDW-69 OD6). Packed stays unsourced.
+            when l.SALESSTATUS = 1 and coalesce(l.picked_work_qty, 0) > coalesce(l.ship_qty, 0) then 'Picked'
             when l.SALESSTATUS = 1 then 'Confirmed'
-            when l.SALESSTATUS = 2 then 'Delivered'
-            when l.SALESSTATUS = 3 then 'Shipped'
+            when l.SALESSTATUS in (2, 3) then 'Shipped'
             when l.SALESSTATUS = 4 then 'Cancelled'
             else cast(l.SALESSTATUS as string)
           end                                                         as order_line_status
@@ -673,7 +743,7 @@ final as (
         , case when l.SALESSTATUS = 4 or l.REVQTYCANCELLED > 0 then true else false end as is_cancelled_flag
         , case when l.SALESSTATUS = 1 then true else false end        as is_backordered_flag  -- Reflects SalesStatus = Backorder as of the current ETL run, not true backorder history -- same current-state caveat as FACT_ORDER_LINE's order_line_status_at_creation
         , case when l.SALESTYPE = 3 then
-            coalesce(l.invoiced_qty, 0) > 0 and coalesce(l.invoiced_qty, 0) < l.QTYORDERED - coalesce(l.REVQTYCANCELLED, 0)
+            coalesce(l.ship_qty, 0) > 0 and coalesce(l.ship_qty, 0) < l.QTYORDERED - coalesce(l.REVQTYCANCELLED, 0)
           end                                                         as is_partial_ship_flag  -- EDW-57: some but not all of the ordered less cancelled quantity shipped (spec 7.4). Open partial lines and lines closed short both read true. NULL on return rows.
         , case when l.SALESTYPE = 3 then
             case
@@ -689,8 +759,8 @@ final as (
     -- Quantities
         , l.QTYORDERED                                                 as ordered_qty
         , cast(null as decimal(18,4)) as confirmed_qty  -- Source once available: no confirmed-availability quantity field found separate from QTYORDERED
-        , cast(null as decimal(18,4)) as picked_qty  -- Phase 2 per spec
-        , case when l.SALESTYPE = 3 then {{ amount('coalesce(l.invoiced_qty, 0)') }} end as shipped_qty  -- EDW-57: sum of CustInvoiceTrans.QTY on INVENTTRANSID (invoice basis, spec 4.9). 0 when the line has no invoice line; NULL on return rows. SALESDELIVERNOW / INVENTDELIVERNOW are 0 on every row and are not used.
+        , case when l.SALESTYPE = 3 then cast(coalesce(l.picked_work_qty, 0) as decimal(18,4)) end as picked_qty  -- EDW-189: closed sales pick work (INVENTQTYWORK) on INVENTTRANSID, outside PACKING. 0 when nothing is picked; NULL on return rows. Stays decimal(18,4), the placeholder's type.
+        , case when l.SALESTYPE = 3 then {{ amount('coalesce(l.ship_qty, 0)') }} end as shipped_qty  -- EDW-189: sum of CustPackingSlipTrans.QTY on INVENTTRANSID, the invoiced quantity where the line has no packing slip (spec 4.9). 0 when nothing has shipped; NULL on return rows.
         , cast(null as decimal(18,4)) as delivered_qty  -- Phase 2 per spec
         , l.REVQTYCANCELLED                                            as cancelled_qty
         , case when l.SALESTYPE = 4 then abs(l.QTYORDERED) end        as returned_qty  -- Return lines carry QTYORDERED negative in live data -- abs() to express as a positive returned quantity per spec
@@ -797,11 +867,13 @@ final as (
             , coalesce(case when l.SALESTYPE = 4 then cast(coalesce(l.RETURNREPLACEMENTCREATED = 1, false) as string) end, '')
             , coalesce(case when l.SALESTYPE = 4 and l.RETURNREPLACEMENTCREATED = 1 then nullif(l.RETURNREPLACEMENTID, '') end, '')
             -- EDW-57: shipped_qty, open_qty, actual_ship_date and the two estimated ship dates (spec 4.2)
-            , coalesce(case when l.SALESTYPE = 3 then cast(coalesce(l.invoiced_qty, 0) as string) end, '')
+            -- EDW-189: shipped_qty and actual_ship_date on the packing slip basis; picked_qty added
+            , coalesce(case when l.SALESTYPE = 3 then cast(coalesce(l.ship_qty, 0) as string) end, '')
             , coalesce(case when l.SALESTYPE = 3 then cast(l.REMAINSALESPHYSICAL as string) end, '')
-            , coalesce(case when l.SALESTYPE = 3 then cast(cast(l.first_invoice_date as date) as string) end, '')
+            , coalesce(case when l.SALESTYPE = 3 then cast(cast(l.ship_date as date) as string) end, '')
             , coalesce(case when l.SALESTYPE = 3 then cast(cast(l.REVESTIMATEDSHIPDATE as date) as string) end, '')
             , coalesce(case when l.SALESTYPE = 3 then cast(cast(l.REVOGESTIMATEDSHIPDATE as date) as string) end, '')
+            , coalesce(case when l.SALESTYPE = 3 then cast(cast(coalesce(l.picked_work_qty, 0) as decimal(18,4)) as string) end, '')
           ), 256) as row_hash
 
     -- SUP-11: the D365 inventory status on the line's inventory dimension (Available = regular stock,
@@ -811,6 +883,9 @@ final as (
     -- Appended after row_hash so a full refresh and the in-place column add give the same position.
     -- Not in row_hash: the line watermark already re-pulls a line when its dimension changes.
         , coalesce(nullif(trim(l.INVENTSTATUSID), ''), 'UNKNOWN')      as inventory_status_code
+    -- EDW-189: which document the ship quantity and date came from. Appended last, after
+    -- inventory_status_code, the position on_schema_change and the history fill both give it.
+        , case when l.SALESTYPE = 3 then l.ship_basis end              as fulfillment_basis  -- PACKING_SLIP, INVOICE (no packing slip), NULL when nothing has shipped and on return rows
 
     from joined l
 
