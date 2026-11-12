@@ -8,8 +8,10 @@ models:
       Combines forward-demand and return order lines in one physical table
       per spec Section 4.9. See README.md for build status and open
       decisions. EDW-57 fills shipped_qty, actual_ship_date and the
-      fulfillment fields on the invoice basis, open_qty from D365's remaining
-      quantity, and the open order value.
+      fulfillment fields, open_qty from D365's remaining quantity, and the
+      open order value. EDW-189 moves shipped_qty and actual_ship_date to the
+      packing slip (the invoice where a line has none), adds picked_qty, the
+      Picked status and fulfillment_basis.
     tests:
       - dbt_utils.unique_combination_of_columns:  # 2026-09-21 (EDW-22 review, spec Section 3): grain is d365_sales_line_rec_id, not order_id + order_line_number -- same rec_id-grain fix as FACT_SALES_INVOICE's EDW-23 round.
           arguments:
@@ -37,11 +39,17 @@ models:
             expression: "open_qty >= 0"
           config:
             where: "not is_return_flag"
-      - dbt_utils.expression_is_true:  # EDW-57: on an open line D365's remaining quantity equals ordered less shipped less cancelled; warn, since it depends on what D365 holds
+      - dbt_utils.expression_is_true:  # EDW-57: on an open line D365's remaining quantity equals ordered less shipped less cancelled; warn, since it depends on what D365 holds. EDW-189: Picked lines are open too.
           arguments:
             expression: "open_qty = ordered_qty - shipped_qty - cancelled_qty"
           config:
-            where: "order_line_status = 'Confirmed'"
+            where: "order_line_status in ('Confirmed', 'Picked')"
+            severity: warn
+      - dbt_utils.expression_is_true:  # EDW-189: a shipped sales line always says which document it shipped on
+          arguments:
+            expression: "fulfillment_basis is not null"
+          config:
+            where: "not is_return_flag and shipped_qty > 0"
             severity: warn
     columns:
       - name: orders_returns_key
@@ -259,7 +267,7 @@ models:
               config:
                 severity: warn
       - name: shipped_qty
-        description: Invoiced quantity on the line, the sum of CustInvoiceTrans.QTY on INVENTTRANSID (invoice basis, spec 4.9). 0 when nothing is invoiced; NULL on return rows. EDW-57.
+        description: Shipped quantity on the line, the sum of CustPackingSlipTrans.QTY on INVENTTRANSID; the invoiced quantity (CustInvoiceTrans.QTY) where the line has no packing slip (spec 4.9, fulfillment_basis says which). 0 when nothing has shipped; NULL on return rows. EDW-57, EDW-189.
         tests:
           - not_null:
               config:
@@ -271,7 +279,7 @@ models:
               config:
                 where: "not is_return_flag"
       - name: actual_ship_date
-        description: Earliest invoice date on the line (invoice basis, spec 4.9). NULL unshipped and on return rows. EDW-57.
+        description: Earliest positive packing slip date (CustPackingSlipTrans.DELIVERYDATE), the earliest invoice date where the line has no packing slip (spec 4.9). NULL unshipped and on return rows. EDW-57, EDW-189.
       - name: estimated_ship_date
         description: SalesLine.REVESTIMATEDSHIPDATE, the current estimated ship date. NULL when D365 holds a placeholder; see estimated_ship_date_status. Sales rows only. EDW-57.
       - name: original_estimated_ship_date
@@ -327,15 +335,44 @@ models:
                 field: inventory_status_code
               config:
                 severity: warn
+      - name: order_line_status
+        description: >
+          Conformed line status (spec 7.1): Open, Confirmed (D365 Backorder), Picked (Backorder with more
+          picked in the warehouse than shipped, EDW-189), Shipped (packing slip posted or invoiced),
+          Cancelled, Returned (return rows). Delivered left the domain with EDW-189; it needs carrier
+          confirmation. Packed has no source.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Open', 'Confirmed', 'Picked', 'Shipped', 'Cancelled', 'Returned']
+              config:
+                severity: warn
+      - name: picked_qty
+        description: Units picked in the warehouse, the sum of INVENTQTYWORK on closed sales pick work lines on INVENTTRANSID outside the PACKING location. 0 when nothing is picked; NULL on return rows. EDW-189.
+        tests:
+          - not_null:
+              config:
+                where: "not is_return_flag"
+                severity: warn
+      - name: fulfillment_basis
+        description: Which document shipped_qty and actual_ship_date come from. PACKING_SLIP, or INVOICE where the line has no packing slip; NULL when nothing has shipped and on return rows. EDW-189.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['PACKING_SLIP', 'INVOICE']
+              config:
+                severity: warn
 
   - name: v_metrics_order_fulfillment
     description: >
       Certified order fulfillment/return metrics view per spec Section 9.
       EDW-58 adds the return lifecycle columns, exchange_rate and
       return_processing_days. EDW-57 fills fill_rate, order_to_ship_days,
-      on_time_ship_flag / on_time_ship_pct and return_rate on the invoice
-      basis (fulfillment_basis), and adds the open order columns with the
-      Executive Summary's Open Order Status labels, evaluated at query time.
+      on_time_ship_flag / on_time_ship_pct and return_rate, and adds the
+      open order columns with the Executive Summary's Open Order Status
+      labels, evaluated at query time. EDW-189: the ship basis is the packing
+      slip with the invoice as the fallback, passed through per line in
+      fulfillment_basis; adds picked_qty.
 
 # EDW-58: the return link checks that need a self-join (original line,
 # replacement order, RMA number on both sides of an exchange) are in
