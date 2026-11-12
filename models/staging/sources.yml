@@ -186,6 +186,10 @@ sources:
             error_after: {count: 48, period: hour}
 
       
+      # EDW-55: customer return reason codes (setup table, full export of ~33 rows)
+      - name: d365_return_reason_code
+        identifier: ReturnCustomerReturnReasonCodeStaging
+
       # EDW-69: WMS outbound shipments, shipment lines (load lines) and packed containers
       - name: d365_whs_shipment_table
         identifier: Rev_WHSShipmentTableStaging

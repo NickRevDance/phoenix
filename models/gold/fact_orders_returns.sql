@@ -241,6 +241,18 @@ return_reason_category as (
 
 ),
 
+-- EDW-55: D365 reason code descriptions, one row per code.
+return_reason_code as (
+
+    select
+
+          r.REASONCODE
+        , r.REASONDESCRIPTION
+
+    from {{ ref('silver_d365_return_reason_code') }} r
+
+),
+
 inventory_dim as (
 
     select
@@ -494,6 +506,7 @@ joined as (
         , ol.original_linenum
         , ro.SALESID is not null                 as is_replacement_order
         , rrc.return_reason_category
+        , rdesc.REASONDESCRIPTION                 as return_reason_description
 
         , d.INVENTLOCATIONID
         , d.INVENTSTATUSID                       -- SUP-11
@@ -548,6 +561,11 @@ joined as (
     left join return_reason_category rrc
         on l.SALESTYPE = 4
         and coalesce(nullif(trim(st.RETURNREASONCODEID), ''), '') = rrc.return_reason_code
+
+    -- EDW-55: return rows only. A blank code has no description.
+    left join return_reason_code rdesc
+        on l.SALESTYPE = 4
+        and nullif(trim(st.RETURNREASONCODEID), '') = rdesc.REASONCODE
 
     left join inventory_dim d
         on l.INVENTDIMID = d.InventDimID
@@ -801,7 +819,7 @@ final as (
 
     -- Returns
         , case when l.SALESTYPE = 4 then nullif(trim(l.RETURNREASONCODEID), '') end as return_reason_code  -- EDW-58: SalesTable.RETURNREASONCODEID on return rows, as sourced. NULL when blank (spec 7.8).
-        , cast(null as string) as return_reason_description  -- Source once available: the D365 ReturnReasonCode entity (EDW-55)
+        , case when l.SALESTYPE = 4 then l.return_reason_description end as return_reason_description  -- EDW-55: D365 return reason code description. NULL when the code is blank.
         , case when l.SALESTYPE = 4 then coalesce(l.return_reason_category, 'Other') end as return_reason_category  -- EDW-58: from ref_return_reason_category (spec 7.8). A blank code and a code not yet in the seed both read Other, so every return row has a category.
         , case when l.SALESTYPE = 4 then nullif(trim(l.RETURNDISPOSITIONCODEID), '') end as return_disposition_code  -- EDW-58: SalesLine.RETURNDISPOSITIONCODEID on return rows. NULL when blank (the return is cancelled or still awaited).
         , case when l.SALESTYPE = 4 then
