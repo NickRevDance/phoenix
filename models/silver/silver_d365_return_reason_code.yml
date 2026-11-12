@@ -1,0 +1,17 @@
+version: 2
+
+models:
+  - name: silver_d365_return_reason_code
+    description: >
+      D365 customer return reason codes (ReturnCustomerReturnReasonCode) -- one row per code,
+      with its description and group. Joins to SalesTable.RETURNREASONCODEID on REASONCODE
+      (exact match, case and spacing kept). Feeds return_reason_description on
+      FACT_ORDERS_RETURNS.
+    columns:
+      - name: REASONCODE
+        data_tests:
+          - unique  # one company (REV) in the export
+          - not_null
+      - name: REASONDESCRIPTION
+        data_tests:
+          - not_null
