@@ -65,9 +65,6 @@ sources:
       - name: d365_inventory_dim
         identifier: Rev_InventDimStaging
 
-      - name: d365_inventory_table
-        identifier: Rev_InventTableStaging
-
       - name: d365_inventory_location
         identifier: Rev_InventLocationStaging
 
@@ -247,6 +244,39 @@ sources:
           freshness:
             warn_after: {count: 24, period: hour}
             error_after: {count: 48, period: hour}
+
+  - name: d365_synapse
+    description: >
+      D365 F&O tables landed by Azure Synapse Link and the Lakeflow Connect
+      pipeline d365_synapse_ingest. SCD type 2: one row per version, current
+      rows have __END_AT IS NULL.
+    database: phoenix_raw
+    schema: d365
+    tables:
+      - name: custgroup
+      - name: dlvmode
+      - name: mainaccount
+
+      - name: custtrans
+        config:
+          loaded_at_field: SinkModifiedOn
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 72, period: hour}
+
+      - name: markuptrans
+        config:
+          loaded_at_field: SinkModifiedOn
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 72, period: hour}
+
+      - name: taxtrans
+        config:
+          loaded_at_field: SinkModifiedOn
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 72, period: hour}
 
   - name: bc
     database: dwhvisualnext
