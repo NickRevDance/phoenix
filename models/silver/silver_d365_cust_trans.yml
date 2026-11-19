@@ -1,0 +1,21 @@
+version: 2
+
+models:
+  - name: silver_d365_cust_trans
+    description: >
+      D365 CustTrans (Synapse Link) -- current version of each customer ledger transaction
+      (invoices, payments, settlements). closed = 1900-01-01 means the transaction is still open.
+    columns:
+      - name: recid
+        data_tests:
+          - unique
+          - not_null
+      - name: accountnum
+        data_tests:
+          - not_null
+      - name: voucher
+        data_tests:
+          - not_null
+      - name: amountmst
+        data_tests:
+          - not_null

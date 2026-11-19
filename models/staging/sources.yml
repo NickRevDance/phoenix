@@ -278,6 +278,13 @@ sources:
             warn_after: {count: 24, period: hour}
             error_after: {count: 72, period: hour}
 
+      - name: purchtable
+        config:
+          loaded_at_field: SinkModifiedOn
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 72, period: hour}
+
   - name: bc
     database: dwhvisualnext
     schema: bc
