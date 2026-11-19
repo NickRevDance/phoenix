@@ -1,0 +1,19 @@
+version: 2
+
+models:
+  - name: silver_d365_main_account
+    description: >
+      D365 MainAccount (Synapse Link) -- current version of each chart-of-accounts main account,
+      with its name. Joins to silver_d365_general_journal_account_entry on recid = MAINACCOUNT.
+    columns:
+      - name: recid
+        data_tests:
+          - unique
+          - not_null
+      - name: mainaccountid
+        data_tests:
+          - unique  # one chart of accounts
+          - not_null
+      - name: name
+        data_tests:
+          - not_null

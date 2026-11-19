@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: silver_d365_cust_group
+    description: >
+      D365 CustGroup (Synapse Link) -- current version of each customer group. Joins to
+      silver_d365_customer_table on custgroup (CUSTGROUP on the BYOD side).
+    columns:
+      - name: recid
+        data_tests:
+          - unique
+          - not_null
+      - name: custgroup
+        data_tests:
+          - unique  # one company (rev)
+          - not_null

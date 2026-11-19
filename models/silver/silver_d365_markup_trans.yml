@@ -1,0 +1,21 @@
+version: 2
+
+models:
+  - name: silver_d365_markup_trans
+    description: >
+      D365 MarkupTrans (Synapse Link) -- current version of each charge line (freight, fees, etc.)
+      attached to a source record by transtableid + transrecid.
+    columns:
+      - name: recid
+        data_tests:
+          - unique
+          - not_null
+      - name: markupcode
+        data_tests:
+          - not_null
+      - name: transtableid
+        data_tests:
+          - not_null
+      - name: transrecid
+        data_tests:
+          - not_null

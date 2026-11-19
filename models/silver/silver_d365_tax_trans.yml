@@ -1,0 +1,18 @@
+version: 2
+
+models:
+  - name: silver_d365_tax_trans
+    description: >
+      D365 TaxTrans (Synapse Link) -- current version of each posted sales tax line, attached to its
+      source record by sourcetableid + sourcerecid.
+    columns:
+      - name: recid
+        data_tests:
+          - unique
+          - not_null
+      - name: taxcode
+        data_tests:
+          - not_null
+      - name: voucher
+        data_tests:
+          - not_null

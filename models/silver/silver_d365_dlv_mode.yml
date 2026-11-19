@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: silver_d365_dlv_mode
+    description: >
+      D365 DlvMode (Synapse Link) -- current version of each delivery mode, with its description
+      (txt). Joins to DLVMODE on purchase and sales headers and deliverymode on silver_d365_cust_trans.
+    columns:
+      - name: recid
+        data_tests:
+          - unique
+          - not_null
+      - name: code
+        data_tests:
+          - unique  # one company (rev)
+          - not_null
