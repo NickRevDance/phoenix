@@ -1,0 +1,54 @@
+version: 2
+
+models:
+  - name: fact_case
+    description: >
+      One row per Salesforce case (current version, deleted cases excluded): status, origin, type, reason, priority,
+      owner, time to close and email first-response time. First response = first outbound EmailMessage on the case at
+      or after creation, so it only exists for cases worked by email (most Email-origin cases). is_stale_open flags
+      cases left open past crm_stale_case_days (dbt var, default 90); there are tens of thousands, so filter them out
+      of open-backlog reporting.
+    columns:
+      - name: case_key
+        description: xxhash64 of Case.Id + 'SFDC'.
+        tests: [is_valid_key]
+      - name: case_number
+        tests: [not_null]
+      - name: customer_key
+        description: DIM_CUSTOMER key of the case's account; -1 when unmatched, NULL when the case has no account.
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customer')
+                field: customer_key
+      - name: crm_account_key
+        description: dim_crm_account key of Case.AccountId; NULL when the case has no account.
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_crm_account')
+                field: crm_account_key
+              config:
+                severity: warn
+      - name: owner_user_key
+        description: dim_crm_user key; 0 when a queue owns the case.
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_crm_user')
+                field: user_key
+      - name: hours_to_close
+        description: ClosedDate minus CreatedDate in hours; NULL while open.
+      - name: days_open
+        description: Days since creation for open cases; NULL once closed.
+      - name: first_response_datetime
+        description: First outbound email on the case at or after creation.
+      - name: hours_to_first_response
+        description: first_response_datetime minus CreatedDate in hours.
+      - name: created_date_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key

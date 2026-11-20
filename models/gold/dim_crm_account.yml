@@ -1,0 +1,43 @@
+version: 2
+
+models:
+  - name: dim_crm_account
+    description: >
+      Salesforce account attributes (Type 1, current version of each account): assigned rep and team, territory,
+      account type and status, DSO / TSD membership, franchise flags, partnerships, dance genres and store type.
+      The CRM-side profile of a studio; customer master attributes stay on DIM_CUSTOMER, joined through customer_key.
+      Salesforce-maintained spend roll-up fields are deliberately left out (revenue comes from the sales facts).
+    columns:
+      - name: crm_account_key
+        description: xxhash64 of Account.Id + 'SFDC'.
+        tests: [is_valid_key]
+      - name: sfdc_account_id
+        tests: [is_valid_key]
+      - name: customer_key
+        description: DIM_CUSTOMER key via v_crm_account_customer_map; -1 when unmatched.
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_customer')
+                field: customer_key
+      - name: owner_user_key
+        description: dim_crm_user key of the account owner (Account.OwnerId).
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_crm_user')
+                field: user_key
+      - name: inside_sales_rep
+        description: Account.Inside_Sales_Group__c, the assigned inside-sales rep or group (free text, e.g. a rep name, Franchise, NA).
+      - name: account_specialist
+        description: Account.Account_Specialist__c (free text name).
+      - name: is_test_account
+        description: Account Type = 'Test'. Exclude from reporting; one test account holds ~44K open 2022 cases.
+      - name: dso_status_code
+        description: Account.DSO_Status__c as stored (single-letter code); decode not yet confirmed.
+      - name: partnerships
+        description: Account.Partnerships__c, semicolon-separated (e.g. Dance Masters; Platinum FY26).
+      - name: dance_genres
+        description: Account.Genra__c, semicolon-separated genres the studio teaches.

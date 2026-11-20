@@ -49,6 +49,16 @@ models:
         description: Object WhatId points to, from its key prefix (sfdc_object_type macro).
       - name: who_object_type
         description: Object WhoId points to (Contact or Lead), from its key prefix.
+      - name: activity_channel
+        description: "Marketing Email (Subject starts 'Klaviyo:'), Call (TaskSubtype Call), Email (TaskSubtype Email/ListEmail or Type Email), else Task."
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Marketing Email', 'Call', 'Email', 'Task']
+      - name: is_automated
+        description: True for Klaviyo-synced emails, Jitterbit 'Order Status Email' tasks, and non-call tasks owned by an Integration user (silver_sfdc_user.user_category). Logged calls stay false even when written by an integration.
+      - name: klaviyo_event
+        description: "Klaviyo event word from the Subject ('Klaviyo: Sent ...' -> Sent, Opened, Clicked); NULL for non-Klaviyo tasks."
   - name: silver_sfdc_rma_c
     description: "Salesforce prod RMA__c, passed through from bronze unchanged."
   - name: silver_sfdc_rma_line_c
@@ -128,6 +138,10 @@ models:
         description: Object WhatId points to, from its key prefix (sfdc_object_type macro).
       - name: who_object_type
         description: Object WhoId points to (Contact or Lead), from its key prefix.
+      - name: activity_channel
+        description: Always 'Meeting'.
+      - name: is_automated
+        description: Always false.
   - name: silver_sfdc_lead
     description: Salesforce prod Lead with funnel, conversion and first-campaign columns added. Raw columns unchanged.
     columns:
@@ -174,3 +188,43 @@ models:
     description: "Salesforce prod OpportunityFieldHistory, passed through from bronze unchanged."
   - name: silver_sfdc_lead_history
     description: "Salesforce prod LeadHistory, passed through from bronze unchanged."
+  - name: silver_sfdc_bc_order_c
+    description: >
+      Salesforce prod BC_Order__c: BigCommerce web orders (Order_Type__c = 'BC', mid-2019 on) and call-center orders
+      (Aug 2020 to Jun 2023) as synced into Salesforce, one row per order, linked to Account__c. Order_Total__c is the
+      sum of the line subtotals (excludes tax and shipping). Orders placed, not invoiced revenue, and not every channel:
+      FACT_SALES_INVOICE / FACT_ORDER_LINE remain the sales system of record. No order-level key to D365 has been found.
+    columns:
+      - name: Id
+        tests: [is_valid_key]
+      - name: is_status_maintained
+        description: >
+          False when Status__c is 'Awaiting Fulfillment' (the value set at sync and not updated afterwards; ~75% of orders,
+          back to 2019) or NULL (call-center orders). True only where a later status (Shipped, Partially Shipped, Completed,
+          Declined, Partially Refunded) was written.
+  - name: silver_sfdc_bc_order_item_c
+    description: >
+      Salesforce prod BC_Order_Item__c, one row per order line (UPC, quantity, price, discount, tax, shipped and returned
+      quantity). Line status and shipped/returned quantities were maintained for most 2019-2020 lines, about two thirds
+      of 2021, and almost nothing from 2022 on (last updated line Nov 2022); use is_status_maintained before reading them.
+    columns:
+      - name: Id
+        tests: [is_valid_key]
+      - name: BC_Order__c
+        tests:
+          - relationships:
+              arguments:
+                to: ref('silver_sfdc_bc_order_c')
+                field: Id
+              config:
+                severity: warn
+      - name: is_status_maintained
+        description: >
+          False when Status__c is 'Open', which from 2022 on is the unmaintained default rather than evidence the line is
+          unshipped. True for Shipped, Returned, Partial Returned, Completed, Cancelled, On Hold, Invoiced and the other
+          written statuses; only then are Shipped_Qty__c and Returned_Qty__c meaningful.
+  - name: silver_sfdc_bc_product_c
+    description: "Salesforce prod BC_Product__c (BigCommerce catalogue products), passed through from bronze unchanged."
+    columns:
+      - name: Id
+        tests: [is_valid_key]

@@ -1,0 +1,30 @@
+version: 2
+
+models:
+  - name: silver_stage_marketing_email_event
+    description: >
+      One row per marketing email event (sent, opened) for an account. Source-agnostic staging: today it reads the
+      Klaviyo events that sync into Salesforce as Tasks (Subject 'Klaviyo: <event> — <email>'); once Klaviyo is
+      ingested natively, repoint this model to the Klaviyo source and keep the columns, so downstream gold
+      (fact_crm_account_engagement) doesn't change. Account.Klaviyo_ID__c is the expected profile-to-account key.
+    columns:
+      - name: marketing_email_event_id
+        description: Source event id (Salesforce Task.Id today).
+        tests: [is_valid_key]
+      - name: event_source
+        description: Feed the row came from ('Salesforce Klaviyo sync' today).
+      - name: event_type
+        description: Sent, Opened or Clicked.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Sent', 'Opened', 'Clicked']
+              config:
+                severity: warn
+      - name: email_name
+        description: Email or flow name from the event (text after the event word in the Task Subject today).
+      - name: event_date
+        description: Event date (Task.ActivityDate, else the Central-time created date).
+      - name: sfdc_account_id
+        description: Salesforce Account the event belongs to.

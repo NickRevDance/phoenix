@@ -15,3 +15,11 @@ models:
           - accepted_values:
               arguments:
                 values: ['0-30 days', '31-90 days', '91-180 days', '181+ days']
+      - name: last_opportunity_activity_date
+        description: Latest non-automated activity logged against the opportunity.
+      - name: days_since_opportunity_activity
+        description: Days since last_opportunity_activity_date, or since creation if nothing has been logged on it.
+      - name: last_account_contact_date
+        description: fact_crm_account_engagement.last_contact_date for the opportunity's account.
+      - name: last_account_owner_contact_date
+        description: fact_crm_account_engagement.last_owner_contact_date for the opportunity's account.
