@@ -1,0 +1,40 @@
+version: 2
+
+models:
+  - name: fact_opportunity_stage_history
+    description: >
+      One row per stage a pipeline opportunity entered, from OpportunityHistory (rows that only change amount, close
+      date or probability are dropped). Use for time-in-stage, stage velocity and transition analysis. The first row
+      is the stage the opportunity was created at.
+    columns:
+      - name: opportunity_stage_history_key
+        description: xxhash64 of OpportunityHistory.Id + 'SFDC'.
+        tests: [is_valid_key]
+      - name: opportunity_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('fact_opportunity')
+                field: opportunity_key
+      - name: changed_by_user_key
+        description: dim_crm_user key of the user who made the stage change.
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_crm_user')
+                field: user_key
+      - name: is_current_stage
+        description: True on the opportunity's latest stage row.
+      - name: days_in_stage
+        description: Central-time days from entering this stage to entering the next; NULL on the current stage.
+      - name: days_in_stage_to_date
+        description: days_in_stage, or days to today for an open current stage; NULL for closed stages.
+      - name: amount_at_entry
+        description: OpportunityHistory.Amount when the stage was entered.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - opportunity_key
+              - stage_sequence_number

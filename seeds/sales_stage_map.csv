@@ -1,0 +1,12 @@
+object_name,stage_name,stage_order,stage_outcome,is_funnel_stage
+Opportunity,Account Discovery,1,Open,1
+Opportunity,Qualified,2,Open,1
+Opportunity,Proposal,3,Open,1
+Opportunity,Commitment,4,Open,1
+Opportunity,Closed Won,5,Won,1
+Opportunity,Closed Lost,,Lost,0
+Lead,New,1,Open,1
+Lead,Working,2,Open,1
+Lead,Nurturing,2,Open,1
+Lead,Qualified,3,Open,1
+Lead,Unqualified,,Disqualified,0

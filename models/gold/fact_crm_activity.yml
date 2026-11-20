@@ -1,0 +1,50 @@
+version: 2
+
+models:
+  - name: fact_crm_activity
+    description: >
+      One row per Salesforce Task or Event dated on or after crm_activity_start_date (dbt var, default 2020-01-01).
+      Covers sales calls and emails as well as service case emails and integration-logged tasks; filter on the
+      owner's dim_crm_user.user_category, what_object_type (e.g. Case) or activity_subtype as needed.
+    columns:
+      - name: activity_key
+        description: xxhash64 of Task.Id / Event.Id + 'SFDC'.
+        tests: [is_valid_key]
+      - name: activity_object
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Task', 'Event']
+      - name: is_completed
+        description: Task.IsClosed; for an Event, its end (or start) time has passed.
+      - name: owner_user_key
+        description: dim_crm_user key; 0 when a queue owns the activity.
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_crm_user')
+                field: user_key
+      - name: customer_key
+        description: DIM_CUSTOMER key of the activity's account; -1 when unmatched, NULL when it has no account.
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customer')
+                field: customer_key
+      - name: what_object_type
+        description: Object the activity is related to (Account, Case, Opportunity, Sales Order, ...), from WhatId's key prefix.
+      - name: opportunity_key
+        description: fact_opportunity key when the activity is related to a pipeline opportunity.
+      - name: lead_key
+        description: fact_lead key when the activity's WhoId is a lead.
+      - name: activity_date
+        description: ActivityDate, or the Central-time created date when blank (is_activity_date_defaulted).
+      - name: activity_date_key
+        description: DIM_DATE key; -1 for dates past DIM_DATE's range.
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key

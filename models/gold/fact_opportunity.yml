@@ -1,0 +1,63 @@
+version: 2
+
+models:
+  - name: fact_opportunity
+    description: >
+      One row per Salesforce pipeline opportunity, current state (rebuilt each run). Excludes the Sales Order record
+      type, which mirrors orders and has no Amount (use the order and invoice facts for revenue). Stage-path columns
+      come from OpportunityHistory: reps often create opportunities past Account Discovery, skip stages and reopen
+      closed ones, so use highest_stage_order for funnel position and closed_date (not close_date) for actual close.
+      Opportunities start June 2026.
+    columns:
+      - name: opportunity_key
+        description: xxhash64 of Opportunity.Id + 'SFDC'.
+        tests: [is_valid_key]
+      - name: sfdc_opportunity_id
+        tests: [is_valid_key]
+      - name: customer_key
+        description: DIM_CUSTOMER key for the opportunity's account, via v_crm_account_customer_map; -1 when unmatched.
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_customer')
+                field: customer_key
+      - name: owner_user_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_crm_user')
+                field: user_key
+      - name: lead_key
+        description: fact_lead key of the lead that converted into this opportunity; NULL if none.
+      - name: sales_motion
+        description: Opportunity record type (New Customer, Category Expansion, Retention, Reactivation, Nimbly Opportunity, Special Project, New B2B Business).
+      - name: stage_order
+        description: Funnel position of the current stage (1 Account Discovery to 5 Closed Won); NULL for Closed Lost.
+      - name: stage_outcome
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Open', 'Won', 'Lost']
+      - name: entry_stage_name
+        description: Stage the opportunity was created at.
+      - name: highest_stage_order
+        description: Furthest funnel stage reached; 5 only when currently won. NULL if it has only ever been Closed Lost.
+      - name: is_created_closed
+        description: Created already Closed Won or Closed Lost (logged after the fact).
+      - name: expected_revenue
+        description: Opportunity.ExpectedRevenue (Amount x Probability), the weighted pipeline amount.
+      - name: close_date
+        description: Opportunity.CloseDate, the rep-entered expected (open) or recorded (closed) close date.
+      - name: closed_date
+        description: Central-time date the opportunity actually moved to its closed stage, from OpportunityHistory; NULL while open.
+      - name: sales_cycle_days
+        description: closed_date minus created_date; NULL while open.
+      - name: created_date_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key

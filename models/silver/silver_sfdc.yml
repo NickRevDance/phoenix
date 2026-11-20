@@ -8,7 +8,18 @@ models:
   - name: silver_sfdc_contact
     description: "Salesforce prod Contact, passed through from bronze unchanged."
   - name: silver_sfdc_user
-    description: "Salesforce prod User, passed through from bronze unchanged."
+    description: Salesforce prod User with a user category added. Raw columns unchanged.
+    columns:
+      - name: Id
+        tests: [is_valid_key]
+      - name: user_category
+        description: >
+          Integration (AutomatedProcess/CloudIntegrationUser types, or Standard users named as integration or API
+          accounts), Internal (other Standard users), Customer Portal, Partner Portal, Guest or Other, from UserType and Name.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Integration', 'Internal', 'Customer Portal', 'Partner Portal', 'Guest', 'Other']
   - name: silver_sfdc_record_type
     description: "Salesforce prod RecordType, passed through from bronze unchanged."
   - name: silver_sfdc_group
@@ -30,7 +41,14 @@ models:
   - name: silver_sfdc_case_status
     description: "Salesforce prod CaseStatus, passed through from bronze unchanged."
   - name: silver_sfdc_task
-    description: "Salesforce prod Task, passed through from bronze unchanged."
+    description: Salesforce prod Task with the object types of WhatId and WhoId added. Raw columns unchanged.
+    columns:
+      - name: Id
+        tests: [is_valid_key]
+      - name: what_object_type
+        description: Object WhatId points to, from its key prefix (sfdc_object_type macro).
+      - name: who_object_type
+        description: Object WhoId points to (Contact or Lead), from its key prefix.
   - name: silver_sfdc_rma_c
     description: "Salesforce prod RMA__c, passed through from bronze unchanged."
   - name: silver_sfdc_rma_line_c
@@ -48,14 +66,111 @@ models:
   - name: silver_sfdc_campaign
     description: "Salesforce prod Campaign, passed through from bronze unchanged."
   - name: silver_sfdc_campaign_member
-    description: "Salesforce prod CampaignMember, passed through from bronze unchanged."
+    description: Salesforce prod CampaignMember with the member's account resolved. Raw columns unchanged.
+    columns:
+      - name: Id
+        tests: [is_valid_key]
+      - name: member_account_id
+        description: Contact.AccountId for a contact member, else Lead.ConvertedAccountId for a lead member, else CampaignMember.AccountId.
   - name: silver_sfdc_opportunity
-    description: "Salesforce prod Opportunity, passed through from bronze unchanged."
+    description: >
+      Salesforce prod Opportunity with record type, funnel stage and stage-path columns added from
+      silver_sfdc_opportunity_history. Raw columns unchanged. Every record type is kept; is_pipeline_opportunity
+      separates the sales pipeline from the Sales Order mirror records.
+    columns:
+      - name: Id
+        tests: [is_valid_key]
+      - name: record_type_name
+        description: RecordType.Name for RecordTypeId.
+      - name: is_pipeline_opportunity
+        description: False for the Sales Order record type (order mirrors with no Amount), true for every other record type.
+      - name: stage_order
+        description: Funnel position of StageName from the sales_stage_map seed (1 Account Discovery to 5 Closed Won); NULL for Closed Lost.
+        tests:
+          - not_null:
+              config:
+                where: "StageName <> 'Closed Lost'"
+                severity: warn
+      - name: stage_outcome
+        description: Open, Won or Lost for StageName, from the sales_stage_map seed.
+      - name: entry_stage_name
+        description: StageName on the first OpportunityHistory row (the stage the opportunity was created at).
+      - name: highest_stage_order
+        description: >
+          Furthest funnel stage reached: 5 when currently Closed Won, otherwise the highest open stage_order in
+          OpportunityHistory (a reopened Closed Won doesn't count as won). NULL if it has only ever been Closed Lost.
+      - name: highest_stage_name
+        description: Stage name for highest_stage_order.
+      - name: stage_change_count
+        description: Number of OpportunityHistory rows that changed StageName after creation.
+      - name: is_created_closed
+        description: True when entry_stage_name is Closed Won or Closed Lost.
+      - name: is_reopened
+        description: True when the opportunity ever moved from a closed stage back to an open one.
+      - name: has_backward_move
+        description: True when the opportunity ever moved to a lower stage_order.
+      - name: current_stage_entered_datetime
+        description: OpportunityHistory.CreatedDate (UTC) of the change that put the opportunity in its current stage.
+      - name: closed_datetime
+        description: current_stage_entered_datetime when IsClosed; the actual close time, unlike the rep-entered CloseDate.
+      - name: converted_from_lead_id
+        description: Lead.Id whose ConvertedOpportunityId is this opportunity.
   - name: silver_sfdc_sales_order_c
     description: "Salesforce prod Sales_Order__c, passed through from bronze unchanged."
   - name: silver_sfdc_sales_product_c
     description: "Salesforce prod Sales_Product__c, passed through from bronze unchanged."
   - name: silver_sfdc_event
-    description: "Salesforce prod Event, passed through from bronze unchanged."
+    description: Salesforce prod Event with the object types of WhatId and WhoId added. Raw columns unchanged.
+    columns:
+      - name: Id
+        tests: [is_valid_key]
+      - name: what_object_type
+        description: Object WhatId points to, from its key prefix (sfdc_object_type macro).
+      - name: who_object_type
+        description: Object WhoId points to (Contact or Lead), from its key prefix.
   - name: silver_sfdc_lead
-    description: "Salesforce prod Lead, passed through from bronze unchanged."
+    description: Salesforce prod Lead with funnel, conversion and first-campaign columns added. Raw columns unchanged.
+    columns:
+      - name: Id
+        tests: [is_valid_key]
+      - name: status_order
+        description: Funnel position of Status from the sales_stage_map seed (New 1, Working/Nurturing 2, Qualified 3); NULL for Unqualified.
+      - name: lead_outcome
+        description: Converted when IsConverted, otherwise the sales_stage_map outcome for Status (Open or Disqualified).
+      - name: days_to_convert
+        description: ConvertedDate minus the Central-time date of CreatedDate. NULL when not converted.
+      - name: converted_account_first_order_date
+        description: Earliest CloseDate of a won Sales Order record-type opportunity on ConvertedAccountId.
+      - name: is_existing_customer_at_conversion
+        description: True when the converted account had a won Sales Order before ConvertedDate. NULL when not converted.
+      - name: first_campaign_id
+        description: CampaignId of the lead's earliest CampaignMember row.
+  - name: silver_sfdc_opportunity_history
+    description: >
+      Salesforce prod OpportunityHistory (deleted rows dropped) with sequence, prior stage and funnel columns
+      added. Rows that only change amount, close date or probability have is_stage_change = false.
+    columns:
+      - name: Id
+        tests: [is_valid_key]
+      - name: stage_order
+        description: Funnel position of StageName from the sales_stage_map seed; NULL for Closed Lost.
+      - name: stage_outcome
+        description: Open, Won or Lost for StageName.
+      - name: history_sequence_number
+        description: Row order within the opportunity by CreatedDate, then Id.
+      - name: prior_stage_name
+        description: StageName on the previous history row for the opportunity. NULL on the first row.
+      - name: prior_stage_order
+        description: stage_order of prior_stage_name.
+      - name: prior_stage_outcome
+        description: stage_outcome of prior_stage_name.
+      - name: is_stage_change
+        description: True on the first row and on any row whose StageName differs from the previous row.
+      - name: is_reopen
+        description: True when the previous row was Won or Lost and this row is an open stage.
+      - name: is_backward_move
+        description: True when stage_order is lower than prior_stage_order.
+  - name: silver_sfdc_opportunity_field_history
+    description: "Salesforce prod OpportunityFieldHistory, passed through from bronze unchanged."
+  - name: silver_sfdc_lead_history
+    description: "Salesforce prod LeadHistory, passed through from bronze unchanged."

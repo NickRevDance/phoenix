@@ -6,56 +6,56 @@ models:
   - name: ai_sfdc_case
     description: "Salesforce prod Case for the AI data mart, as in silver. Includes pre-cutover SCD2 history; current rows have __END_AT IS NULL."
   - name: ai_sfdc_contact
-    description: "Salesforce prod Contact for the AI data mart, as in silver."
+    description: "Salesforce prod Contact for the AI data mart, straight copy from bronze_sfdc_contact."
   - name: ai_sfdc_user
-    description: "Salesforce prod User for the AI data mart, as in silver."
+    description: "Salesforce prod User for the AI data mart, straight copy from bronze_sfdc_user."
   - name: ai_sfdc_record_type
-    description: "Salesforce prod RecordType for the AI data mart, as in silver."
+    description: "Salesforce prod RecordType for the AI data mart, straight copy from bronze_sfdc_record_type."
   - name: ai_sfdc_group
-    description: "Salesforce prod Group for the AI data mart, as in silver."
+    description: "Salesforce prod Group for the AI data mart, straight copy from bronze_sfdc_group."
   - name: ai_sfdc_group_member
-    description: "Salesforce prod GroupMember for the AI data mart, as in silver."
+    description: "Salesforce prod GroupMember for the AI data mart, straight copy from bronze_sfdc_group_member."
   - name: ai_sfdc_queue_s_object
-    description: "Salesforce prod QueueSObject for the AI data mart, as in silver."
+    description: "Salesforce prod QueueSObject for the AI data mart, straight copy from bronze_sfdc_queue_s_object."
   - name: ai_sfdc_email_message
-    description: "Salesforce prod EmailMessage for the AI data mart, as in silver."
+    description: "Salesforce prod EmailMessage for the AI data mart, straight copy from bronze_sfdc_email_message."
   - name: ai_sfdc_email_message_relation
-    description: "Salesforce prod EmailMessageRelation for the AI data mart, as in silver."
+    description: "Salesforce prod EmailMessageRelation for the AI data mart, straight copy from bronze_sfdc_email_message_relation."
   - name: ai_sfdc_case_history
-    description: "Salesforce prod CaseHistory for the AI data mart, as in silver."
+    description: "Salesforce prod CaseHistory for the AI data mart, straight copy from bronze_sfdc_case_history."
   - name: ai_sfdc_case_comment
-    description: "Salesforce prod CaseComment for the AI data mart, as in silver."
+    description: "Salesforce prod CaseComment for the AI data mart, straight copy from bronze_sfdc_case_comment."
   - name: ai_sfdc_case_contact_role
-    description: "Salesforce prod CaseContactRole for the AI data mart, as in silver."
+    description: "Salesforce prod CaseContactRole for the AI data mart, straight copy from bronze_sfdc_case_contact_role."
   - name: ai_sfdc_case_status
-    description: "Salesforce prod CaseStatus for the AI data mart, as in silver."
+    description: "Salesforce prod CaseStatus for the AI data mart, straight copy from bronze_sfdc_case_status."
   - name: ai_sfdc_task
-    description: "Salesforce prod Task for the AI data mart, as in silver."
+    description: "Salesforce prod Task for the AI data mart, straight copy from bronze_sfdc_task."
   - name: ai_sfdc_rma_c
-    description: "Salesforce prod RMA__c for the AI data mart, as in silver."
+    description: "Salesforce prod RMA__c for the AI data mart, straight copy from bronze_sfdc_rma_c."
   - name: ai_sfdc_rma_line_c
-    description: "Salesforce prod RMALine__c for the AI data mart, as in silver."
+    description: "Salesforce prod RMALine__c for the AI data mart, straight copy from bronze_sfdc_rma_line_c."
   - name: ai_sfdc_customer_user_c
-    description: "Salesforce prod CustomerUser__c for the AI data mart, as in silver."
+    description: "Salesforce prod CustomerUser__c for the AI data mart, straight copy from bronze_sfdc_customer_user_c."
   - name: ai_sfdc_blend_c
-    description: "Salesforce prod Blend__c for the AI data mart, as in silver."
+    description: "Salesforce prod Blend__c for the AI data mart, straight copy from bronze_sfdc_blend_c."
   - name: ai_sfdc_product2
-    description: "Salesforce prod Product2 for the AI data mart, as in silver."
+    description: "Salesforce prod Product2 for the AI data mart, straight copy from bronze_sfdc_product2."
   - name: ai_sfdc_chargent_orders_chargent_order_c
-    description: "Salesforce prod ChargentOrders__ChargentOrder__c for the AI data mart, as in silver."
+    description: "Salesforce prod ChargentOrders__ChargentOrder__c for the AI data mart, straight copy from bronze_sfdc_chargent_orders_chargent_order_c."
   - name: ai_sfdc_chargent_order_item_c
-    description: "Salesforce prod ChargentOrderItem__c for the AI data mart, as in silver."
+    description: "Salesforce prod ChargentOrderItem__c for the AI data mart, straight copy from bronze_sfdc_chargent_order_item_c."
   - name: ai_sfdc_campaign
-    description: "Salesforce prod Campaign for the AI data mart, as in silver."
+    description: "Salesforce prod Campaign for the AI data mart, straight copy from bronze_sfdc_campaign."
   - name: ai_sfdc_campaign_member
-    description: "Salesforce prod CampaignMember for the AI data mart, as in silver."
+    description: "Salesforce prod CampaignMember for the AI data mart, straight copy from bronze_sfdc_campaign_member."
   - name: ai_sfdc_opportunity
-    description: "Salesforce prod Opportunity for the AI data mart, as in silver."
+    description: "Salesforce prod Opportunity for the AI data mart, straight copy from bronze_sfdc_opportunity."
   - name: ai_sfdc_sales_order_c
-    description: "Salesforce prod Sales_Order__c for the AI data mart, as in silver."
+    description: "Salesforce prod Sales_Order__c for the AI data mart, straight copy from bronze_sfdc_sales_order_c."
   - name: ai_sfdc_sales_product_c
-    description: "Salesforce prod Sales_Product__c for the AI data mart, as in silver."
+    description: "Salesforce prod Sales_Product__c for the AI data mart, straight copy from bronze_sfdc_sales_product_c."
   - name: ai_sfdc_event
-    description: "Salesforce prod Event for the AI data mart, as in silver."
+    description: "Salesforce prod Event for the AI data mart, straight copy from bronze_sfdc_event."
   - name: ai_sfdc_lead
-    description: "Salesforce prod Lead for the AI data mart, as in silver."
+    description: "Salesforce prod Lead for the AI data mart, straight copy from bronze_sfdc_lead."

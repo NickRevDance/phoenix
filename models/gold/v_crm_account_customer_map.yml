@@ -1,0 +1,25 @@
+version: 2
+
+models:
+  - name: v_crm_account_customer_map
+    description: >
+      Salesforce Account (current version) to DIM_CUSTOMER. Matches Account.StudioAccountNumber__c to the D365
+      customer number first, then Account.BC_Customer_Id__c to the BigCommerce customer id; anything else gets the
+      -1 member. DIM_CUSTOMER has no master customer id yet, so a customer on both systems resolves to its D365 row.
+      Nov 2026: 82% of accounts match D365, 99.6% of accounts with pipeline opportunities.
+    columns:
+      - name: sfdc_account_id
+        tests: [is_valid_key]
+      - name: customer_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_customer')
+                field: customer_key
+      - name: customer_match_source
+        description: D365, BigCommerce or Unmatched.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['D365', 'BigCommerce', 'Unmatched']

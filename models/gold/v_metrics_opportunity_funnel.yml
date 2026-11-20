@@ -1,0 +1,24 @@
+version: 2
+
+models:
+  - name: v_metrics_opportunity_funnel
+    description: >
+      Stage funnel at opportunity x funnel stage grain (5 rows per pipeline opportunity). Conversion from stage N to
+      the next = sum(is_advanced_past_stage) / sum(is_stage_reached) at funnel_stage_order N. A stage counts as reached
+      when the opportunity's furthest stage is at or beyond it, so stages skipped or passed before creation count;
+      is_stage_skipped flags those. Filter is_closed = true for a settled cohort; open deals haven't finished converting.
+    columns:
+      - name: is_stage_reached
+        description: highest_stage_order >= funnel_stage_order.
+      - name: is_stage_recorded
+        description: OpportunityHistory has a row in this stage.
+      - name: is_stage_skipped
+        description: Reached but never recorded (created past it or jumped over it).
+      - name: is_advanced_past_stage
+        description: highest_stage_order > funnel_stage_order.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - opportunity_key
+              - funnel_stage_order

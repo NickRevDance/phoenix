@@ -63,3 +63,9 @@ models:
     description: "Passthrough of phoenix_raw.salesforce.event (Salesforce prod Event)."
   - name: bronze_sfdc_lead
     description: "Passthrough of phoenix_raw.salesforce.lead (Salesforce prod Lead)."
+  - name: bronze_sfdc_opportunity_history
+    description: "Passthrough of phoenix_raw.salesforce.opportunityhistory (Salesforce prod OpportunityHistory: one row per stage, amount, close date or probability change)."
+  - name: bronze_sfdc_opportunity_field_history
+    description: "Passthrough of phoenix_raw.salesforce.opportunityfieldhistory (Salesforce prod OpportunityFieldHistory). Empty until field history tracking is enabled on Opportunity fields."
+  - name: bronze_sfdc_lead_history
+    description: "Passthrough of phoenix_raw.salesforce.leadhistory (Salesforce prod LeadHistory). Status is not a tracked field yet."

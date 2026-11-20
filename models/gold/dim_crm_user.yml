@@ -1,0 +1,24 @@
+version: 2
+
+models:
+  - name: dim_crm_user
+    description: >
+      Salesforce users (Type 1): sales reps, service agents, integration accounts and customer/partner portal users.
+      Owner and changed-by dimension for the CRM facts. Reserved members: -1 Unknown User, 0 Queue (the record is
+      owned by a queue, not a user). Filter is_internal_user for rep-level reporting.
+    columns:
+      - name: user_key
+        description: xxhash64 of User.Id + 'SFDC'.
+        tests: [is_valid_key]
+      - name: sfdc_user_id
+        tests: [is_valid_key]
+      - name: user_category
+        description: From silver_sfdc_user.user_category; Unknown and Queue on the reserved members.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Integration', 'Internal', 'Customer Portal', 'Partner Portal', 'Guest', 'Other', 'Unknown', 'Queue']
+      - name: is_internal_user
+        description: True when user_category = Internal (a Standard licence user who isn't an integration account).
+      - name: manager_user_key
+        description: user_key of User.ManagerId.

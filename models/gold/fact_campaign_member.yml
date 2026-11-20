@@ -1,0 +1,27 @@
+version: 2
+
+models:
+  - name: fact_campaign_member
+    description: One row per Salesforce campaign member (lead, contact or account added to a campaign).
+    columns:
+      - name: campaign_member_key
+        description: xxhash64 of CampaignMember.Id + 'SFDC'.
+        tests: [is_valid_key]
+      - name: crm_campaign_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_crm_campaign')
+                field: crm_campaign_key
+      - name: member_type
+        description: CampaignMember.Type (Lead, Contact or Account).
+      - name: customer_key
+        description: DIM_CUSTOMER key of the member's account (silver member_account_id); -1 when unmatched, NULL when the member has no account.
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customer')
+                field: customer_key
+      - name: has_responded
+        description: CampaignMember.HasResponded.
