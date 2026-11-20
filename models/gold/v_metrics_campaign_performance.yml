@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: v_metrics_campaign_performance
+    description: >
+      One row per campaign: members, responses, leads sourced (first campaign), conversions, and influenced pipeline.
+      Opportunities carry no CampaignId, so influence is by account: a pipeline opportunity on a member's account
+      created within crm_campaign_influence_days (dbt var, default 90) after the member was added. One opportunity can
+      count toward several campaigns. Cost metrics only where the campaign has ActualCost.
+    columns:
+      - name: crm_campaign_key
+        tests: [is_valid_key]
+      - name: response_rate
+        description: responded_member_count / member_count.
+      - name: lead_conversion_rate
+        description: lead_converted_count / lead_count, for leads whose first campaign is this one.

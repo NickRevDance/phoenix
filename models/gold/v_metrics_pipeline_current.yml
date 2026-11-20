@@ -1,0 +1,17 @@
+version: 2
+
+models:
+  - name: v_metrics_pipeline_current
+    description: >
+      Open pipeline at opportunity grain, with owner, customer and aging as of today. Sum expected_revenue for weighted
+      pipeline; is_past_close_date and close_date_push_count flag slipping deals.
+    columns:
+      - name: opportunity_key
+        tests: [is_valid_key]
+      - name: days_in_current_stage
+        description: Days since the opportunity entered its current stage (OpportunityHistory).
+      - name: opportunity_age_bucket
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['0-30 days', '31-90 days', '91-180 days', '181+ days']

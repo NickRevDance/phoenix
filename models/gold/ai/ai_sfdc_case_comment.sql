@@ -2,4 +2,4 @@
 
 select
     s.*
-from {{ ref('silver_sfdc_case_comment') }} as s
+from {{ ref('bronze_sfdc_case_comment') }} as s

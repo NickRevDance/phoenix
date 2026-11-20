@@ -1,0 +1,14 @@
+version: 2
+
+models:
+  - name: v_metrics_lead_funnel
+    description: >
+      Lead funnel at lead grain with cumulative flags (worked, qualified, converted, new customer, converted to an
+      opportunity, won). Flags come from the current status because Lead Status history isn't tracked in Salesforce.
+    columns:
+      - name: lead_key
+        tests: [is_valid_key]
+      - name: is_working_or_later
+        description: Converted, or current status Working, Nurturing or Qualified.
+      - name: is_qualified_or_later
+        description: Converted, or current status Qualified.

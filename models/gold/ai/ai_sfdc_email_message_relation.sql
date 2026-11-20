@@ -2,4 +2,4 @@
 
 select
     s.*
-from {{ ref('silver_sfdc_email_message_relation') }} as s
+from {{ ref('bronze_sfdc_email_message_relation') }} as s

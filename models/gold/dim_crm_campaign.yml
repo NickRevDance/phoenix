@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: dim_crm_campaign
+    description: >
+      Salesforce Campaign records (Type 1), mostly tradeshows and events since 2017. Salesforce-only; the governed
+      cross-platform campaign master is DIM_CAMPAIGN (EDW-107/EDW-112). Reserved members: -1 Unknown Campaign,
+      0 No Campaign. Costs are what's entered on the campaign and are mostly blank.
+    columns:
+      - name: crm_campaign_key
+        description: xxhash64 of Campaign.Id + 'SFDC'.
+        tests: [is_valid_key]
+      - name: sfdc_campaign_id
+        tests: [is_valid_key]
+      - name: parent_crm_campaign_key
+        description: crm_campaign_key of Campaign.ParentId.

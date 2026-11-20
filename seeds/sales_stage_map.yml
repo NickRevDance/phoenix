@@ -1,0 +1,36 @@
+version: 2
+
+seeds:
+  - name: sales_stage_map
+    description: >
+      Funnel order and outcome for each Salesforce Opportunity stage and Lead status. stage_order is the
+      position in the funnel (blank for terminal non-funnel values like Closed Lost and Unqualified);
+      stage_outcome is Open, Won, Lost or Disqualified. Lead conversion isn't a status, it comes from
+      Lead.IsConverted. A new stage or status in Salesforce needs a row here. All columns loaded as
+      string; silver casts real types.
+    config:
+      column_types:
+        object_name: string
+        stage_name: string
+        stage_order: string
+        stage_outcome: string
+        is_funnel_stage: string
+    columns:
+      - name: object_name
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Opportunity', 'Lead']
+      - name: stage_name
+        tests: [not_null]
+      - name: stage_outcome
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Open', 'Won', 'Lost', 'Disqualified']
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - object_name
+              - stage_name

@@ -2,4 +2,4 @@
 
 select
     s.*
-from {{ ref('silver_sfdc_event') }} as s
+from {{ ref('bronze_sfdc_event') }} as s

@@ -1,0 +1,48 @@
+version: 2
+
+models:
+  - name: fact_lead
+    description: >
+      One row per Salesforce lead, current state. Lead status isn't tracked historically, so the funnel position is the
+      current status. Most converted leads (tradeshow scans) were already customers: is_new_customer_conversion
+      separates genuinely new customers from matches to existing accounts. Leads start May 2026.
+    columns:
+      - name: lead_key
+        description: xxhash64 of Lead.Id + 'SFDC'.
+        tests: [is_valid_key]
+      - name: sfdc_lead_id
+        tests: [is_valid_key]
+      - name: owner_user_key
+        description: dim_crm_user key; 0 when a queue owns the lead.
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_crm_user')
+                field: user_key
+      - name: first_crm_campaign_key
+        description: dim_crm_campaign key of the lead's earliest campaign membership; 0 when it has none.
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_crm_campaign')
+                field: crm_campaign_key
+      - name: lead_outcome
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Open', 'Disqualified', 'Converted']
+      - name: is_existing_customer_at_conversion
+        description: The converted account had a won order (Sales Order opportunity) before the conversion date. NULL when not converted.
+      - name: is_new_customer_conversion
+        description: Converted and not an existing customer at conversion.
+      - name: converted_customer_key
+        description: DIM_CUSTOMER key of the converted account; -1 when unmatched, NULL when not converted.
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customer')
+                field: customer_key
+      - name: converted_opportunity_key
+        description: fact_opportunity key when the lead converted into a pipeline opportunity.

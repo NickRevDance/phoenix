@@ -385,6 +385,12 @@ sources:
         identifier: event
       - name: sfdc_lead
         identifier: lead
+      - name: sfdc_opportunity_history
+        identifier: opportunityhistory
+      - name: sfdc_opportunity_field_history
+        identifier: opportunityfieldhistory
+      - name: sfdc_lead_history
+        identifier: leadhistory
 
   # EDW-191: one-time copies of the old prod_raw SCD2 history, taken 2026-11-19 before the cutover.
   - name: SFDC_history
