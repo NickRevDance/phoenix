@@ -23,6 +23,9 @@ with activity as (
         , t.CreatedDate
         , t.CallDurationInSeconds as call_duration_seconds
         , cast(null as int) as event_duration_minutes
+        , t.activity_channel
+        , t.is_automated
+        , t.klaviyo_event
     from {{ ref('silver_sfdc_task') }} t
     where t.IsDeleted = false
 
@@ -46,6 +49,9 @@ with activity as (
         , e.CreatedDate
         , cast(null as int) as call_duration_seconds
         , e.DurationInMinutes as event_duration_minutes
+        , e.activity_channel
+        , e.is_automated
+        , cast(null as string) as klaviyo_event
     from {{ ref('silver_sfdc_event') }} e
     where e.IsDeleted = false
 
@@ -92,6 +98,9 @@ final as (
           {{ generate_surrogate_key(['a.Id', "'SFDC'"]) }} as activity_key
         , a.Id as sfdc_activity_id
         , a.activity_object
+        , a.activity_channel
+        , a.is_automated
+        , a.klaviyo_event
         , a.activity_subtype
         , a.activity_type
         , a.call_type

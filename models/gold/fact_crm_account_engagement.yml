@@ -1,0 +1,44 @@
+version: 2
+
+models:
+  - name: fact_crm_account_engagement
+    description: >
+      Current-state engagement snapshot, one row per Salesforce account, rebuilt each run (as_of_date). Rep contact
+      recency and volume (people's calls, emails and meetings; automated and integration activity excluded), contact by
+      the account owner, marketing email engagement, open and stale cases, open and past-due pipeline, events attended,
+      and order recency from DIM_CUSTOMER. Use for account coverage, at-risk / lapsing account lists and as the account
+      signal set for recommendation tools.
+    columns:
+      - name: crm_account_key
+        tests:
+          - is_valid_key
+          - relationships:
+              arguments:
+                to: ref('dim_crm_account')
+                field: crm_account_key
+      - name: as_of_date
+        tests: [not_null]
+      - name: is_test_account
+        description: Carried from DIM_CRM_ACCOUNT; filter out for reporting (one test account holds ~44K stale 2022 cases).
+      - name: last_contact_date
+        description: Latest activity_date of a person's call, email or meeting on the account (activity from 2020 on).
+      - name: last_owner_contact_date
+        description: Latest such contact made by the account owner.
+      - name: contacts_90d
+        description: People's calls, emails and meetings in the last 90 days.
+      - name: last_marketing_email_opened_date
+        description: Latest marketing email open (silver_stage_marketing_email_event).
+      - name: stale_open_case_count
+        description: Open cases older than crm_stale_case_days (fact_case.is_stale_open).
+      - name: past_due_opportunity_count
+        description: Open pipeline opportunities whose CloseDate has passed.
+      - name: events_attended_365d
+        description: Distinct Event, Owned Event and Partnership & Event campaigns the account is a member of, dated by campaign start in the last 365 days. Members are loaded after the event from booth/attendee lists, so membership means attended.
+      - name: last_order_date
+        description: Latest order_date on FACT_SALES_INVOICE for the mapped customer (D365 / BigCommerce), excluding returns and intercompany. Not the Salesforce BC order copies.
+      - name: last_invoice_date
+        description: Latest invoice_date on FACT_SALES_INVOICE for the mapped customer, same filters.
+      - name: orders_365d
+        description: Distinct orders placed in the last 365 days (FACT_SALES_INVOICE).
+      - name: net_sales_usd_365d
+        description: net_sales_amount_usd invoiced in the last 365 days (FACT_SALES_INVOICE).

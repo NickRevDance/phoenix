@@ -15,6 +15,16 @@ models:
           - accepted_values:
               arguments:
                 values: ['Task', 'Event']
+      - name: activity_channel
+        description: Call, Email, Marketing Email (Klaviyo), Meeting (Events) or Task; from silver.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Call', 'Email', 'Marketing Email', 'Meeting', 'Task']
+      - name: is_automated
+        description: Logged by an integration rather than a person (Klaviyo, Jitterbit order-status emails, other integration-owned non-call tasks). Filter false for rep contact.
+      - name: klaviyo_event
+        description: Sent, Opened or Clicked for Klaviyo marketing-email activity; NULL otherwise.
       - name: is_completed
         description: Task.IsClosed; for an Event, its end (or start) time has passed.
       - name: owner_user_key
