@@ -295,16 +295,6 @@ sources:
       - name: bc_customer_group
         identifier: customergroups
 
-  - name: SFDC
-    database: phoenix_prod_catalog
-    schema: prod_raw
-    tables:
-      - name: sfdc_account
-        identifier: sfdc_account
-        
-      - name: sfdc_case
-        identifier: sfdc_case
-
   - name: dwhvisualnext_dimensions
     database: dwhvisualnext
     schema: dw
@@ -331,3 +321,77 @@ sources:
     tables:
       - name: dq_test_run_log
         description: One row per test per dbt invocation (pass/warn/fail/error).
+
+  # EDW-191: Salesforce production, landed by sfdc_prod_ingest_phoenix_raw. Account and Case are SCD type 2.
+  - name: SFDC
+    database: phoenix_raw
+    schema: salesforce
+    tables:
+      - name: sfdc_account
+        identifier: account
+      - name: sfdc_case
+        identifier: case
+      - name: sfdc_contact
+        identifier: contact
+      - name: sfdc_user
+        identifier: user
+      - name: sfdc_record_type
+        identifier: recordtype
+      - name: sfdc_group
+        identifier: group
+      - name: sfdc_group_member
+        identifier: groupmember
+      - name: sfdc_queue_s_object
+        identifier: queuesobject
+      - name: sfdc_email_message
+        identifier: emailmessage
+      - name: sfdc_email_message_relation
+        identifier: emailmessagerelation
+      - name: sfdc_case_history
+        identifier: casehistory
+      - name: sfdc_case_comment
+        identifier: casecomment
+      - name: sfdc_case_contact_role
+        identifier: casecontactrole
+      - name: sfdc_case_status
+        identifier: casestatus
+      - name: sfdc_task
+        identifier: task
+      - name: sfdc_rma_c
+        identifier: rma__c
+      - name: sfdc_rma_line_c
+        identifier: rmaline__c
+      - name: sfdc_customer_user_c
+        identifier: customeruser__c
+      - name: sfdc_blend_c
+        identifier: blend__c
+      - name: sfdc_product2
+        identifier: product2
+      - name: sfdc_chargent_orders_chargent_order_c
+        identifier: chargentorders__chargentorder__c
+      - name: sfdc_chargent_order_item_c
+        identifier: chargentorderitem__c
+      - name: sfdc_campaign
+        identifier: campaign
+      - name: sfdc_campaign_member
+        identifier: campaignmember
+      - name: sfdc_opportunity
+        identifier: opportunity
+      - name: sfdc_sales_order_c
+        identifier: sales_order__c
+      - name: sfdc_sales_product_c
+        identifier: sales_product__c
+      - name: sfdc_event
+        identifier: event
+      - name: sfdc_lead
+        identifier: lead
+
+  # EDW-191: one-time copies of the old prod_raw SCD2 history, taken 2026-11-19 before the cutover.
+  - name: SFDC_history
+    database: phoenix_raw
+    schema: manual
+    tables:
+      - name: sfdc_account_pre_cutover
+        identifier: sfdc_account_scd2_20261119
+      - name: sfdc_case_pre_cutover
+        identifier: sfdc_case_scd2_20261119
