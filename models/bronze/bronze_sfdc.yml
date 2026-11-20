@@ -1,0 +1,65 @@
+version: 2
+
+models:
+  - name: bronze_sfdc_account
+    description: "Passthrough of phoenix_raw.salesforce.account (Salesforce prod Account)."
+  - name: bronze_sfdc_account_pre_cutover
+    description: "Passthrough of the one-time copy of the old prod_raw sfdc_account SCD2 history (phoenix_raw.manual.sfdc_account_scd2_20261119)."
+  - name: bronze_sfdc_case
+    description: "Passthrough of phoenix_raw.salesforce.case (Salesforce prod Case)."
+  - name: bronze_sfdc_case_pre_cutover
+    description: "Passthrough of the one-time copy of the old prod_raw sfdc_case SCD2 history (phoenix_raw.manual.sfdc_case_scd2_20261119)."
+  - name: bronze_sfdc_contact
+    description: "Passthrough of phoenix_raw.salesforce.contact (Salesforce prod Contact)."
+  - name: bronze_sfdc_user
+    description: "Passthrough of phoenix_raw.salesforce.user (Salesforce prod User)."
+  - name: bronze_sfdc_record_type
+    description: "Passthrough of phoenix_raw.salesforce.recordtype (Salesforce prod RecordType)."
+  - name: bronze_sfdc_group
+    description: "Passthrough of phoenix_raw.salesforce.group (Salesforce prod Group)."
+  - name: bronze_sfdc_group_member
+    description: "Passthrough of phoenix_raw.salesforce.groupmember (Salesforce prod GroupMember)."
+  - name: bronze_sfdc_queue_s_object
+    description: "Passthrough of phoenix_raw.salesforce.queuesobject (Salesforce prod QueueSObject)."
+  - name: bronze_sfdc_email_message
+    description: "Passthrough of phoenix_raw.salesforce.emailmessage (Salesforce prod EmailMessage)."
+  - name: bronze_sfdc_email_message_relation
+    description: "Passthrough of phoenix_raw.salesforce.emailmessagerelation (Salesforce prod EmailMessageRelation)."
+  - name: bronze_sfdc_case_history
+    description: "Passthrough of phoenix_raw.salesforce.casehistory (Salesforce prod CaseHistory)."
+  - name: bronze_sfdc_case_comment
+    description: "Passthrough of phoenix_raw.salesforce.casecomment (Salesforce prod CaseComment)."
+  - name: bronze_sfdc_case_contact_role
+    description: "Passthrough of phoenix_raw.salesforce.casecontactrole (Salesforce prod CaseContactRole)."
+  - name: bronze_sfdc_case_status
+    description: "Passthrough of phoenix_raw.salesforce.casestatus (Salesforce prod CaseStatus)."
+  - name: bronze_sfdc_task
+    description: "Passthrough of phoenix_raw.salesforce.task (Salesforce prod Task)."
+  - name: bronze_sfdc_rma_c
+    description: "Passthrough of phoenix_raw.salesforce.rma__c (Salesforce prod RMA__c)."
+  - name: bronze_sfdc_rma_line_c
+    description: "Passthrough of phoenix_raw.salesforce.rmaline__c (Salesforce prod RMALine__c)."
+  - name: bronze_sfdc_customer_user_c
+    description: "Passthrough of phoenix_raw.salesforce.customeruser__c (Salesforce prod CustomerUser__c)."
+  - name: bronze_sfdc_blend_c
+    description: "Passthrough of phoenix_raw.salesforce.blend__c (Salesforce prod Blend__c)."
+  - name: bronze_sfdc_product2
+    description: "Passthrough of phoenix_raw.salesforce.product2 (Salesforce prod Product2)."
+  - name: bronze_sfdc_chargent_orders_chargent_order_c
+    description: "Passthrough of phoenix_raw.salesforce.chargentorders__chargentorder__c (Salesforce prod ChargentOrders__ChargentOrder__c)."
+  - name: bronze_sfdc_chargent_order_item_c
+    description: "Passthrough of phoenix_raw.salesforce.chargentorderitem__c (Salesforce prod ChargentOrderItem__c)."
+  - name: bronze_sfdc_campaign
+    description: "Passthrough of phoenix_raw.salesforce.campaign (Salesforce prod Campaign)."
+  - name: bronze_sfdc_campaign_member
+    description: "Passthrough of phoenix_raw.salesforce.campaignmember (Salesforce prod CampaignMember)."
+  - name: bronze_sfdc_opportunity
+    description: "Passthrough of phoenix_raw.salesforce.opportunity (Salesforce prod Opportunity)."
+  - name: bronze_sfdc_sales_order_c
+    description: "Passthrough of phoenix_raw.salesforce.sales_order__c (Salesforce prod Sales_Order__c)."
+  - name: bronze_sfdc_sales_product_c
+    description: "Passthrough of phoenix_raw.salesforce.sales_product__c (Salesforce prod Sales_Product__c)."
+  - name: bronze_sfdc_event
+    description: "Passthrough of phoenix_raw.salesforce.event (Salesforce prod Event)."
+  - name: bronze_sfdc_lead
+    description: "Passthrough of phoenix_raw.salesforce.lead (Salesforce prod Lead)."

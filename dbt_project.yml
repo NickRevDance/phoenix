@@ -53,7 +53,10 @@ models:
       
     gold:
       +schema: gold
-      +materialized: table     # Gold is materialized as high-performance 
+      +materialized: table     # Gold is materialized as high-performance
+      ai:
+        +schema: gold_ai
+        +materialized: view
 
     archive:
       +enabled: false

@@ -1,0 +1,61 @@
+version: 2
+
+models:
+  - name: silver_sfdc_account
+    description: "Salesforce Account, all SCD2 versions: pre-cutover history unioned with phoenix_raw.salesforce.account. row_source = 'pre_cutover' or 'phoenix_raw'. Current rows: __END_AT IS NULL."
+  - name: silver_sfdc_case
+    description: "Salesforce Case, all SCD2 versions: pre-cutover history unioned with phoenix_raw.salesforce.case. row_source = 'pre_cutover' or 'phoenix_raw'. Current rows: __END_AT IS NULL."
+  - name: silver_sfdc_contact
+    description: "Salesforce prod Contact, passed through from bronze unchanged."
+  - name: silver_sfdc_user
+    description: "Salesforce prod User, passed through from bronze unchanged."
+  - name: silver_sfdc_record_type
+    description: "Salesforce prod RecordType, passed through from bronze unchanged."
+  - name: silver_sfdc_group
+    description: "Salesforce prod Group, passed through from bronze unchanged."
+  - name: silver_sfdc_group_member
+    description: "Salesforce prod GroupMember, passed through from bronze unchanged."
+  - name: silver_sfdc_queue_s_object
+    description: "Salesforce prod QueueSObject, passed through from bronze unchanged."
+  - name: silver_sfdc_email_message
+    description: "Salesforce prod EmailMessage, passed through from bronze unchanged."
+  - name: silver_sfdc_email_message_relation
+    description: "Salesforce prod EmailMessageRelation, passed through from bronze unchanged."
+  - name: silver_sfdc_case_history
+    description: "Salesforce prod CaseHistory, passed through from bronze unchanged."
+  - name: silver_sfdc_case_comment
+    description: "Salesforce prod CaseComment, passed through from bronze unchanged."
+  - name: silver_sfdc_case_contact_role
+    description: "Salesforce prod CaseContactRole, passed through from bronze unchanged."
+  - name: silver_sfdc_case_status
+    description: "Salesforce prod CaseStatus, passed through from bronze unchanged."
+  - name: silver_sfdc_task
+    description: "Salesforce prod Task, passed through from bronze unchanged."
+  - name: silver_sfdc_rma_c
+    description: "Salesforce prod RMA__c, passed through from bronze unchanged."
+  - name: silver_sfdc_rma_line_c
+    description: "Salesforce prod RMALine__c, passed through from bronze unchanged."
+  - name: silver_sfdc_customer_user_c
+    description: "Salesforce prod CustomerUser__c, passed through from bronze unchanged."
+  - name: silver_sfdc_blend_c
+    description: "Salesforce prod Blend__c, passed through from bronze unchanged."
+  - name: silver_sfdc_product2
+    description: "Salesforce prod Product2, passed through from bronze unchanged."
+  - name: silver_sfdc_chargent_orders_chargent_order_c
+    description: "Salesforce prod ChargentOrders__ChargentOrder__c, passed through from bronze unchanged."
+  - name: silver_sfdc_chargent_order_item_c
+    description: "Salesforce prod ChargentOrderItem__c, passed through from bronze unchanged."
+  - name: silver_sfdc_campaign
+    description: "Salesforce prod Campaign, passed through from bronze unchanged."
+  - name: silver_sfdc_campaign_member
+    description: "Salesforce prod CampaignMember, passed through from bronze unchanged."
+  - name: silver_sfdc_opportunity
+    description: "Salesforce prod Opportunity, passed through from bronze unchanged."
+  - name: silver_sfdc_sales_order_c
+    description: "Salesforce prod Sales_Order__c, passed through from bronze unchanged."
+  - name: silver_sfdc_sales_product_c
+    description: "Salesforce prod Sales_Product__c, passed through from bronze unchanged."
+  - name: silver_sfdc_event
+    description: "Salesforce prod Event, passed through from bronze unchanged."
+  - name: silver_sfdc_lead
+    description: "Salesforce prod Lead, passed through from bronze unchanged."
