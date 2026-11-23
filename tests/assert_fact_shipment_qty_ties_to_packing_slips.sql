@@ -2,6 +2,9 @@
 
 -- EDW-69: shipped quantity per sales line on FACT_SHIPMENT matches the posted packing slip quantity (99.95% on
 -- the Nov 10 profile). Lines shipped in the last 3 days are skipped while their packing slips post.
+-- EDW-196: FY27 forward only (last ship date on or after Jul 1 2026). The 51 lines before that (Nov 2023 to
+-- Apr 2024, an older pattern where the slip exceeds WMS shipped or has no slip) stay visible in the facts but
+-- no longer hold the warning's floor, so the count reads new problems.
 
 with shipped as (
 
@@ -37,4 +40,5 @@ from shipped s
 left join slipped p
     on p.d365_sales_line_rec_id = s.d365_sales_line_rec_id
 where s.last_ship_date < date_sub(current_date(), 3)
+  and s.last_ship_date >= date'2026-07-01'
   and coalesce(p.packing_slip_qty, 0) <> s.shipped_qty
