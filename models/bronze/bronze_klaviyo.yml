@@ -1,0 +1,55 @@
+version: 2
+
+models:
+  - name: bronze_klaviyo_account_history
+    description: "Passthrough of phoenix_raw.klaviyo_rev.account_history."
+  - name: bronze_klaviyo_campaign
+    description: "Passthrough of phoenix_raw.klaviyo_rev.campaign."
+  - name: bronze_klaviyo_campaign_list
+    description: "Passthrough of phoenix_raw.klaviyo_rev.campaign_list."
+  - name: bronze_klaviyo_campaign_message
+    description: "Passthrough of phoenix_raw.klaviyo_rev.campaign_message."
+  - name: bronze_klaviyo_campaign_message_send_time
+    description: "Passthrough of phoenix_raw.klaviyo_rev.campaign_message_send_time."
+  - name: bronze_klaviyo_campaign_tag
+    description: "Passthrough of phoenix_raw.klaviyo_rev.campaign_tag."
+  - name: bronze_klaviyo_email_template
+    description: "Passthrough of phoenix_raw.klaviyo_rev.email_template."
+  - name: bronze_klaviyo_event
+    description: "Passthrough of phoenix_raw.klaviyo_rev.event."
+  - name: bronze_klaviyo_flow
+    description: "Passthrough of phoenix_raw.klaviyo_rev.flow."
+  - name: bronze_klaviyo_flow_action
+    description: "Passthrough of phoenix_raw.klaviyo_rev.flow_action."
+  - name: bronze_klaviyo_flow_action_tracking_utm_param
+    description: "Passthrough of phoenix_raw.klaviyo_rev.flow_action_tracking_utm_param."
+  - name: bronze_klaviyo_flow_message
+    description: "Passthrough of phoenix_raw.klaviyo_rev.flow_message."
+  - name: bronze_klaviyo_flow_tag
+    description: "Passthrough of phoenix_raw.klaviyo_rev.flow_tag."
+  - name: bronze_klaviyo_form
+    description: "Passthrough of phoenix_raw.klaviyo_rev.form."
+  - name: bronze_klaviyo_form_version
+    description: "Passthrough of phoenix_raw.klaviyo_rev.form_version."
+  - name: bronze_klaviyo_global_exclusion
+    description: "Passthrough of phoenix_raw.klaviyo_rev.global_exclusion."
+  - name: bronze_klaviyo_list
+    description: "Passthrough of phoenix_raw.klaviyo_rev.list."
+  - name: bronze_klaviyo_list_person
+    description: "Passthrough of phoenix_raw.klaviyo_rev.list_person."
+  - name: bronze_klaviyo_list_tag
+    description: "Passthrough of phoenix_raw.klaviyo_rev.list_tag."
+  - name: bronze_klaviyo_metric
+    description: "Passthrough of phoenix_raw.klaviyo_rev.metric."
+  - name: bronze_klaviyo_person
+    description: "Passthrough of phoenix_raw.klaviyo_rev.person."
+  - name: bronze_klaviyo_segment
+    description: "Passthrough of phoenix_raw.klaviyo_rev.segment."
+  - name: bronze_klaviyo_segment_person
+    description: "Passthrough of phoenix_raw.klaviyo_rev.segment_person."
+  - name: bronze_klaviyo_segment_tag
+    description: "Passthrough of phoenix_raw.klaviyo_rev.segment_tag."
+  - name: bronze_klaviyo_tag_group
+    description: "Passthrough of phoenix_raw.klaviyo_rev.tag_group."
+  - name: bronze_klaviyo_tags
+    description: "Passthrough of phoenix_raw.klaviyo_rev.tags."

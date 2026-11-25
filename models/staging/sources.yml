@@ -485,3 +485,35 @@ sources:
       - name: product_category
       - name: product_variant
       - name: store
+
+  # Klaviyo, landed by Fivetran (one connection, schema klaviyo_rev). Custom event/profile properties are unpacked into columns.
+  - name: klaviyo
+    database: phoenix_raw
+    schema: klaviyo_rev
+    tables:
+      - name: account_history
+      - name: campaign
+      - name: campaign_list
+      - name: campaign_message
+      - name: campaign_message_send_time
+      - name: campaign_tag
+      - name: email_template
+      - name: event
+      - name: flow
+      - name: flow_action
+      - name: flow_action_tracking_utm_param
+      - name: flow_message
+      - name: flow_tag
+      - name: form
+      - name: form_version
+      - name: global_exclusion
+      - name: list
+      - name: list_person
+      - name: list_tag
+      - name: metric
+      - name: person
+      - name: segment
+      - name: segment_person
+      - name: segment_tag
+      - name: tag_group
+      - name: tags
