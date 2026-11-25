@@ -22,6 +22,12 @@ models:
       and vendor_end_date are the vendor lifecycle dates (no D365 source
       yet), distinct from the SCD2 effective_*_datetime columns.
     tests:
+      # EDW-196: one row per vendor_key version (the grain), at warn while the build is in progress
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: ['vendor_key', 'version_number']
+          config:
+            severity: warn
       # EDW-132 sections 1 and 2: one current row per key and no overlapping version ranges, at warn first
       - one_current_row_per_key:
           name: dim_vendor_one_current_row_per_key
