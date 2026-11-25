@@ -51,7 +51,13 @@ models:
       - name: days_since_prior_order
         description: Days between this sale order and the customer's previous sale order in the store.
       - name: coupon_codes
-        description: Comma-separated coupon codes on the order (order_coupon).
+        description: Coupon code on the order (order_coupon.code); BigCommerce allows one coupon per order, comma-separated if ever more.
+      - name: coupon_type_name
+        description: "order_coupon.type decoded: 0 Per item discount, 1 Percentage discount, 2 Per total discount, 3 Shipping discount, 4 Free shipping, 5 Promotion."
+      - name: coupon_value
+        description: order_coupon.amount, the coupon's configured value (percent or amount, per coupon_type_name). The amount taken off is coupon_discount_amount.
+      - name: billing_street_1
+        description: orders.street_1 (billing address; the billing address is flattened onto the order).
       - name: fx_rate_to_usd
         description: 1 for USD; D365 spot rate (silver_d365_exchange_rate) effective at order_date otherwise.
         data_tests: [not_null]

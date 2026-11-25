@@ -34,6 +34,8 @@ options as (
         , coalesce(max(case when oo.display_name = 'Size' then oo.display_value end), max(case when oo.display_name = 'Expandable Size Grid' then oo.display_value end))   as size
         , coalesce(max(case when oo.display_name = 'Color' then oo.display_value end), max(case when oo.display_name = 'Expandable Color Grid' then oo.display_value end)) as color
         , max(case when oo.display_name = 'Estimated Ship Date' then oo.display_value end) as estimated_ship_date_text
+        , max(case when oo.display_name = 'Customization' then oo.display_value end) as customization_text
+        , max(case when oo.display_name = 'Roster' then oo.display_value end)        as roster_text
         , max(oo.display_name in ('Customization', 'Roster'))                         as is_customized
     from {{ ref('silver_bigcommerce_order_product_option') }} oo
     group by oo.store_code, oo.order_product_id
@@ -47,6 +49,7 @@ discount as (
         , d.order_product_id
         , sum(d.amount)                                                                as line_discount_amount
         , sum(case when d.code is not null then d.amount else 0 end)                   as line_coupon_discount_amount
+        , sum(case when d.target = 'order' then d.amount else 0 end)                   as line_order_discount_amount
         , array_join(array_sort(collect_set(coalesce(d.code, d.name))), ', ')          as discount_names
     from {{ ref('silver_bigcommerce_order_product_discount') }} d
     group by d.store_code, d.order_product_id
@@ -108,17 +111,21 @@ final as (
         , op.size
         , op.color
         , coalesce(op.is_customized, false)                                             as is_customized
+        , op.customization_text
+        , op.roster_text
         , op.estimated_ship_date_text
         , d.discount_names
         , l.quantity
         , l.quantity_shipped
         , coalesce(r.quantity_refunded, 0)                                              as quantity_refunded
+        , coalesce(l.is_refunded, false)                                                as is_refunded
         , o.currency_code
         , o.fx_rate_to_usd
         , {{ amount('l.price_ex_tax') }}                                                as unit_price
         , {{ amount('l.total_ex_tax') }}                                                as gross_line_amount
         , {{ amount('coalesce(d.line_discount_amount, 0)') }}                           as line_discount_amount
         , {{ amount('coalesce(d.line_coupon_discount_amount, 0)') }}                    as line_coupon_discount_amount
+        , {{ amount('coalesce(d.line_order_discount_amount, 0)') }}                     as line_order_discount_amount
         , {{ amount('l.total_ex_tax - coalesce(d.line_discount_amount, 0)') }}          as net_line_amount
         , {{ amount('l.total_tax') }}                                                   as line_tax_amount
         , {{ amount('coalesce(l.refunded_amount, 0)') }}                                as refunded_line_amount

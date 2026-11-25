@@ -39,3 +39,5 @@ models:
     description: "Curated BigCommerce customers for the AI data mart: straight copy of gold dim_bigcommerce_customer (group, consent, first/last order, repeat flag, lifetime value)."
   - name: ai_dim_bigcommerce_product_variant
     description: "Curated BigCommerce catalogue for the AI data mart: straight copy of gold dim_bigcommerce_product_variant (variant SKU, product, brand, categories, prices, inventory)."
+  - name: ai_fact_bigcommerce_order_line_discount
+    description: "Curated BigCommerce line discounts for the AI data mart: straight copy of gold fact_bigcommerce_order_line_discount (one row per discount per order line)."

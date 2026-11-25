@@ -1,0 +1,31 @@
+version: 2
+
+models:
+  - name: fact_bigcommerce_order_line_discount
+    description: >
+      One row per discount applied to a BigCommerce order line (order_product_discount), across the US, CA and TT
+      storefronts: the promotion or coupon name, coupon code, whether it was a line-level ('product') or allocated
+      order-level ('order') discount, and the amount in order currency and USD. Order fields are carried from
+      FACT_BIGCOMMERCE_ORDER_LINE. About 1% of discounted lines carry two or more discounts; amounts sum to the line's
+      line_discount_amount.
+    columns:
+      - name: bigcommerce_order_line_discount_key
+        description: xxhash64(store_code, order_product_id, discount id).
+        data_tests: [is_valid_key]
+      - name: bigcommerce_order_line_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('fact_bigcommerce_order_line')
+                field: bigcommerce_order_line_key
+      - name: discount_name
+        description: order_product_discount.name (promotion or coupon name).
+      - name: coupon_code
+        description: order_product_discount.code; NULL for automatic promotions and customer-group discounts.
+      - name: discount_target
+        description: "'product' = applied to the line; 'order' = order-level discount allocated to the line."
+      - name: is_coupon_discount
+        description: coupon_code is not null.
+      - name: discount_amount
+        description: order_product_discount.amount in the order currency.

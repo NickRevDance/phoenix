@@ -22,6 +22,8 @@ coupon as (
           oc.store_code
         , oc.order_id
         , array_join(array_sort(collect_set(oc.code)), ', ') as coupon_codes
+        , max(oc.type)                                       as coupon_type
+        , max(oc.amount)                                     as coupon_value
     from {{ ref('silver_bigcommerce_order_coupon') }} oc
     group by oc.store_code, oc.order_id
 
@@ -93,6 +95,8 @@ joined as (
         , case when o.customer_id <> 0 and c.id is not null then xxhash64(o.store_code, o.customer_id) end as resolved_customer_key
         , case when o.currency_code = 'USD' then cast(1 as decimal(19,8)) else fx.fx_rate_to_usd end        as fx_rate_to_usd
         , cp.coupon_codes
+        , cp.coupon_type
+        , cp.coupon_value
         , l.line_count
         , sc.sales_channel_key
         , dd.date_key
@@ -167,6 +171,21 @@ final as (
         , datediff(s.order_date, s.prior_order_date)                            as days_since_prior_order
         , s.cart_id
         , s.coupon_codes
+        , case s.coupon_type
+            when 0 then 'Per item discount'
+            when 1 then 'Percentage discount'
+            when 2 then 'Per total discount'
+            when 3 then 'Shipping discount'
+            when 4 then 'Free shipping'
+            when 5 then 'Promotion'
+          end                                                                   as coupon_type_name
+        , {{ amount('s.coupon_value') }}                                        as coupon_value
+        , s.first_name                                                          as billing_first_name
+        , s.last_name                                                           as billing_last_name
+        , s.company                                                             as billing_company
+        , s.phone                                                               as billing_phone
+        , s.street_1                                                            as billing_street_1
+        , s.street_2                                                            as billing_street_2
         , s.city                                                                as billing_city
         , s.state                                                               as billing_state
         , s.zip                                                                 as billing_zip
