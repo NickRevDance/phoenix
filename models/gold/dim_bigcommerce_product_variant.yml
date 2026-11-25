@@ -1,0 +1,21 @@
+version: 2
+
+models:
+  - name: dim_bigcommerce_product_variant
+    description: >
+      Current BigCommerce catalogue at variant (SKU) grain per storefront, with parent product name, brand,
+      categories, visibility, prices, BigCommerce cost, inventory level and review stats. product_key links to
+      DIM_PRODUCT through the SKU (UPC barcode). Current state only, rebuilt each run. Includes the -1 Unknown member.
+    columns:
+      - name: bigcommerce_variant_key
+        description: xxhash64(store_code, variant id); -1 reserved.
+        data_tests: [is_valid_key]
+      - name: product_key
+        description: md5(UPC) of the DIM_PRODUCT row whose UPC equals the SKU; '-1' when none.
+        data_tests: [not_null]
+      - name: category_names
+        description: Comma-separated storefront category names the parent product is assigned to.
+      - name: list_price
+        description: Variant price, or the product price when the variant has none.
+      - name: inventory_level
+        description: BigCommerce variant stock level. Not an inventory source of record (D365 is); TT is a separate reserved pool.

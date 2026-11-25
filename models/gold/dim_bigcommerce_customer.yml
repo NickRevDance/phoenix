@@ -1,0 +1,21 @@
+version: 2
+
+models:
+  - name: dim_bigcommerce_customer
+    description: >
+      One row per registered BigCommerce customer per storefront (store_code), with customer group, abandoned-cart
+      email consent and order history from FACT_BIGCOMMERCE_ORDER (sale orders only): first and last order,
+      order counts, repeat flag and lifetime / 365-day net merchandise. Includes the -1 Guest / Unknown member.
+      Customer ids are per store; the same person in two stores is two rows (match on customer_email).
+    columns:
+      - name: bigcommerce_customer_key
+        description: xxhash64(store_code, customer id); -1 reserved for guests and unknown customers.
+        data_tests: [is_valid_key]
+      - name: customer_group_name
+        description: customer_group.name (pricing tier such as 5_15, Wholesale, DSO, TSD).
+      - name: accepts_abandoned_cart_emails
+        description: customer.accepts_product_review_abandoned_cart_emails.
+      - name: is_repeat_customer
+        description: More than one sale order in the store.
+      - name: lifetime_net_merchandise_amount
+        description: Sum of net_merchandise_amount on sale orders, in the store currency.

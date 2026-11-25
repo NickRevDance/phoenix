@@ -1,0 +1,93 @@
+version: 2
+
+models:
+  - name: bronze_bigcommerce_us_brand
+    description: "Passthrough of phoenix_raw.big_commerce_us.brand."
+  - name: bronze_bigcommerce_us_category_tree
+    description: "Passthrough of phoenix_raw.big_commerce_us.category_tree."
+  - name: bronze_bigcommerce_us_customer
+    description: "Passthrough of phoenix_raw.big_commerce_us.customer."
+  - name: bronze_bigcommerce_us_customer_group
+    description: "Passthrough of phoenix_raw.big_commerce_us.customer_group."
+  - name: bronze_bigcommerce_us_order_coupon
+    description: "Passthrough of phoenix_raw.big_commerce_us.order_coupon."
+  - name: bronze_bigcommerce_us_order_product
+    description: "Passthrough of phoenix_raw.big_commerce_us.order_product."
+  - name: bronze_bigcommerce_us_order_product_discount
+    description: "Passthrough of phoenix_raw.big_commerce_us.order_product_discount."
+  - name: bronze_bigcommerce_us_order_product_option
+    description: "Passthrough of phoenix_raw.big_commerce_us.order_product_option."
+  - name: bronze_bigcommerce_us_order_refund
+    description: "Passthrough of phoenix_raw.big_commerce_us.order_refund."
+  - name: bronze_bigcommerce_us_order_refund_item
+    description: "Passthrough of phoenix_raw.big_commerce_us.order_refund_item."
+  - name: bronze_bigcommerce_us_orders
+    description: "Passthrough of phoenix_raw.big_commerce_us.orders."
+  - name: bronze_bigcommerce_us_product
+    description: "Passthrough of phoenix_raw.big_commerce_us.product."
+  - name: bronze_bigcommerce_us_product_category
+    description: "Passthrough of phoenix_raw.big_commerce_us.product_category."
+  - name: bronze_bigcommerce_us_product_variant
+    description: "Passthrough of phoenix_raw.big_commerce_us.product_variant."
+  - name: bronze_bigcommerce_us_store
+    description: "Passthrough of phoenix_raw.big_commerce_us.store."
+  - name: bronze_bigcommerce_ca_brand
+    description: "Passthrough of phoenix_raw.big_commerce_ca.brand."
+  - name: bronze_bigcommerce_ca_category_tree
+    description: "Passthrough of phoenix_raw.big_commerce_ca.category_tree."
+  - name: bronze_bigcommerce_ca_customer
+    description: "Passthrough of phoenix_raw.big_commerce_ca.customer."
+  - name: bronze_bigcommerce_ca_customer_group
+    description: "Passthrough of phoenix_raw.big_commerce_ca.customer_group."
+  - name: bronze_bigcommerce_ca_order_coupon
+    description: "Passthrough of phoenix_raw.big_commerce_ca.order_coupon."
+  - name: bronze_bigcommerce_ca_order_product
+    description: "Passthrough of phoenix_raw.big_commerce_ca.order_product."
+  - name: bronze_bigcommerce_ca_order_product_discount
+    description: "Passthrough of phoenix_raw.big_commerce_ca.order_product_discount."
+  - name: bronze_bigcommerce_ca_order_product_option
+    description: "Passthrough of phoenix_raw.big_commerce_ca.order_product_option."
+  - name: bronze_bigcommerce_ca_order_refund
+    description: "Passthrough of phoenix_raw.big_commerce_ca.order_refund."
+  - name: bronze_bigcommerce_ca_order_refund_item
+    description: "Passthrough of phoenix_raw.big_commerce_ca.order_refund_item."
+  - name: bronze_bigcommerce_ca_orders
+    description: "Passthrough of phoenix_raw.big_commerce_ca.orders."
+  - name: bronze_bigcommerce_ca_product
+    description: "Passthrough of phoenix_raw.big_commerce_ca.product."
+  - name: bronze_bigcommerce_ca_product_category
+    description: "Passthrough of phoenix_raw.big_commerce_ca.product_category."
+  - name: bronze_bigcommerce_ca_product_variant
+    description: "Passthrough of phoenix_raw.big_commerce_ca.product_variant."
+  - name: bronze_bigcommerce_ca_store
+    description: "Passthrough of phoenix_raw.big_commerce_ca.store."
+  - name: bronze_bigcommerce_tt_brand
+    description: "Passthrough of phoenix_raw.big_commerce_tt.brand."
+  - name: bronze_bigcommerce_tt_category_tree
+    description: "Passthrough of phoenix_raw.big_commerce_tt.category_tree."
+  - name: bronze_bigcommerce_tt_customer
+    description: "Passthrough of phoenix_raw.big_commerce_tt.customer."
+  - name: bronze_bigcommerce_tt_customer_group
+    description: "Passthrough of phoenix_raw.big_commerce_tt.customer_group."
+  - name: bronze_bigcommerce_tt_order_coupon
+    description: "Passthrough of phoenix_raw.big_commerce_tt.order_coupon."
+  - name: bronze_bigcommerce_tt_order_product
+    description: "Passthrough of phoenix_raw.big_commerce_tt.order_product."
+  - name: bronze_bigcommerce_tt_order_product_discount
+    description: "Passthrough of phoenix_raw.big_commerce_tt.order_product_discount."
+  - name: bronze_bigcommerce_tt_order_product_option
+    description: "Passthrough of phoenix_raw.big_commerce_tt.order_product_option."
+  - name: bronze_bigcommerce_tt_order_refund
+    description: "Passthrough of phoenix_raw.big_commerce_tt.order_refund."
+  - name: bronze_bigcommerce_tt_order_refund_item
+    description: "Passthrough of phoenix_raw.big_commerce_tt.order_refund_item."
+  - name: bronze_bigcommerce_tt_orders
+    description: "Passthrough of phoenix_raw.big_commerce_tt.orders."
+  - name: bronze_bigcommerce_tt_product
+    description: "Passthrough of phoenix_raw.big_commerce_tt.product."
+  - name: bronze_bigcommerce_tt_product_category
+    description: "Passthrough of phoenix_raw.big_commerce_tt.product_category."
+  - name: bronze_bigcommerce_tt_product_variant
+    description: "Passthrough of phoenix_raw.big_commerce_tt.product_variant."
+  - name: bronze_bigcommerce_tt_store
+    description: "Passthrough of phoenix_raw.big_commerce_tt.store."

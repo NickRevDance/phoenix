@@ -1,0 +1,41 @@
+version: 2
+
+models:
+  - name: ai_bigcommerce_brand
+    description: "BigCommerce brand for the AI data mart, all stores unioned with store_code (US / CA / TT); straight copy of silver_bigcommerce_brand. Brands."
+  - name: ai_bigcommerce_category_tree
+    description: "BigCommerce category_tree for the AI data mart, all stores unioned with store_code (US / CA / TT); straight copy of silver_bigcommerce_category_tree. Storefront categories."
+  - name: ai_bigcommerce_customer
+    description: "BigCommerce customer for the AI data mart, all stores unioned with store_code (US / CA / TT); straight copy of silver_bigcommerce_customer. Registered customer accounts."
+  - name: ai_bigcommerce_customer_group
+    description: "BigCommerce customer_group for the AI data mart, all stores unioned with store_code (US / CA / TT); straight copy of silver_bigcommerce_customer_group. Customer groups (pricing/discount tiers such as 5_15, Wholesale, DSO, TSD)."
+  - name: ai_bigcommerce_order_coupon
+    description: "BigCommerce order_coupon for the AI data mart, all stores unioned with store_code (US / CA / TT); straight copy of silver_bigcommerce_order_coupon. Coupon codes applied to an order."
+  - name: ai_bigcommerce_order_product
+    description: "BigCommerce order_product for the AI data mart, all stores unioned with store_code (US / CA / TT); straight copy of silver_bigcommerce_order_product. Order lines (one row per product line on an order). Line totals are before discounts; discounts are in order_product_discount."
+  - name: ai_bigcommerce_order_product_discount
+    description: "BigCommerce order_product_discount for the AI data mart, all stores unioned with store_code (US / CA / TT); straight copy of silver_bigcommerce_order_product_discount. Discounts applied to an order line; target = product (line-level) or order (order-level discount allocated to the line)."
+  - name: ai_bigcommerce_order_product_option
+    description: "BigCommerce order_product_option for the AI data mart, all stores unioned with store_code (US / CA / TT); straight copy of silver_bigcommerce_order_product_option. Options chosen on an order line (Size, Color, Customization, Roster, Estimated Ship Date)."
+  - name: ai_bigcommerce_order_refund
+    description: "BigCommerce order_refund for the AI data mart, all stores unioned with store_code (US / CA / TT); straight copy of silver_bigcommerce_order_refund. Refund headers."
+  - name: ai_bigcommerce_order_refund_item
+    description: "BigCommerce order_refund_item for the AI data mart, all stores unioned with store_code (US / CA / TT); straight copy of silver_bigcommerce_order_refund_item. Refunded items; item_type PRODUCT rows join item_id to order_product.id."
+  - name: ai_bigcommerce_orders
+    description: "BigCommerce orders for the AI data mart, all stores unioned with store_code (US / CA / TT); straight copy of silver_bigcommerce_orders. Order headers. Billing address is flattened onto the order."
+  - name: ai_bigcommerce_product
+    description: "BigCommerce product for the AI data mart, all stores unioned with store_code (US / CA / TT); straight copy of silver_bigcommerce_product. Catalogue products (parent of variants)."
+  - name: ai_bigcommerce_product_category
+    description: "BigCommerce product_category for the AI data mart, all stores unioned with store_code (US / CA / TT); straight copy of silver_bigcommerce_product_category. Product to category assignments (many per product)."
+  - name: ai_bigcommerce_product_variant
+    description: "BigCommerce product_variant for the AI data mart, all stores unioned with store_code (US / CA / TT); straight copy of silver_bigcommerce_product_variant. Product variants (size/colour SKUs). Variant sku is the UPC barcode that matches D365."
+  - name: ai_bigcommerce_store
+    description: "BigCommerce store for the AI data mart, all stores unioned with store_code (US / CA / TT); straight copy of silver_bigcommerce_store. Store settings, one row per storefront (timezone, currency, plan)."
+  - name: ai_fact_bigcommerce_order
+    description: "Curated BigCommerce orders for the AI data mart: straight copy of gold fact_bigcommerce_order (one row per order, all stores, local and USD amounts, sale flag, customer order sequence)."
+  - name: ai_fact_bigcommerce_order_line
+    description: "Curated BigCommerce order lines for the AI data mart: straight copy of gold fact_bigcommerce_order_line (size/colour, discounts, refunds, USD, D365 product_key)."
+  - name: ai_dim_bigcommerce_customer
+    description: "Curated BigCommerce customers for the AI data mart: straight copy of gold dim_bigcommerce_customer (group, consent, first/last order, repeat flag, lifetime value)."
+  - name: ai_dim_bigcommerce_product_variant
+    description: "Curated BigCommerce catalogue for the AI data mart: straight copy of gold dim_bigcommerce_product_variant (variant SKU, product, brand, categories, prices, inventory)."

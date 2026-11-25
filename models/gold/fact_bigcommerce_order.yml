@@ -1,0 +1,69 @@
+version: 2
+
+models:
+  - name: fact_bigcommerce_order
+    description: >
+      One row per BigCommerce order across the US, CA and TT storefronts (store_code). Order header amounts in the
+      order currency and in USD (D365 spot rate at the order date), status and payment, coupon codes, billing
+      geography and the customer's order sequence. Use is_sale_order to count sales (excludes archived, Incomplete,
+      Cancelled, Declined, Pending, Awaiting Payment and declined-payment orders). Storefront view of demand: D365
+      FACT_SALES_INVOICE stays the revenue book of record, and Tippi Toes orders also post to D365 under BigComUSA,
+      so never add the two together.
+    columns:
+      - name: bigcommerce_order_key
+        description: xxhash64(store_code, order id).
+        data_tests: [is_valid_key]
+      - name: store_code
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['US', 'CA', 'TT']
+      - name: bigcommerce_customer_key
+        description: xxhash64(store_code, customer_id); -1 for guest orders and customers not in the customer table.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_bigcommerce_customer')
+                field: bigcommerce_customer_key
+      - name: sales_channel_key
+        description: DIM_SALES_CHANNEL row whose storefront_code matches store_code (BC_US, BC_CA, BC_TT).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_sales_channel')
+                field: sales_channel_key
+      - name: order_date
+        description: Order created date in the store's local time zone (silver_bigcommerce_orders.order_date).
+        data_tests: [not_null]
+      - name: is_sale_order
+        description: From silver_bigcommerce_orders.is_sale_order.
+      - name: is_archived
+        description: BigCommerce is_deleted (order archived in the control panel).
+      - name: customer_email
+        description: Order email, lower-cased; identifies guest shoppers.
+      - name: customer_order_sequence
+        description: 1 for the customer's first sale order in the store, 2 for the second, and so on (guests by email). NULL on non-sale orders.
+      - name: is_first_order
+        description: customer_order_sequence = 1.
+      - name: days_since_prior_order
+        description: Days between this sale order and the customer's previous sale order in the store.
+      - name: coupon_codes
+        description: Comma-separated coupon codes on the order (order_coupon).
+      - name: fx_rate_to_usd
+        description: 1 for USD; D365 spot rate (silver_d365_exchange_rate) effective at order_date otherwise.
+        data_tests: [not_null]
+      - name: subtotal_amount
+        description: orders.subtotal_ex_tax, merchandise before discounts.
+      - name: automatic_discount_amount
+        description: orders.discount_amount (automatic promotions and customer-group discounts).
+      - name: coupon_discount_amount
+        description: orders.coupon_discount.
+      - name: net_merchandise_amount
+        description: subtotal_ex_tax - discount_amount - coupon_discount. Merchandise sales after discounts, before shipping and tax.
+      - name: tax_amount
+        description: total_inc_tax - total_ex_tax.
+      - name: order_total_amount
+        description: orders.total_inc_tax, what the customer paid incl. shipping and tax.
