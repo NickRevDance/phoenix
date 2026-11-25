@@ -1,12 +1,10 @@
 {{ config(
-    materialized = 'incremental',
-    unique_key = 'id',
-    incremental_strategy = 'merge',
-    on_schema_change = 'sync_all_columns',
+    materialized = 'table',
     liquid_clustered_by = ['datetime', 'metric_id']
 ) }}
 
--- Event properties land as property_* columns (Fivetran unpacked mode) and are carried through as they appear.
+-- Event properties land as property_* columns (Fivetran unpacked mode). Fivetran widens a property's type when
+-- new values don't fit (e.g. bigint to string), which an incremental table can't follow, so this rebuilds in full.
 
 SELECT
       b.* EXCEPT (b._fivetran_deleted)
@@ -16,6 +14,3 @@ SELECT
     , b.property_attribution:relationships['flow-message'].data.id::string     AS attributed_flow_message_id
 FROM {{ ref('bronze_klaviyo_event') }} b
 WHERE NOT COALESCE(b._fivetran_deleted, false)
-{% if is_incremental() %}
-  AND b._fivetran_synced > (SELECT MAX(t._fivetran_synced) FROM {{ this }} t)
-{% endif %}
