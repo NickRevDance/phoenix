@@ -34,6 +34,14 @@ models:
         description: Line option 'Color', else 'Expandable Color Grid', display value.
       - name: is_customized
         description: Line has a Customization or Roster option.
+      - name: customization_text
+        description: Line option 'Customization' display value.
+      - name: roster_text
+        description: Line option 'Roster' display value.
+      - name: is_refunded
+        description: order_product.is_refunded.
+      - name: line_order_discount_amount
+        description: The part of line_discount_amount that is an order-level discount allocated to the line (target 'order'). Per-discount detail is in FACT_BIGCOMMERCE_ORDER_LINE_DISCOUNT.
       - name: estimated_ship_date_text
         description: Line option 'Estimated Ship Date' as shown to the shopper (free text).
       - name: discount_names
