@@ -1,0 +1,170 @@
+version: 2
+
+models:
+  - name: silver_klaviyo_account_history
+    description: "Klaviyo account_history. Account settings history (sender, timezone, currency). Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - id
+              - observed_at
+  - name: silver_klaviyo_campaign
+    description: "Klaviyo campaign. Campaigns (one send to an audience); status, send time and send options. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    columns:
+      - name: id
+        data_tests: [not_null, unique]
+  - name: silver_klaviyo_campaign_list
+    description: "Klaviyo campaign_list. Lists and segments a campaign was sent to (included) or excluded from; list_id holds either a list or a segment id. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - campaign_id
+              - list_id
+  - name: silver_klaviyo_campaign_message
+    description: "Klaviyo campaign_message. Campaign messages: channel (email/sms), subject, sender and content. Usually one per campaign; more for A/B tests. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    columns:
+      - name: id
+        data_tests: [not_null, unique]
+  - name: silver_klaviyo_campaign_message_send_time
+    description: "Klaviyo campaign_message_send_time. Actual send time per campaign message. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    columns:
+      - name: campaign_message_id
+        data_tests: [not_null, unique]
+  - name: silver_klaviyo_campaign_tag
+    description: "Klaviyo campaign_tag. Tags on campaigns. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - campaign_id
+              - tag_id
+  - name: silver_klaviyo_email_template
+    description: "Klaviyo email_template. Email templates (HTML and text). Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    columns:
+      - name: id
+        data_tests: [not_null, unique]
+  - name: silver_klaviyo_event
+    description: "Klaviyo event. Event stream: every send, open, click, bounce, site and order event, one row per event. Event properties are unpacked into property_* columns. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    columns:
+      - name: id
+        data_tests: [not_null, unique]
+      - name: attributed_event_id
+        description: Message event (open or click) Klaviyo credits with this event, parsed from property_attribution (relationships.attributed-event). Set on conversions, unsubscribes and site events.
+      - name: attributed_campaign_id
+        description: Campaign Klaviyo credits with this event, parsed from property_attribution (relationships.campaign).
+      - name: attributed_flow_id
+        description: Flow Klaviyo credits with this event, parsed from property_attribution (relationships.flow).
+      - name: attributed_flow_message_id
+        description: Flow message Klaviyo credits with this event, parsed from property_attribution (relationships.flow-message).
+  - name: silver_klaviyo_flow
+    description: "Klaviyo flow. Flows (automations) with status and trigger type. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    columns:
+      - name: id
+        data_tests: [not_null, unique]
+  - name: silver_klaviyo_flow_action
+    description: "Klaviyo flow_action. Steps in a flow (send email, send SMS, time delay, split). Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    columns:
+      - name: id
+        data_tests: [not_null, unique]
+  - name: silver_klaviyo_flow_action_tracking_utm_param
+    description: "Klaviyo flow_action_tracking_utm_param. UTM parameters set on a flow send step. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - flow_action_id
+              - name
+  - name: silver_klaviyo_flow_message
+    description: "Klaviyo flow_message. Messages sent by a flow step: channel, subject and sender. One per flow action. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    columns:
+      - name: id
+        data_tests: [not_null, unique]
+  - name: silver_klaviyo_flow_tag
+    description: "Klaviyo flow_tag. Tags on flows. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - flow_id
+              - tag_id
+  - name: silver_klaviyo_form
+    description: "Klaviyo form. Sign-up forms. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    columns:
+      - name: id
+        data_tests: [not_null, unique]
+  - name: silver_klaviyo_form_version
+    description: "Klaviyo form_version. Form versions (A/B variations). Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    columns:
+      - name: id
+        data_tests: [not_null, unique]
+  - name: silver_klaviyo_global_exclusion
+    description: "Klaviyo global_exclusion. Profiles suppressed from email marketing, with reason (unsubscribe, hard bounce, spam complaint, manual, invalid email). Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    columns:
+      - name: person_id
+        data_tests: [not_null, unique]
+  - name: silver_klaviyo_list
+    description: "Klaviyo list. Lists. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    columns:
+      - name: id
+        data_tests: [not_null, unique]
+  - name: silver_klaviyo_list_person
+    description: "Klaviyo list_person. Current list membership. Removals are only applied at Fivetran's weekly re-sync, so counts can run high between re-syncs. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - list_id
+              - person_id
+  - name: silver_klaviyo_list_tag
+    description: "Klaviyo list_tag. Tags on lists. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - list_id
+              - tag_id
+  - name: silver_klaviyo_metric
+    description: "Klaviyo metric. Metric (event type) catalog: Received Email, Opened Email, Placed Order, Order Confirmation and so on, with the integration that sends it. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    columns:
+      - name: id
+        data_tests: [not_null, unique]
+  - name: silver_klaviyo_person
+    description: "Klaviyo person. Profiles with consent, location, predictive analytics and custom properties (custom_* columns). Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    columns:
+      - name: id
+        data_tests: [not_null, unique]
+      - name: email
+        description: Lower-cased and trimmed; blank becomes NULL.
+  - name: silver_klaviyo_segment
+    description: "Klaviyo segment. Segments with their definition. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    columns:
+      - name: id
+        data_tests: [not_null, unique]
+  - name: silver_klaviyo_segment_person
+    description: "Klaviyo segment_person. Current segment membership. Removals are only applied at Fivetran's weekly re-sync. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - segment_id
+              - person_id
+  - name: silver_klaviyo_segment_tag
+    description: "Klaviyo segment_tag. Tags on segments. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - segment_id
+              - tag_id
+  - name: silver_klaviyo_tag_group
+    description: "Klaviyo tag_group. Tag groups. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    columns:
+      - name: id
+        data_tests: [not_null, unique]
+  - name: silver_klaviyo_tags
+    description: "Klaviyo tags. Tags (Klaviyo's grouping labels for campaigns, flows, lists and segments). Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    columns:
+      - name: id
+        data_tests: [not_null, unique]

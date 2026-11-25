@@ -1,0 +1,55 @@
+version: 2
+
+models:
+  - name: ai_klaviyo_account_history
+    description: "Klaviyo account_history for the AI data mart; straight copy of silver_klaviyo_account_history."
+  - name: ai_klaviyo_campaign
+    description: "Klaviyo campaign for the AI data mart; straight copy of silver_klaviyo_campaign."
+  - name: ai_klaviyo_campaign_list
+    description: "Klaviyo campaign_list for the AI data mart; straight copy of silver_klaviyo_campaign_list."
+  - name: ai_klaviyo_campaign_message
+    description: "Klaviyo campaign_message for the AI data mart; straight copy of silver_klaviyo_campaign_message."
+  - name: ai_klaviyo_campaign_message_send_time
+    description: "Klaviyo campaign_message_send_time for the AI data mart; straight copy of silver_klaviyo_campaign_message_send_time."
+  - name: ai_klaviyo_campaign_tag
+    description: "Klaviyo campaign_tag for the AI data mart; straight copy of silver_klaviyo_campaign_tag."
+  - name: ai_klaviyo_email_template
+    description: "Klaviyo email_template for the AI data mart; straight copy of silver_klaviyo_email_template."
+  - name: ai_klaviyo_event
+    description: "Klaviyo event for the AI data mart; straight copy of silver_klaviyo_event."
+  - name: ai_klaviyo_flow
+    description: "Klaviyo flow for the AI data mart; straight copy of silver_klaviyo_flow."
+  - name: ai_klaviyo_flow_action
+    description: "Klaviyo flow_action for the AI data mart; straight copy of silver_klaviyo_flow_action."
+  - name: ai_klaviyo_flow_action_tracking_utm_param
+    description: "Klaviyo flow_action_tracking_utm_param for the AI data mart; straight copy of silver_klaviyo_flow_action_tracking_utm_param."
+  - name: ai_klaviyo_flow_message
+    description: "Klaviyo flow_message for the AI data mart; straight copy of silver_klaviyo_flow_message."
+  - name: ai_klaviyo_flow_tag
+    description: "Klaviyo flow_tag for the AI data mart; straight copy of silver_klaviyo_flow_tag."
+  - name: ai_klaviyo_form
+    description: "Klaviyo form for the AI data mart; straight copy of silver_klaviyo_form."
+  - name: ai_klaviyo_form_version
+    description: "Klaviyo form_version for the AI data mart; straight copy of silver_klaviyo_form_version."
+  - name: ai_klaviyo_global_exclusion
+    description: "Klaviyo global_exclusion for the AI data mart; straight copy of silver_klaviyo_global_exclusion."
+  - name: ai_klaviyo_list
+    description: "Klaviyo list for the AI data mart; straight copy of silver_klaviyo_list."
+  - name: ai_klaviyo_list_person
+    description: "Klaviyo list_person for the AI data mart; straight copy of silver_klaviyo_list_person."
+  - name: ai_klaviyo_list_tag
+    description: "Klaviyo list_tag for the AI data mart; straight copy of silver_klaviyo_list_tag."
+  - name: ai_klaviyo_metric
+    description: "Klaviyo metric for the AI data mart; straight copy of silver_klaviyo_metric."
+  - name: ai_klaviyo_person
+    description: "Klaviyo person for the AI data mart; straight copy of silver_klaviyo_person."
+  - name: ai_klaviyo_segment
+    description: "Klaviyo segment for the AI data mart; straight copy of silver_klaviyo_segment."
+  - name: ai_klaviyo_segment_person
+    description: "Klaviyo segment_person for the AI data mart; straight copy of silver_klaviyo_segment_person."
+  - name: ai_klaviyo_segment_tag
+    description: "Klaviyo segment_tag for the AI data mart; straight copy of silver_klaviyo_segment_tag."
+  - name: ai_klaviyo_tag_group
+    description: "Klaviyo tag_group for the AI data mart; straight copy of silver_klaviyo_tag_group."
+  - name: ai_klaviyo_tags
+    description: "Klaviyo tags for the AI data mart; straight copy of silver_klaviyo_tags."
