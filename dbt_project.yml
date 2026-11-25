@@ -80,6 +80,10 @@ flags:
   manage_state: false
 
 vars:
+  # BigCommerce stores unioned in silver (store_code = upper-cased suffix of phoenix_raw.big_commerce_<store>).
+  # 2D4 is pre-launch: add '2d4' here and its bronze models at launch.
+  bigcommerce_stores: ['us', 'ca', 'tt']
+
   # EDW-117 item 11 (Inventory spec v2.6, Section 2.1): D365 service items that carry a
   # stock quantity but are not inventory positions and will never be in DIM_PRODUCT.
   # Catalog items (CAT-*) are excluded by pattern in the model. Add here, not in SQL.

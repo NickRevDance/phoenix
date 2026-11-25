@@ -1,0 +1,50 @@
+version: 2
+
+models:
+  - name: fact_bigcommerce_order_line
+    description: >
+      One row per BigCommerce order line (order_product) across the US, CA and TT storefronts, with size, colour and
+      customisation from the line options, line-level discounts (automatic and coupon), refunded quantity and USD
+      amounts. BigCommerce cost_price is zero on every line, so cost is not carried; use D365 cost through product_key. product_key links to DIM_PRODUCT through the variant SKU, which is the UPC barcode.
+    columns:
+      - name: bigcommerce_order_line_key
+        description: xxhash64(store_code, order_product id).
+        data_tests: [is_valid_key]
+      - name: bigcommerce_order_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('fact_bigcommerce_order')
+                field: bigcommerce_order_key
+      - name: bigcommerce_variant_key
+        description: xxhash64(store_code, variant_id); -1 when the variant is no longer in the catalogue.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_bigcommerce_product_variant')
+                field: bigcommerce_variant_key
+      - name: product_key
+        description: md5(UPC) of the DIM_PRODUCT row whose UPC equals the line SKU; '-1' when the SKU has no D365 product.
+        data_tests: [not_null]
+      - name: size
+        description: Line option 'Size', else 'Expandable Size Grid', display value.
+      - name: color
+        description: Line option 'Color', else 'Expandable Color Grid', display value.
+      - name: is_customized
+        description: Line has a Customization or Roster option.
+      - name: estimated_ship_date_text
+        description: Line option 'Estimated Ship Date' as shown to the shopper (free text).
+      - name: discount_names
+        description: Coupon codes or promotion names applied to the line (order_product_discount).
+      - name: quantity_refunded
+        description: Sum of order_refund_item.quantity for PRODUCT items on this line.
+      - name: gross_line_amount
+        description: order_product.total_ex_tax, before discounts.
+      - name: line_discount_amount
+        description: Sum of order_product_discount.amount, line-level and allocated order-level discounts.
+      - name: line_coupon_discount_amount
+        description: The part of line_discount_amount that came from a coupon code.
+      - name: net_line_amount
+        description: gross_line_amount - line_discount_amount. Sums to the order's net_merchandise_amount.

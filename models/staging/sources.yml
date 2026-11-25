@@ -391,6 +391,12 @@ sources:
         identifier: opportunityfieldhistory
       - name: sfdc_lead_history
         identifier: leadhistory
+      - name: sfdc_bc_order_c
+        identifier: bc_order__c
+      - name: sfdc_bc_order_item_c
+        identifier: bc_order_item__c
+      - name: sfdc_bc_product_c
+        identifier: bc_product__c
 
   # EDW-191: one-time copies of the old prod_raw SCD2 history, taken 2026-11-19 before the cutover.
   - name: SFDC_history
@@ -401,3 +407,81 @@ sources:
         identifier: sfdc_account_scd2_20261119
       - name: sfdc_case_pre_cutover
         identifier: sfdc_case_scd2_20261119
+
+  # BigCommerce, landed by Fivetran (one connection and schema per store). 2D4 is pre-launch: declared, no bronze yet.
+  - name: bigcommerce_us
+    database: phoenix_raw
+    schema: big_commerce_us
+    tables:
+      - name: brand
+      - name: category_tree
+      - name: customer
+      - name: customer_group
+      - name: order_coupon
+      - name: order_product
+      - name: order_product_discount
+      - name: order_product_option
+      - name: order_refund
+      - name: order_refund_item
+      - name: orders
+      - name: product
+      - name: product_category
+      - name: product_variant
+      - name: store
+  - name: bigcommerce_ca
+    database: phoenix_raw
+    schema: big_commerce_ca
+    tables:
+      - name: brand
+      - name: category_tree
+      - name: customer
+      - name: customer_group
+      - name: order_coupon
+      - name: order_product
+      - name: order_product_discount
+      - name: order_product_option
+      - name: order_refund
+      - name: order_refund_item
+      - name: orders
+      - name: product
+      - name: product_category
+      - name: product_variant
+      - name: store
+  - name: bigcommerce_tt
+    database: phoenix_raw
+    schema: big_commerce_tt
+    tables:
+      - name: brand
+      - name: category_tree
+      - name: customer
+      - name: customer_group
+      - name: order_coupon
+      - name: order_product
+      - name: order_product_discount
+      - name: order_product_option
+      - name: order_refund
+      - name: order_refund_item
+      - name: orders
+      - name: product
+      - name: product_category
+      - name: product_variant
+      - name: store
+  - name: bigcommerce_2d4
+    database: phoenix_raw
+    schema: big_commerce_2d4
+    tables:
+      - name: brand
+      - name: category_tree
+      - name: customer
+      - name: customer_group
+      - name: order_coupon
+      - name: order_product
+      - name: order_product_discount
+      - name: order_product_option
+      - name: order_refund
+      - name: order_refund_item
+      - name: orders
+      - name: product
+      - name: product_category
+      - name: product_variant
+      - name: store

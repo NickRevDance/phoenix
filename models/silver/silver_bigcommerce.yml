@@ -1,0 +1,203 @@
+version: 2
+
+models:
+  - name: silver_bigcommerce_brand
+    description: "BigCommerce brand, all live stores unioned (store_code US / CA / TT). Brands. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - store_code
+              - id
+    columns:
+      - name: store_code
+        description: Storefront the row came from (US, CA, TT), from the source schema.
+        data_tests: [not_null]
+  - name: silver_bigcommerce_category_tree
+    description: "BigCommerce category_tree, all live stores unioned (store_code US / CA / TT). Storefront categories. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - store_code
+              - category_id
+    columns:
+      - name: store_code
+        description: Storefront the row came from (US, CA, TT), from the source schema.
+        data_tests: [not_null]
+  - name: silver_bigcommerce_customer
+    description: "BigCommerce customer, all live stores unioned (store_code US / CA / TT). Registered customer accounts. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - store_code
+              - id
+    columns:
+      - name: store_code
+        description: Storefront the row came from (US, CA, TT), from the source schema.
+        data_tests: [not_null]
+      - name: email
+        description: Lower-cased and trimmed; blank becomes NULL.
+  - name: silver_bigcommerce_customer_group
+    description: "BigCommerce customer_group, all live stores unioned (store_code US / CA / TT). Customer groups (pricing/discount tiers such as 5_15, Wholesale, DSO, TSD). Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - store_code
+              - id
+    columns:
+      - name: store_code
+        description: Storefront the row came from (US, CA, TT), from the source schema.
+        data_tests: [not_null]
+  - name: silver_bigcommerce_order_coupon
+    description: "BigCommerce order_coupon, all live stores unioned (store_code US / CA / TT). Coupon codes applied to an order. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - store_code
+              - order_id
+              - id
+    columns:
+      - name: store_code
+        description: Storefront the row came from (US, CA, TT), from the source schema.
+        data_tests: [not_null]
+  - name: silver_bigcommerce_order_product
+    description: "BigCommerce order_product, all live stores unioned (store_code US / CA / TT). Order lines (one row per product line on an order). Line totals are before discounts; discounts are in order_product_discount. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - store_code
+              - id
+    columns:
+      - name: store_code
+        description: Storefront the row came from (US, CA, TT), from the source schema.
+        data_tests: [not_null]
+  - name: silver_bigcommerce_order_product_discount
+    description: "BigCommerce order_product_discount, all live stores unioned (store_code US / CA / TT). Discounts applied to an order line; target = product (line-level) or order (order-level discount allocated to the line). Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - store_code
+              - order_product_id
+              - id
+    columns:
+      - name: store_code
+        description: Storefront the row came from (US, CA, TT), from the source schema.
+        data_tests: [not_null]
+  - name: silver_bigcommerce_order_product_option
+    description: "BigCommerce order_product_option, all live stores unioned (store_code US / CA / TT). Options chosen on an order line (Size, Color, Customization, Roster, Estimated Ship Date). Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - store_code
+              - order_product_id
+              - id
+    columns:
+      - name: store_code
+        description: Storefront the row came from (US, CA, TT), from the source schema.
+        data_tests: [not_null]
+  - name: silver_bigcommerce_order_refund
+    description: "BigCommerce order_refund, all live stores unioned (store_code US / CA / TT). Refund headers. Raw columns keep their Fivetran names."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - store_code
+              - id
+    columns:
+      - name: store_code
+        description: Storefront the row came from (US, CA, TT), from the source schema.
+        data_tests: [not_null]
+  - name: silver_bigcommerce_order_refund_item
+    description: "BigCommerce order_refund_item, all live stores unioned (store_code US / CA / TT). Refunded items; item_type PRODUCT rows join item_id to order_product.id. Raw columns keep their Fivetran names."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - store_code
+              - order_refund_id
+              - item_type
+              - item_id
+    columns:
+      - name: store_code
+        description: Storefront the row came from (US, CA, TT), from the source schema.
+        data_tests: [not_null]
+  - name: silver_bigcommerce_orders
+    description: "BigCommerce orders, all live stores unioned (store_code US / CA / TT). Order headers. Billing address is flattened onto the order. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - store_code
+              - id
+    columns:
+      - name: store_code
+        description: Storefront the row came from (US, CA, TT), from the source schema.
+        data_tests: [not_null]
+      - name: email
+        description: Lower-cased and trimmed; blank becomes NULL.
+      - name: order_date
+        description: date_created (UTC) converted to the store's local day with silver_bigcommerce_store.timezone_name.
+        data_tests: [not_null]
+      - name: total_tax_amount
+        description: total_inc_tax - total_ex_tax (the order has no total tax column).
+      - name: is_sale_order
+        description: >
+          True when the order counts as a sale: not archived (is_deleted), status not Incomplete, Cancelled, Declined,
+          Pending or Awaiting Payment, and payment_status not declined. Tippi Toes orders stay Awaiting Fulfillment in
+          BigCommerce (fulfilled in D365) and count as sales.
+        data_tests: [not_null]
+  - name: silver_bigcommerce_product
+    description: "BigCommerce product, all live stores unioned (store_code US / CA / TT). Catalogue products (parent of variants). Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - store_code
+              - id
+    columns:
+      - name: store_code
+        description: Storefront the row came from (US, CA, TT), from the source schema.
+        data_tests: [not_null]
+  - name: silver_bigcommerce_product_category
+    description: "BigCommerce product_category, all live stores unioned (store_code US / CA / TT). Product to category assignments (many per product). Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - store_code
+              - product_id
+              - category_id
+    columns:
+      - name: store_code
+        description: Storefront the row came from (US, CA, TT), from the source schema.
+        data_tests: [not_null]
+  - name: silver_bigcommerce_product_variant
+    description: "BigCommerce product_variant, all live stores unioned (store_code US / CA / TT). Product variants (size/colour SKUs). Variant sku is the UPC barcode that matches D365. Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - store_code
+              - id
+    columns:
+      - name: store_code
+        description: Storefront the row came from (US, CA, TT), from the source schema.
+        data_tests: [not_null]
+  - name: silver_bigcommerce_store
+    description: "BigCommerce store, all live stores unioned (store_code US / CA / TT). Store settings, one row per storefront (timezone, currency, plan). Raw columns keep their Fivetran names; rows Fivetran marks deleted are dropped."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - store_code
+    columns:
+      - name: store_code
+        description: Storefront the row came from (US, CA, TT), from the source schema.
+        data_tests: [not_null]
